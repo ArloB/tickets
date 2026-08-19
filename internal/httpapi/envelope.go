@@ -30,10 +30,12 @@ func statusForCode(code domain.ErrorCode) int {
 		return http.StatusBadRequest
 	case domain.ErrNotFound:
 		return http.StatusNotFound
-	case domain.ErrAlreadyExists, domain.ErrVersionConflict, domain.ErrIdempotencyKeyReused:
+	case domain.ErrAlreadyExists, domain.ErrVersionConflict, domain.ErrIdempotencyKeyReused, domain.ErrHasDependents:
 		return http.StatusConflict
 	case domain.ErrUnauthorized:
 		return http.StatusUnauthorized
+	case domain.ErrRelationshipCycle:
+		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
 	}

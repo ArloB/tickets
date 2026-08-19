@@ -52,6 +52,18 @@ features outside Step 5's slice) are added alongside the feature that
 needs them — this table only covers what the vertical slice's three
 mutating endpoints can actually return.
 
+## Code catalogue (Phase 1 additions)
+
+| Code | HTTP status | Meaning |
+| --- | --- | --- |
+| `relationship_cycle` | 400 | Adding this `blocks`/`parent_of` edge would create a cycle. |
+| `has_dependents` | 409 | Soft-deleting this record would orphan non-deleted dependents; retry with `cascade: true` to delete them together. |
+
+No endpoint returns either code yet — Phase 1 stays below the API
+line (service-level tests only) — but `internal/httpapi`'s
+`statusForCode` maps both so the mapping isn't invented under
+schedule pressure once Phase 2 exposes them.
+
 ## Consistency across interfaces
 
 MCP tool errors (ADR 0006) and CLI exit-code mappings (§7.3) reuse
