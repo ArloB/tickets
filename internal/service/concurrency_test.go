@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -72,5 +73,84 @@ func TestConcurrentTicketCreateReferenceAllocation(t *testing.T) {
 	}
 	if len(seen) != n {
 		t.Errorf("got %d distinct references, want %d", len(seen), n)
+	}
+}
+
+// TestConcurrentActorsUpdateSameTicketOneWins is verification gate 9's
+// two-actor case: two different actors race to update the same
+// ticket with the same expected version — under BEGIN IMMEDIATE (ADR
+// 0003) exactly one write should go through and the other must fail
+// with version_conflict carrying the winner's new version, not a
+// stale or zero value.
+func TestConcurrentActorsUpdateSameTicketOneWins(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	ticket, err := s.CreateTicket(ctx, CreateTicketRequest{
+		ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "Contested",
+	}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("create ticket: %v", err)
+	}
+	ref, err := domain.Parse(ticket.Ref)
+	if err != nil {
+		t.Fatalf("parse ref: %v", err)
+	}
+
+	actor1 := testActor
+	actor2 := domain.ActorRef{Kind: domain.ActorSystem, Name: "system"}
+
+	var wg sync.WaitGroup
+	results := make([]struct {
+		ticket domain.Ticket
+		err    error
+	}, 2)
+	statuses := []domain.WorkflowStatus{domain.WorkflowStatusReady, domain.WorkflowStatusInProgress}
+	actors := []domain.ActorRef{actor1, actor2}
+
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			updated, err := s.UpdateTicketStatus(ctx, UpdateTicketStatusRequest{
+				Ref: ref, NewStatus: statuses[i], ExpectedVersion: ticket.Version,
+			}, actors[i], testCorrelationID)
+			results[i].ticket, results[i].err = updated, err
+		}(i)
+	}
+	wg.Wait()
+
+	var wins, conflicts int
+	var winnerVersion int64
+	for _, r := range results {
+		if r.err == nil {
+			wins++
+			winnerVersion = r.ticket.Version
+		} else {
+			var svcErr *Error
+			if !errors.As(r.err, &svcErr) || svcErr.Code != domain.ErrVersionConflict {
+				t.Fatalf("loser's error = %v, want version_conflict", r.err)
+			}
+			conflicts++
+			if svcErr.CurrentVersion == nil {
+				t.Fatalf("loser's CurrentVersion = nil, want set")
+			}
+		}
+	}
+	if wins != 1 || conflicts != 1 {
+		t.Fatalf("got %d wins and %d conflicts, want exactly one of each", wins, conflicts)
+	}
+
+	for _, r := range results {
+		if r.err != nil {
+			var svcErr *Error
+			_ = errors.As(r.err, &svcErr)
+			if *svcErr.CurrentVersion != winnerVersion {
+				t.Errorf("loser's CurrentVersion = %d, want the winner's version %d", *svcErr.CurrentVersion, winnerVersion)
+			}
+		}
 	}
 }

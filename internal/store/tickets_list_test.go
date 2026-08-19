@@ -236,6 +236,51 @@ func TestIssueRegisterOrdersBySeverityThenPriority(t *testing.T) {
 	}
 }
 
+// TestIssueRegisterOrdersWithinGroupByPositionThenAge is
+// TestPriorityQueueOrdersWithinGroupByPositionThenAge's counterpart
+// for IssueRegister — gate 5's full ordering (severity, then
+// priority, then position, then age) is only fully covered once the
+// position/age legs are checked here too, not just severity/priority.
+func TestIssueRegisterOrdersWithinGroupByPositionThenAge(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	db := s.DB()
+
+	high := "high"
+	projID, ticketIDs := testProjectWithTickets(t, db, "ABC", []struct {
+		priority   string
+		severity   *string
+		ticketType string
+	}{
+		{priority: "medium", severity: &high, ticketType: "bug"}, // inserted first -> earliest created_at
+		{priority: "medium", severity: &high, ticketType: "bug"}, // inserted second -> later created_at
+	})
+	// Reverse position so ticket B (index 1) should now sort before A,
+	// same as the PriorityQueue equivalent.
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `UPDATE tickets SET position = 100 WHERE id = ?`, ticketIDs[0]); err != nil {
+		t.Fatalf("set position A: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE tickets SET position = 50 WHERE id = ?`, ticketIDs[1]); err != nil {
+		t.Fatalf("set position B: %v", err)
+	}
+
+	page, err := IssueRegister(ctx, db, projID, 10, 0, 0, 0, "", 0)
+	if err != nil {
+		t.Fatalf("IssueRegister: %v", err)
+	}
+	if len(page.Tickets) != 2 {
+		t.Fatalf("got %d tickets, want 2", len(page.Tickets))
+	}
+	if page.Tickets[0].ID != ticketIDs[1] || page.Tickets[1].ID != ticketIDs[0] {
+		t.Errorf("position ordering wrong: got IDs [%d %d], want [%d %d] (lower position first)",
+			page.Tickets[0].ID, page.Tickets[1].ID, ticketIDs[1], ticketIDs[0])
+	}
+}
+
 func TestPurgeIdempotencyKeysOlderThan(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {

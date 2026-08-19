@@ -200,6 +200,28 @@ func TestIdempotentReplayReturnsFullRecordNotASnapshot(t *testing.T) {
 	if second.UUID != first.UUID {
 		t.Errorf("replayed create UUID = %q, want %q (same underlying ticket)", second.UUID, first.UUID)
 	}
+
+	// Stronger proof of the same re-fetch mechanism, extended to the
+	// two fields Phase 1 added to domain.Ticket after this test was
+	// written (Assignee, DeletedAt): mutate the ticket between the
+	// first create and a second replay of the same idempotency key. A
+	// cached snapshot from creation time would show no assignee; a real
+	// re-fetch reflects the assignment made in between.
+	ref, err := domain.Parse(first.Ref)
+	if err != nil {
+		t.Fatalf("parse ref: %v", err)
+	}
+	if _, err := s.AssignTicket(ctx, AssignTicketRequest{Ref: ref, Assignee: &testActor, ExpectedVersion: first.Version}, testActor, testCorrelationID); err != nil {
+		t.Fatalf("AssignTicket: %v", err)
+	}
+
+	third, err := s.CreateTicket(ctx, req, testActor, testCorrelationID, "replay-uuid-key", fp)
+	if err != nil {
+		t.Fatalf("second replayed create: %v", err)
+	}
+	if third.Assignee == nil || *third.Assignee != testActor {
+		t.Errorf("second replay's Assignee = %v, want %v — idempotency cache is returning a creation-time snapshot instead of a live re-fetch", third.Assignee, testActor)
+	}
 }
 
 func TestTicketIdempotencyKeyReusedWithDifferentBody(t *testing.T) {
