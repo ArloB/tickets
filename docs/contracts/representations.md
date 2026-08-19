@@ -49,8 +49,23 @@ Product spec §7.2 and §9 require this mechanism so agent payloads stay
 small, but its actual consumers — the MCP tool surface and CLI
 `--fields`/`--include` flags (§7.3) — don't exist until Phase 3.
 Building the parameter-parsing and dynamic-projection machinery in
-Phase 0 would have no caller to validate it against. Step 5's three
-endpoints return the fixed shapes above, unconditionally; `fields` and
+Phase 0 would have no caller to validate it against. `fields` and
 `include` parsing is implemented when Phase 2's `internal/httpapi`
 work and Phase 3's MCP/CLI work actually need it, against this same
 contract.
+
+**Phase 0 status — the compact/detail split above is also not built
+yet, not just `fields`/`include`.** `domain.Project` and
+`domain.Ticket` are single structs; there is no separate compact
+struct. `GET /projects` (documented "compact representation" in the
+Phase 0 plan) and `GET /projects/{key}` both return the exact same
+full record via `api/openapi.yaml`'s one `Project` schema — same for
+`Ticket`. This was true even before `api/openapi.yaml` gained
+`required`/`additionalProperties: false` on those schemas; the
+stricter schema just makes it load-bearing (a handler that started
+trimming fields for the list endpoint would now fail contract tests
+instead of silently passing). Splitting into real compact/detail
+shapes is deferred for the same reason `fields`/`include` are: no
+caller (agent context budget, paginated UI list) exists yet to design
+the split against. Do this alongside the Phase 3 MCP/CLI work above,
+not before.

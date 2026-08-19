@@ -38,6 +38,20 @@ cross-compilation to both target platforms from one machine.
   concurrency assertion used a single pooled connection and autocommit
   writes, which doesn't exercise this failure mode).
 
+  `_txlock=immediate` only affects `BeginTx` calls (`modernc.org/sqlite`
+  applies it whenever `!opts.ReadOnly`, and this codebase never passes
+  `&sql.TxOptions{ReadOnly: true}`). As of Phase 0, every `BeginTx` call
+  in `internal/` is a genuine write (`internal/service`'s
+  `createProjectTx`, `createTicketTx`, `UpdateTicketStatus`, and
+  `internal/store`'s one-time migration transaction) — reads
+  (`GetProject`, `GetTicket`, `ListProjects`) go through single-statement
+  autocommit queries and are unaffected, so WAL's concurrent-readers
+  property still holds. If a future phase wraps a *read* in an explicit
+  `BeginTx` (e.g. a multi-statement read for consistency), it will
+  silently take the write lock and serialize behind other writers —
+  pass `&sql.TxOptions{ReadOnly: true}` for that case, which
+  `modernc.org/sqlite` honors by skipping `beginMode` entirely.
+
 ## Consequences
 
 - No CGO toolchain is required anywhere in the build or CI pipeline,
