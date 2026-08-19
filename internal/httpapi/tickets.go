@@ -54,7 +54,7 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, ticket)
+	writeJSON(w, http.StatusCreated, toTicketDetail(ticket))
 }
 
 func (s *Server) getTicket(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +68,7 @@ func (s *Server) getTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, ticket)
+	writeJSON(w, http.StatusOK, toTicketDetail(ticket))
 }
 
 type updateTicketStatusRequest struct {
@@ -106,7 +106,7 @@ func (s *Server) updateTicketStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, ticket)
+	writeJSON(w, http.StatusOK, toTicketDetail(ticket))
 }
 
 func parseTicketRef(s string) (domain.Reference, *service.Error) {

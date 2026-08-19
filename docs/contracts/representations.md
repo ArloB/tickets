@@ -54,18 +54,23 @@ Phase 0 would have no caller to validate it against. `fields` and
 work and Phase 3's MCP/CLI work actually need it, against this same
 contract.
 
-**Phase 0 status — the compact/detail split above is also not built
-yet, not just `fields`/`include`.** `domain.Project` and
-`domain.Ticket` are single structs; there is no separate compact
-struct. `GET /projects` (documented "compact representation" in the
-Phase 0 plan) and `GET /projects/{key}` both return the exact same
-full record via `api/openapi.yaml`'s one `Project` schema — same for
-`Ticket`. This was true even before `api/openapi.yaml` gained
-`required`/`additionalProperties: false` on those schemas; the
-stricter schema just makes it load-bearing (a handler that started
-trimming fields for the list endpoint would now fail contract tests
-instead of silently passing). Splitting into real compact/detail
-shapes is deferred for the same reason `fields`/`include` are: no
-caller (agent context budget, paginated UI list) exists yet to design
-the split against. Do this alongside the Phase 3 MCP/CLI work above,
-not before.
+**Phase 1 status — the compact/detail split is now real for
+projects, still not for tickets.** `GET /projects` returns
+`internal/httpapi/wire.go`'s `projectCompact` DTO (`key`, `title`,
+`status`, `version`, `updated_at` — no `description`, no
+`created_at`), a distinct `api/openapi.yaml` schema
+(`ProjectCompact`) from `GET /projects/{key}`'s full `Project` detail
+shape. `domain.Project`/`domain.Ticket` themselves are still single
+structs — the split lives in `wire.go`'s DTOs and mappers
+(`toProjectDetail`/`toProjectCompact`/`toTicketDetail`), which also
+now exist specifically so a future `domain.Ticket` field (Phase 1
+already added `Assignee` and `DeletedAt`) doesn't reach the wire
+without a deliberate edit, not just because no caller sets it yet.
+
+Tickets have no list endpoint in Phase 0/1, so there is still no
+`ticketCompact` — `ticketDetail` covers every ticket-returning
+response. Build the compact shape alongside whichever phase adds a
+ticket list/search endpoint, against the JSON shape this doc's
+example already specifies. `fields`/`include` parsing itself remains
+deferred for the reason above — no MCP/CLI caller exists yet to
+validate the dynamic-projection machinery against.

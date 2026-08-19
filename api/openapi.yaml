@@ -239,12 +239,28 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
+    ProjectCompact:
+      type: object
+      required: [key, title, status, version, updated_at]
+      additionalProperties: false
+      description: >
+        The list-item shape GET /projects returns (docs/contracts/
+        representations.md's compact/detail split). No description, no
+        created_at — small enough that a full page stays well under
+        agent context budgets (product spec §7.2).
+      properties:
+        key: { type: string }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        version: { type: integer }
+        updated_at: { type: string, format: date-time }
+
     ProjectsPage:
       type: object
       properties:
         projects:
           type: array
-          items: { $ref: '#/components/schemas/Project' }
+          items: { $ref: '#/components/schemas/ProjectCompact' }
         next_cursor:
           type: string
 

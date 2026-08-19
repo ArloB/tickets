@@ -16,7 +16,7 @@ type createProjectRequest struct {
 }
 
 type projectsPage struct {
-	Projects   []domain.Project `json:"projects"`
+	Projects   []projectCompact `json:"projects"`
 	NextCursor string           `json:"next_cursor,omitempty"`
 }
 
@@ -45,7 +45,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, proj)
+	writeJSON(w, http.StatusCreated, toProjectDetail(proj))
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
@@ -65,9 +65,9 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	projects := result.Projects
-	if projects == nil {
-		projects = []domain.Project{}
+	projects := make([]projectCompact, len(result.Projects))
+	for i, p := range result.Projects {
+		projects[i] = toProjectCompact(p)
 	}
 	writeJSON(w, http.StatusOK, projectsPage{Projects: projects, NextCursor: result.NextCursor})
 }
@@ -79,5 +79,5 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, proj)
+	writeJSON(w, http.StatusOK, toProjectDetail(proj))
 }

@@ -47,8 +47,13 @@ foreign key column), so a `tickets` row's identity *is*
   redesign in Phase 5.
 - Application code must never leak `entities.id` — `internal/service`
   and `internal/httpapi` translate to/from `uuid` (and the formatted
-  public reference) at every boundary. A lint/test in Phase 1 should
-  assert no JSON response schema contains an `id` field typed as a
-  bare integer.
+  public reference) at every boundary. `internal/httpapi`'s
+  `TestNoSchemaExposesABareIntegerID` (Phase 1) asserts no
+  `api/openapi.yaml` schema declares an `id` field typed as a bare
+  integer. `domain.Comment.ID` is a deliberate, documented exception
+  (comments have their own dedicated `INTEGER PRIMARY KEY`, not an
+  `entities.id`, and no ref/uuid to hide it behind) — untested by this
+  assertion either way, since comments have no response schema or
+  endpoint yet.
 - UUIDv7 remains sortable and safe to generate client-side later if
   needed, independent of the internal integer surrogate.
