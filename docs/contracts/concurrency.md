@@ -28,12 +28,21 @@ verify against.
 - Any mutating request may carry `Idempotency-Key: <opaque client string>`.
 - The server stores `(key, actor_id, request_fingerprint, result)` for
   a bounded retention window (ADR 0008).
-- `request_fingerprint` = a hash over `(method, path, actor_id,
-  normalized body)`. Replaying the same key with a matching
-  fingerprint returns the original stored result without
-  re-executing the mutation. Replaying the same key with a
-  *different* fingerprint is `409 idempotency_key_reused` — a client
-  bug, not a silent overwrite of unrelated data.
+- `request_fingerprint` = SHA-256 over `method || "\n" || path || "\n"
+  || canonical_json_body`, where "canonical" means: parse the request
+  body as JSON, then re-marshal with map keys sorted — so two clients
+  sending semantically identical JSON with different key order produce
+  the same fingerprint, not a spurious `idempotency_key_reused`.
+  Replaying the same key with a matching fingerprint returns the
+  original stored result without re-executing the mutation. Replaying
+  the same key with a *different* fingerprint is
+  `409 idempotency_key_reused` — a client bug, not a silent overwrite
+  of unrelated data.
+  **Phase 0 note:** `actor_id` is not yet part of the fingerprint —
+  there are no authenticated actors until ADR 0004 lands in Phase 2.
+  It joins the hash then; until it does, two different unauthenticated
+  callers reusing the same key are (correctly, for a single-user
+  personal install) treated as the same logical request.
 - Reads never require an idempotency key and may be retried freely by
   the client (§8.4); only writes consult this mechanism.
 

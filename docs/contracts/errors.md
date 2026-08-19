@@ -41,6 +41,7 @@ through HTTP at all.
 | --- | --- | --- |
 | `validation_failed` | 400 | Request body/params failed validation; see `field`. |
 | `not_found` | 404 | No entity resolves to the given reference/ID. |
+| `already_exists` | 409 | A unique field (e.g. a project's `key`) collides with an existing record; see `field`. |
 | `version_conflict` | 409 | `If-Match` didn't match the current `version` (ADR 0008). |
 | `idempotency_key_reused` | 409 | Same `Idempotency-Key` replayed with a different request fingerprint. |
 | `unauthorized` | 401 | Missing/invalid credentials (bearer token or session). |
