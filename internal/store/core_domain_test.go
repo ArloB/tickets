@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/ArloB/tickets/internal/domain"
@@ -174,5 +175,53 @@ func TestInsertFeatureDefaultRankMatchesDefaultPriority(t *testing.T) {
 	}
 	if want := priorityRank(priority); rank != want {
 		t.Errorf("default feature priority_rank = %d, want %d (priorityRank(%q), the value that must match the column default)", rank, want, priority)
+	}
+}
+
+// TestGetTicketByRefRejectsWrongKind is the regression for the bug
+// found while planning Phase 1: GetTicketByRef matched on
+// (ProjectKey, Seq) alone, so a feature reference sharing a ticket's
+// sequence number (ABC-F1 vs. ticket ABC-1) would silently resolve to
+// the ticket instead of returning not found.
+func TestGetTicketByRefRejectsWrongKind(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	ctx := context.Background()
+	db := s.DB()
+
+	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, Now())
+	if err != nil {
+		t.Fatalf("InsertEntity project: %v", err)
+	}
+	if err := InsertProject(ctx, db, projID, "ABC", "Example", ""); err != nil {
+		t.Fatalf("InsertProject: %v", err)
+	}
+	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, Now())
+	if err != nil {
+		t.Fatalf("InsertEntity feature: %v", err)
+	}
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General"); err != nil {
+		t.Fatalf("InsertFeature: %v", err)
+	}
+	ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, Now())
+	if err != nil {
+		t.Fatalf("InsertEntity ticket: %v", err)
+	}
+	if err := InsertTicket(ctx, db, ticketID, projID, featID, 1, "task", "Title", "", "backlog", "medium", nil); err != nil {
+		t.Fatalf("InsertTicket: %v", err)
+	}
+
+	// ABC-1 (a real ticket) resolves.
+	if _, err := GetTicketByRef(ctx, db, domain.Reference{ProjectKey: "ABC", Kind: domain.KindTicket, Seq: 1}); err != nil {
+		t.Fatalf("GetTicketByRef(ABC-1): %v", err)
+	}
+	// ABC-F1 (a feature reference with the same seq) must NOT resolve
+	// to the ticket.
+	_, err = GetTicketByRef(ctx, db, domain.Reference{ProjectKey: "ABC", Kind: domain.KindFeature, Seq: 1})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetTicketByRef(ABC-F1) = %v, want ErrNotFound", err)
 	}
 }

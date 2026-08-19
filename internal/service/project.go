@@ -122,7 +122,7 @@ const maxPageLimit = 100
 // ListProjects returns a cursor-paginated, compact page of projects
 // ordered by (created_at, id).
 func (s *Service) ListProjects(ctx context.Context, limit int, cursor string) (ListProjectsResult, error) {
-	afterCreatedAt, afterID, err := store.DecodeCursor(cursor)
+	afterCreatedAt, afterID, err := store.DecodeCreatedAtIDCursor(cursor)
 	if err != nil {
 		return ListProjectsResult{}, newValidationError("cursor", "invalid cursor")
 	}

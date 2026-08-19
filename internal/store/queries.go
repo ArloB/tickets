@@ -141,10 +141,10 @@ func InsertFeature(ctx context.Context, q Querier, entityID, projectEntityID, se
 	return nil
 }
 
-// projectRow is the internal (store-only) view of a project: the
+// ProjectRow is the internal (store-only) view of a project: the
 // domain.Project value plus the internal surrogate id, which service
 // needs for further joins but which never leaves internal/service.
-type projectRow struct {
+type ProjectRow struct {
 	Entity           domain.Project
 	ID               int64
 	GeneralFeatureID int64
@@ -152,9 +152,9 @@ type projectRow struct {
 
 // GetProjectByKey returns the project and its internal ids, or
 // ErrNotFound.
-func GetProjectByKey(ctx context.Context, q Querier, key string) (projectRow, error) {
+func GetProjectByKey(ctx context.Context, q Querier, key string) (ProjectRow, error) {
 	var (
-		row                          projectRow
+		row                          ProjectRow
 		u                            []byte
 		status, createdAt, updatedAt string
 		generalFeatureID             sql.NullInt64
@@ -168,22 +168,22 @@ func GetProjectByKey(ctx context.Context, q Querier, key string) (projectRow, er
 	).Scan(&row.ID, &u, &row.Entity.Key, &row.Entity.Title, &row.Entity.Description,
 		&status, &row.Entity.Version, &createdAt, &updatedAt, &generalFeatureID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return projectRow{}, ErrNotFound
+		return ProjectRow{}, ErrNotFound
 	}
 	if err != nil {
-		return projectRow{}, fmt.Errorf("get project %q: %w", key, err)
+		return ProjectRow{}, fmt.Errorf("get project %q: %w", key, err)
 	}
 	parsed, err := uuid.FromBytes(u)
 	if err != nil {
-		return projectRow{}, fmt.Errorf("parse project uuid: %w", err)
+		return ProjectRow{}, fmt.Errorf("parse project uuid: %w", err)
 	}
 	row.Entity.UUID = parsed.String()
 	row.Entity.Status = domain.ProjectStatus(status)
 	if row.Entity.CreatedAt, err = parseTime(createdAt); err != nil {
-		return projectRow{}, fmt.Errorf("parse project created_at: %w", err)
+		return ProjectRow{}, fmt.Errorf("parse project created_at: %w", err)
 	}
 	if row.Entity.UpdatedAt, err = parseTime(updatedAt); err != nil {
-		return projectRow{}, fmt.Errorf("parse project updated_at: %w", err)
+		return ProjectRow{}, fmt.Errorf("parse project updated_at: %w", err)
 	}
 	if generalFeatureID.Valid {
 		row.GeneralFeatureID = generalFeatureID.Int64
@@ -259,7 +259,7 @@ func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt stri
 
 	if len(page.Projects) > limit {
 		page.Projects = page.Projects[:limit]
-		page.NextCursor = EncodeCursor(createdAts[limit-1], ids[limit-1])
+		page.NextCursor = EncodeCreatedAtIDCursor(createdAts[limit-1], ids[limit-1])
 	}
 	return page, nil
 }
@@ -282,18 +282,26 @@ func InsertTicket(ctx context.Context, q Querier, entityID, projectEntityID, fea
 	return nil
 }
 
-// TicketRow is the internal (store-only) view of a ticket.
+// TicketRow is the internal (store-only) view of a ticket. PriorityRank/
+// SeverityRank/Position are ordering mechanics (rank.go, ADR 0011) —
+// deliberately not on domain.Ticket, the same "internal-only, never
+// serialized" boundary ADR 0002 already draws for ID/ProjectEntityID/
+// FeatureEntityID on this same struct.
 type TicketRow struct {
 	Entity          domain.Ticket
 	ID              int64
 	ProjectEntityID int64
 	FeatureEntityID int64
+	PriorityRank    int64
+	SeverityRank    int64
+	Position        int64
 }
 
 const ticketSelectColumns = `
 	e.id, e.uuid, e.version, e.created_at, e.updated_at,
 	p.key, t.project_id, t.feature_id, f.seq,
-	t.seq, t.type, t.title, t.description, t.status, t.priority, t.severity`
+	t.seq, t.type, t.title, t.description, t.status, t.priority, t.severity,
+	t.priority_rank, t.severity_rank, t.position`
 
 func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 	var (
@@ -306,7 +314,8 @@ func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 	)
 	err := scan(&row.ID, &u, &row.Entity.Version, &createdAt, &updatedAt,
 		&row.Entity.ProjectKey, &row.ProjectEntityID, &row.FeatureEntityID, &featureSeq,
-		&ticketSeq, &ticketType, &row.Entity.Title, &row.Entity.Description, &status, &priority, &severity)
+		&ticketSeq, &ticketType, &row.Entity.Title, &row.Entity.Description, &status, &priority, &severity,
+		&row.PriorityRank, &row.SeverityRank, &row.Position)
 	if err != nil {
 		return TicketRow{}, err
 	}
@@ -345,8 +354,17 @@ func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 }
 
 // GetTicketByRef looks up a ticket by its parsed reference, or returns
-// ErrNotFound.
+// ErrNotFound. It rejects a reference whose Kind isn't KindTicket
+// rather than matching on (ProjectKey, Seq) alone — the query below
+// joins through the tickets table regardless of Kind, so
+// GetTicketByRef(Reference{ProjectKey: "ABC", Kind: KindFeature, Seq: 1})
+// would otherwise silently return ticket ABC-1 for a request that
+// asked for feature ABC-F1. Harmless in Phase 0 (only tickets had a
+// resolvable reference), but a real bug once features get one too.
 func GetTicketByRef(ctx context.Context, q Querier, ref domain.Reference) (TicketRow, error) {
+	if ref.Kind != domain.KindTicket {
+		return TicketRow{}, ErrNotFound
+	}
 	query := `SELECT` + ticketSelectColumns + `
 		FROM tickets t
 		JOIN entities e ON e.id = t.id
@@ -402,4 +420,25 @@ func CurrentEntityVersion(ctx context.Context, q Querier, entityID int64) (int64
 		return 0, fmt.Errorf("current version: %w", err)
 	}
 	return v, nil
+}
+
+// PurgeIdempotencyKeysOlderThan deletes idempotency_keys rows whose
+// created_at is strictly before cutoff (TimeLayout-formatted, see
+// Now), returning the number deleted. 0001_initial.sql's comment on
+// idempotency_keys promises "bounded retention... enforced by
+// application-level cleanup" — this is that cleanup function.
+// docs/contracts/concurrency.md parks *scheduling* it (deciding a
+// retention window and calling this on a timer) with Phase 2's
+// admin/maintenance operations; this function exists now so Phase 2
+// has something to call rather than needing to write and test it then.
+func PurgeIdempotencyKeysOlderThan(ctx context.Context, q Querier, cutoff string) (int64, error) {
+	res, err := q.ExecContext(ctx, `DELETE FROM idempotency_keys WHERE created_at < ?`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("purge idempotency keys: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("rows affected: %w", err)
+	}
+	return affected, nil
 }

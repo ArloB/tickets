@@ -66,3 +66,11 @@ func (s *Service) withTx(ctx context.Context, fn txFunc) error {
 	committed = true
 	return nil
 }
+
+// A read-only counterpart to withTx (&sql.TxOptions{ReadOnly: true})
+// lands in Step 4 alongside its first real caller — a multi-statement
+// read that needs one consistent snapshot (e.g. a ticket plus its
+// relationships and comments). Until then, every read in this package
+// is a single autocommit query and doesn't need it; see ADR 0003 for
+// why a plain BeginTx(ctx, nil) would be wrong for that case (it
+// silently takes the write lock via the store DSN's _txlock=immediate).
