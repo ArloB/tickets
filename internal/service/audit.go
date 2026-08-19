@@ -10,6 +10,8 @@ const (
 	eventProjectCreated      = "project_created"
 	eventTicketCreated       = "ticket_created"
 	eventTicketStatusChanged = "ticket_status_changed"
+	eventRelationshipAdded   = "relationship_added"
+	eventRelationshipRemoved = "relationship_removed"
 )
 
 // auditChanges marshals a small before/after or field-summary map into

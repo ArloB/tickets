@@ -46,3 +46,11 @@ func newIdempotencyReusedError() *Error {
 func newAlreadyExistsError(field, format string, args ...any) *Error {
 	return &Error{Code: domain.ErrAlreadyExists, Field: field, Message: fmt.Sprintf(format, args...)}
 }
+
+func newRelationshipCycleError(relType domain.RelationshipType) *Error {
+	return &Error{
+		Code:    domain.ErrRelationshipCycle,
+		Field:   "type",
+		Message: fmt.Sprintf("adding this %s relationship would create a cycle", relType),
+	}
+}
