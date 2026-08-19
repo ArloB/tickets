@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -41,6 +42,28 @@ type ActorRef struct {
 // call Valid first if that matters to the caller.
 func (a ActorRef) String() string {
 	return string(a.Kind) + ":" + a.Name
+}
+
+// MarshalJSON renders ActorRef as the plain "kind:name" wire string
+// (docs/contracts/representations.md's "agent:codex-1" example), not
+// a nested {"kind":...,"name":...} object.
+func (a ActorRef) MarshalJSON() ([]byte, error) {
+	return json.Marshal(a.String())
+}
+
+// UnmarshalJSON is MarshalJSON's inverse, used when a caller (e.g.
+// mcpsrv.HTTPBackend) decodes a Ticket back out of JSON.
+func (a *ActorRef) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	ref, err := ParseActorRef(s)
+	if err != nil {
+		return err
+	}
+	*a = ref
+	return nil
 }
 
 // ParseActorRef is String's inverse. It rejects a missing separator,

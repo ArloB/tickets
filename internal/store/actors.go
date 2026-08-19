@@ -33,3 +33,22 @@ func GetActorIDByRef(ctx context.Context, q Querier, kind domain.ActorKind, name
 	}
 	return id, nil
 }
+
+// GetActorRefByID resolves an actor's internal surrogate id back to
+// its wire-safe (kind, name) ref — GetActorIDByRef's inverse, used
+// when a row (e.g. tickets.assignee_id) stores the id and a caller
+// needs to render it on the wire.
+func GetActorRefByID(ctx context.Context, q Querier, id int64) (domain.ActorRef, error) {
+	var kind, name string
+	err := q.QueryRowContext(ctx,
+		`SELECT kind, name FROM actors WHERE id = ? AND deleted_at IS NULL`,
+		id,
+	).Scan(&kind, &name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.ActorRef{}, ErrNotFound
+	}
+	if err != nil {
+		return domain.ActorRef{}, fmt.Errorf("get actor by id %d: %w", id, err)
+	}
+	return domain.ActorRef{Kind: domain.ActorKind(kind), Name: name}, nil
+}

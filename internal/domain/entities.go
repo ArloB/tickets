@@ -33,20 +33,27 @@ type Project struct {
 
 // Feature is a short/medium-term outcome containing tickets (§5.4).
 // Every project has exactly one system-created General feature (ADR
-// 0001); Feature has no dedicated HTTP endpoint in Phase 0's slice —
-// it surfaces only as a reference on Ticket — but the type is shared
-// internally between store and service.
+// 0001); Feature has no dedicated HTTP endpoint in Phase 1 either
+// (the plan keeps Phase 1 below the API line) — it surfaces only as a
+// reference on Ticket over HTTP, but the full type is shared
+// internally between store and service, and by service-level tests.
 type Feature struct {
-	UUID      string         `json:"-"`
-	Ref       string         `json:"ref"`
-	Title     string         `json:"title"`
-	Status    WorkflowStatus `json:"status"`
-	Version   int64          `json:"version"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	UUID        string         `json:"-"`
+	Ref         string         `json:"ref"`
+	ProjectKey  string         `json:"project"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Status      WorkflowStatus `json:"status"`
+	Priority    Priority       `json:"priority"`
+	Version     int64          `json:"version"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
-// Ticket is the base unit of actionable work (§5.5).
+// Ticket is the base unit of actionable work (§5.5). Assignee is nil
+// until Phase 1's AssignTicket is called — every existing Phase 0
+// response keeps its exact shape (omitempty), so this addition does
+// not touch the OpenAPI contract for the endpoints that already exist.
 type Ticket struct {
 	UUID        string         `json:"-"`
 	Ref         string         `json:"ref"`
@@ -58,6 +65,7 @@ type Ticket struct {
 	Status      WorkflowStatus `json:"status"`
 	Priority    Priority       `json:"priority"`
 	Severity    *Severity      `json:"severity,omitempty"`
+	Assignee    *ActorRef      `json:"assignee,omitempty"`
 	Version     int64          `json:"version"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`

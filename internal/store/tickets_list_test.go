@@ -35,7 +35,7 @@ func testProjectWithTickets(t *testing.T, db Querier, key string, specs []struct
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
-	if err := InsertFeature(ctx, db, featID, projID, 1, "General"); err != nil {
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium"); err != nil {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 

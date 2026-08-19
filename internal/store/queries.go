@@ -137,11 +137,13 @@ func SetProjectGeneralFeature(ctx context.Context, q Querier, projectEntityID, g
 }
 
 // InsertFeature writes the features row for an already-inserted
-// entities row.
-func InsertFeature(ctx context.Context, q Querier, entityID, projectEntityID, seq int64, title string) error {
+// entities row. priority_rank is derived from priority here (rank.go)
+// — every write path for it must go through the same derivation.
+func InsertFeature(ctx context.Context, q Querier, entityID, projectEntityID, seq int64, title, description, priority string) error {
 	_, err := q.ExecContext(ctx,
-		`INSERT INTO features(id, project_id, seq, title, status) VALUES (?, ?, ?, ?, 'backlog')`,
-		entityID, projectEntityID, seq, title,
+		`INSERT INTO features(id, project_id, seq, title, status, description, priority, priority_rank)
+		 VALUES (?, ?, ?, ?, 'backlog', ?, ?, ?)`,
+		entityID, projectEntityID, seq, title, description, priority, priorityRank(priority),
 	)
 	if err != nil {
 		return fmt.Errorf("insert feature: %w", err)
@@ -309,7 +311,8 @@ const ticketSelectColumns = `
 	e.id, e.uuid, e.version, e.created_at, e.updated_at,
 	p.key, t.project_id, t.feature_id, f.seq,
 	t.seq, t.type, t.title, t.description, t.status, t.priority, t.severity,
-	t.priority_rank, t.severity_rank, t.position`
+	t.priority_rank, t.severity_rank, t.position,
+	a.kind, a.name`
 
 func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 	var (
@@ -319,11 +322,13 @@ func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 		ticketType, status, priority string
 		severity                     sql.NullString
 		featureSeq, ticketSeq        int64
+		assigneeKind, assigneeName   sql.NullString
 	)
 	err := scan(&row.ID, &u, &row.Entity.Version, &createdAt, &updatedAt,
 		&row.Entity.ProjectKey, &row.ProjectEntityID, &row.FeatureEntityID, &featureSeq,
 		&ticketSeq, &ticketType, &row.Entity.Title, &row.Entity.Description, &status, &priority, &severity,
-		&row.PriorityRank, &row.SeverityRank, &row.Position)
+		&row.PriorityRank, &row.SeverityRank, &row.Position,
+		&assigneeKind, &assigneeName)
 	if err != nil {
 		return TicketRow{}, err
 	}
@@ -344,6 +349,9 @@ func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 	if severity.Valid {
 		sev := domain.Severity(severity.String)
 		row.Entity.Severity = &sev
+	}
+	if assigneeKind.Valid {
+		row.Entity.Assignee = &domain.ActorRef{Kind: domain.ActorKind(assigneeKind.String), Name: assigneeName.String}
 	}
 
 	ref, err := domain.Format(domain.Reference{ProjectKey: row.Entity.ProjectKey, Kind: domain.KindTicket, Seq: ticketSeq})
@@ -378,6 +386,7 @@ func GetTicketByRef(ctx context.Context, q Querier, ref domain.Reference) (Ticke
 		JOIN entities e ON e.id = t.id
 		JOIN projects p ON p.key = ?
 		JOIN features f ON f.id = t.feature_id
+		LEFT JOIN actors a ON a.id = t.assignee_id
 		WHERE t.project_id = p.id AND t.seq = ? AND e.deleted_at IS NULL`
 	row, err := scanTicketRow(q.QueryRowContext(ctx, query, ref.ProjectKey, ref.Seq).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -389,19 +398,25 @@ func GetTicketByRef(ctx context.Context, q Querier, ref domain.Reference) (Ticke
 	return row, nil
 }
 
-// UpdateTicketStatus applies a conditional status update: it only
-// takes effect if the row's current version matches expectedVersion
-// (ADR 0008 / docs/contracts/concurrency.md). Returns ErrVersionConflict
-// (with the row's actual current version) if it does not. now is the
-// caller's shared transaction timestamp (see Now).
-func UpdateTicketStatus(ctx context.Context, q Querier, entityID int64, newStatus string, expectedVersion int64, now string) (newVersion int64, err error) {
+// bumpEntityVersion is the conditional-update pattern every mutating
+// store function on an entities-backed row uses: it only takes effect
+// if the row's current version matches expectedVersion and the row is
+// not soft-deleted, returning ErrVersionConflict otherwise (ADR 0008).
+// Centralized so every new Phase 1 field-update function gets the
+// same soft-delete-aware behavior for free instead of reimplementing
+// it per table — callers still look up the row first via a
+// deleted_at-filtering Get*ByRef (so a delete cannot race this call
+// inside the same BEGIN IMMEDIATE transaction, ADR 0003), but the
+// WHERE clause here is the same defense-in-depth Phase 0 already had.
+// now is the caller's shared transaction timestamp (see Now).
+func bumpEntityVersion(ctx context.Context, q Querier, entityID int64, expectedVersion int64, now string) (newVersion int64, err error) {
 	res, err := q.ExecContext(ctx,
 		`UPDATE entities SET version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ? AND deleted_at IS NULL`,
 		now, entityID, expectedVersion,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("update entity version: %w", err)
+		return 0, fmt.Errorf("bump entity version: %w", err)
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
@@ -410,10 +425,23 @@ func UpdateTicketStatus(ctx context.Context, q Querier, entityID int64, newStatu
 	if affected == 0 {
 		return 0, ErrVersionConflict
 	}
+	return expectedVersion + 1, nil
+}
+
+// UpdateTicketStatus applies a conditional status update: it only
+// takes effect if the row's current version matches expectedVersion
+// (ADR 0008 / docs/contracts/concurrency.md). Returns ErrVersionConflict
+// (with the row's actual current version) if it does not. now is the
+// caller's shared transaction timestamp (see Now).
+func UpdateTicketStatus(ctx context.Context, q Querier, entityID int64, newStatus string, expectedVersion int64, now string) (newVersion int64, err error) {
+	newVersion, err = bumpEntityVersion(ctx, q, entityID, expectedVersion, now)
+	if err != nil {
+		return 0, err
+	}
 	if _, err := q.ExecContext(ctx, `UPDATE tickets SET status = ? WHERE id = ?`, newStatus, entityID); err != nil {
 		return 0, fmt.Errorf("update ticket status: %w", err)
 	}
-	return expectedVersion + 1, nil
+	return newVersion, nil
 }
 
 // CurrentEntityVersion is used to populate current_version on a 409

@@ -67,6 +67,7 @@ func PriorityQueue(ctx context.Context, q Querier, projectID int64, limit int,
 		 JOIN entities e ON e.id = t.id
 		 JOIN projects p ON p.id = t.project_id
 		 JOIN features f ON f.id = t.feature_id
+		 LEFT JOIN actors a ON a.id = t.assignee_id
 		 WHERE t.project_id = ? AND e.deleted_at IS NULL
 		   AND (t.priority_rank, t.position, e.created_at, e.id) > (?, ?, ?, ?)
 		 ORDER BY t.priority_rank ASC, t.position ASC, e.created_at ASC, e.id ASC
@@ -101,6 +102,7 @@ func IssueRegister(ctx context.Context, q Querier, projectID int64, limit int,
 		 JOIN entities e ON e.id = t.id
 		 JOIN projects p ON p.id = t.project_id
 		 JOIN features f ON f.id = t.feature_id
+		 LEFT JOIN actors a ON a.id = t.assignee_id
 		 WHERE t.project_id = ? AND e.deleted_at IS NULL
 		   AND t.type IN ('bug', 'security')
 		   AND (t.severity_rank, t.priority_rank, t.position, e.created_at, e.id) > (?, ?, ?, ?, ?)

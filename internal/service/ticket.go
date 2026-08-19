@@ -202,3 +202,210 @@ func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatus
 	}
 	return result, nil
 }
+
+// UpdateTicketFieldsRequest is UpdateTicketFields' input.
+type UpdateTicketFieldsRequest struct {
+	Ref             domain.Reference
+	Type            domain.TicketType
+	Title           string
+	Description     string
+	Priority        domain.Priority
+	Severity        *domain.Severity
+	ExpectedVersion int64
+}
+
+// UpdateTicketFields applies a conditional update to a ticket's
+// type/title/description/priority/severity (ADR 0008). Unlike
+// UpdateTicketStatus, this does not accept an Idempotency-Key — the
+// version check already makes a stale retry safe, matching the
+// existing status-update endpoint's reasoning.
+func (s *Service) UpdateTicketFields(ctx context.Context, req UpdateTicketFieldsRequest, actor domain.ActorRef, correlationID string) (domain.Ticket, error) {
+	if !req.Type.Valid() {
+		return domain.Ticket{}, newValidationError("type", "invalid ticket type %q", req.Type)
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		return domain.Ticket{}, newValidationError("title", "title is required")
+	}
+	if !req.Priority.Valid() {
+		return domain.Ticket{}, newValidationError("priority", "invalid priority %q", req.Priority)
+	}
+	if req.Severity != nil {
+		if !req.Severity.Valid() {
+			return domain.Ticket{}, newValidationError("severity", "invalid severity %q", *req.Severity)
+		}
+		if !req.Type.AllowsSeverity() {
+			return domain.Ticket{}, newValidationError("severity", "severity only applies to bug/security tickets, not %q", req.Type)
+		}
+	}
+
+	var result domain.Ticket
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("ticket not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up ticket: %w", err)
+		}
+
+		var severityStr *string
+		if req.Severity != nil {
+			v := string(*req.Severity)
+			severityStr = &v
+		}
+		if _, err := store.UpdateTicketFields(ctx, tx, row.ID, string(req.Type), title, req.Description, string(req.Priority), severityStr, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: update ticket: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"title": title, "type": string(req.Type), "priority": string(req.Priority)})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketUpdated, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload updated ticket: %w", err)
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	return result, nil
+}
+
+// AssignTicketRequest is AssignTicket's input. Assignee nil clears the
+// assignment.
+type AssignTicketRequest struct {
+	Ref             domain.Reference
+	Assignee        *domain.ActorRef
+	ExpectedVersion int64
+}
+
+// AssignTicket sets or clears a ticket's assignee. There is no actor-
+// creation surface yet (store.GetActorIDByRef's doc explains why), so
+// in practice the assignee must already exist as a seeded actor —
+// unassigning is always available regardless.
+func (s *Service) AssignTicket(ctx context.Context, req AssignTicketRequest, actor domain.ActorRef, correlationID string) (domain.Ticket, error) {
+	var result domain.Ticket
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("ticket not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up ticket: %w", err)
+		}
+
+		var assigneeID *int64
+		changesVal := "unassigned"
+		if req.Assignee != nil {
+			id, err := store.GetActorIDByRef(ctx, tx, req.Assignee.Kind, req.Assignee.Name)
+			if errors.Is(err, store.ErrNotFound) {
+				return newValidationError("assignee", "actor %s not found", req.Assignee)
+			}
+			if err != nil {
+				return fmt.Errorf("service: resolve assignee: %w", err)
+			}
+			assigneeID = &id
+			changesVal = req.Assignee.String()
+		}
+
+		if _, err := store.AssignTicket(ctx, tx, row.ID, assigneeID, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: assign ticket: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"assignee": changesVal})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketAssigned, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload updated ticket: %w", err)
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	return result, nil
+}
+
+// MoveTicketFeatureRequest is MoveTicketFeature's input.
+type MoveTicketFeatureRequest struct {
+	Ref             domain.Reference
+	NewFeatureRef   domain.Reference
+	ExpectedVersion int64
+}
+
+// MoveTicketFeature moves a ticket to a different feature in the same
+// project. ADR 0001 forbids a cross-project move — the new feature's
+// project must match the ticket's, checked here since it needs both
+// rows loaded, not at the domain layer.
+func (s *Service) MoveTicketFeature(ctx context.Context, req MoveTicketFeatureRequest, actor domain.ActorRef, correlationID string) (domain.Ticket, error) {
+	var result domain.Ticket
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("ticket not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up ticket: %w", err)
+		}
+		feature, err := store.GetFeatureByRef(ctx, tx, req.NewFeatureRef)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("feature not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up feature: %w", err)
+		}
+		if feature.ProjectEntityID != row.ProjectEntityID {
+			return newValidationError("feature", "feature %s is not in the same project as ticket %s", feature.Entity.Ref, row.Entity.Ref)
+		}
+
+		if _, err := store.MoveTicketFeature(ctx, tx, row.ID, feature.ID, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: move ticket: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"feature": feature.Entity.Ref})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketMoved, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload updated ticket: %w", err)
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	return result, nil
+}

@@ -99,7 +99,7 @@ func TestInsertTicketWritesRankColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
-	if err := InsertFeature(ctx, db, featID, projID, 1, "General"); err != nil {
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium"); err != nil {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 
@@ -156,7 +156,7 @@ func TestInsertFeatureDefaultRankMatchesDefaultPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
-	if err := InsertFeature(ctx, db, featID, projID, 1, "General"); err != nil {
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium"); err != nil {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 
@@ -200,7 +200,7 @@ func TestGetTicketByRefRejectsWrongKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
-	if err := InsertFeature(ctx, db, featID, projID, 1, "General"); err != nil {
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium"); err != nil {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 	ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, sysID, Now())

@@ -12,6 +12,11 @@ const (
 	eventTicketStatusChanged = "ticket_status_changed"
 	eventRelationshipAdded   = "relationship_added"
 	eventRelationshipRemoved = "relationship_removed"
+	eventFeatureCreated      = "feature_created"
+	eventFeatureUpdated      = "feature_updated"
+	eventTicketUpdated       = "ticket_updated"
+	eventTicketAssigned      = "ticket_assigned"
+	eventTicketMoved         = "ticket_moved"
 )
 
 // auditChanges marshals a small before/after or field-summary map into

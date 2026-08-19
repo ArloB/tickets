@@ -80,7 +80,7 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 		if err != nil {
 			return fmt.Errorf("service: allocate general feature reference: %w", err)
 		}
-		if err := store.InsertFeature(ctx, tx, featureEntityID, projectEntityID, featureSeq, generalFeatureTitle); err != nil {
+		if err := store.InsertFeature(ctx, tx, featureEntityID, projectEntityID, featureSeq, generalFeatureTitle, "", string(domain.PriorityMedium)); err != nil {
 			return fmt.Errorf("service: create general feature: %w", err)
 		}
 		if err := store.SetProjectGeneralFeature(ctx, tx, projectEntityID, featureEntityID); err != nil {
