@@ -102,11 +102,25 @@ type RelationshipEdge struct {
 // Inverse() — RelationshipDuplicateOf does not (domain/enums.go), so
 // per ADR 0014 it is visible only from the end it was stored against,
 // not surfaced here as a synthetic "duplicated_by".
+//
+// The far endpoint of each edge is joined against entities and
+// filtered on deleted_at IS NULL: a relationship pointing at a
+// soft-deleted ticket must vanish from this list (gate 8), not error
+// out when GetTicketRefByEntityID later can't resolve it, and it must
+// come back automatically if the far endpoint is restored — filtering
+// at read time gets both for free, versus trying to clean up edges at
+// delete time.
 func ListRelationshipsForEntity(ctx context.Context, q Querier, entityID int64) ([]RelationshipEdge, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT type, target_id, 0 AS as_target FROM ticket_relationships WHERE source_id = ?
+		SELECT tr.type, tr.target_id, 0 AS as_target
+		FROM ticket_relationships tr
+		JOIN entities e ON e.id = tr.target_id
+		WHERE tr.source_id = ? AND e.deleted_at IS NULL
 		UNION ALL
-		SELECT type, source_id, 1 AS as_target FROM ticket_relationships WHERE target_id = ?`,
+		SELECT tr.type, tr.source_id, 1 AS as_target
+		FROM ticket_relationships tr
+		JOIN entities e ON e.id = tr.source_id
+		WHERE tr.target_id = ? AND e.deleted_at IS NULL`,
 		entityID, entityID,
 	)
 	if err != nil {

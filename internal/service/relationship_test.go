@@ -201,6 +201,39 @@ func TestRemoveRelationship(t *testing.T) {
 	}
 }
 
+// TestGetTicketRelationshipsHidesSoftDeletedEndpoint confirms a
+// relationship whose far endpoint is soft-deleted vanishes from the
+// list rather than erroring — gate 8's "vanish from every list, get,
+// and search path" applied to relationships specifically, ahead of
+// Step 4b's soft-delete commit landing any real caller that sets
+// deleted_at. Writes deleted_at directly since nothing else does yet.
+func TestGetTicketRelationshipsHidesSoftDeletedEndpoint(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	a, b, _ := setupThreeTickets(t, s)
+
+	if err := s.AddRelationship(ctx, AddRelationshipRequest{SourceRef: a, TargetRef: b, Type: domain.RelationshipBlocks}, testActor, testCorrelationID); err != nil {
+		t.Fatalf("AddRelationship: %v", err)
+	}
+
+	bTicket, err := s.GetTicket(ctx, b)
+	if err != nil {
+		t.Fatalf("GetTicket(b): %v", err)
+	}
+	bEntityID := mustEntityIDByUUID(t, s, bTicket.UUID)
+	if _, err := s.store.DB().ExecContext(ctx, `UPDATE entities SET deleted_at = ? WHERE id = ?`, store.Now(), bEntityID); err != nil {
+		t.Fatalf("manually soft-delete b: %v", err)
+	}
+
+	rels, err := s.GetTicketRelationships(ctx, a)
+	if err != nil {
+		t.Fatalf("GetTicketRelationships(a) after b deleted: %v", err)
+	}
+	if len(rels) != 0 {
+		t.Fatalf("relationships after b's soft-delete = %+v, want none", rels)
+	}
+}
+
 // TestAddRelationshipEmitsAuditEvent confirms the audit event lands on
 // the caller-supplied source ticket, even when canonicalization stores
 // the edge with swapped endpoints (child_of).
