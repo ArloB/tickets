@@ -1,0 +1,63 @@
+# Public reference contract
+
+Backed by `internal/domain/reference.go` and `reference_test.go`. This
+document and that code must not diverge — the tests are the executable
+form of this contract.
+
+## Project key
+
+Chosen once at project creation, immutable thereafter (§5.3).
+
+```
+^[A-Z][A-Z0-9]{1,9}$
+```
+
+Uppercase ASCII letters and digits, 2–10 characters, starting with a
+letter. `ABC`, `TIX9` are valid; `abc`, `1BC`, `A` are not.
+
+## Per-kind reference tokens
+
+| Entity | Grammar | Example |
+| --- | --- | --- |
+| Ticket | `{KEY}-{seq}` | `ABC-123` |
+| Feature | `{KEY}-F{seq}` | `ABC-F12` |
+| Decision | `{KEY}-D{seq}` | `ABC-D7` |
+| Plan | `{KEY}-P{seq}` | `ABC-P4` |
+| Document | `{KEY}-DOC{seq}` | `ABC-DOC9` |
+
+`{seq}` is a positive decimal integer with no leading zeros, allocated
+per ADR 0009 (per-project, per-kind, strictly increasing, starting at
+1). The kind letter code (`F`, `D`, `P`, `DOC`) is fixed and never
+reused for another kind.
+
+A reference is immutable for the lifetime of the entity: renaming a
+project's key is out of MVP scope specifically to preserve this
+(implied by §5.2's "immutable" and not contradicted anywhere in
+plan.md).
+
+## Recognition in text
+
+- Bare (`ABC-123`) and `#`-prefixed (`#ABC-123`) forms are equivalent
+  wherever Markdown fields are scanned for references (§5.2).
+- Inside a comment scoped to a known project, the short form `#123`
+  resolves to that project's ticket with sequence 123 — this form has
+  no kind letter and is ticket-only; it does not exist for features,
+  decisions, plans, or documents, matching §5.2's example exactly.
+- Mentioning a reference creates a derived `mentions` edge (§5.2); it
+  never implies a typed relationship (§5.7) or scheduling semantics.
+
+**Scope note:** `internal/domain/reference.go` implements `Format` and
+`Parse` for a single token (all 5 kinds) plus project-key validation —
+the grammar this table defines. Scanning free Markdown text for
+embedded references (the bullet above) is implemented alongside
+comments/backlinks, which is out of Phase 0's vertical slice (deferred
+per Step 5 of the Phase 0 plan); this contract exists now so that
+later scanner is unambiguous about what counts as a match.
+
+## Errors
+
+Parsing an otherwise well-formed reference against an unknown kind
+letter, a zero/negative/leading-zero sequence, or an invalid project
+key returns a typed error, not a partial/best-effort result — callers
+(HTTP 404 mapping, MCP tool errors) decide what to do with "not a
+reference" versus "well-formed but not found."
