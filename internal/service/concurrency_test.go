@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ArloB/tickets/internal/domain"
+	"github.com/ArloB/tickets/internal/store"
 )
 
 // TestConcurrentTicketCreateReferenceAllocation checks whether ADR
@@ -153,4 +155,50 @@ func TestConcurrentActorsUpdateSameTicketOneWins(t *testing.T) {
 			}
 		}
 	}
+}
+
+// BenchmarkConcurrentTicketCreate measures concurrent-writer
+// throughput — the direct continuation of ADR 0003/0009's thread
+// (product spec §11, Phase 1 plan Step 6). Every mutation takes
+// SQLite's write lock up front (_txlock=immediate, ADR 0003) and Phase
+// 1 roughly tripled the write-path work per mutation versus Phase 0
+// (audit event + mention rescan + position allocation on top of the
+// row itself), so this is what actually measures whether that added
+// work shows up as serialized throughput loss under contention against
+// busy_timeout(5000), not just single-writer latency.
+//
+// Uses b.RunParallel rather than a fixed goroutine count so it scales
+// with GOMAXPROCS the way TestConcurrentTicketCreateReferenceAllocation
+// above does not need to (that test only cares about correctness at a
+// fixed concurrency level, not throughput at whatever this machine's
+// core count is). b.Error, not b.Fatal, inside the parallel closure —
+// per testing.B's own documentation, Fatal/FailNow may only be called
+// from the goroutine running the benchmark function itself, not from
+// RunParallel's worker goroutines.
+func BenchmarkConcurrentTicketCreate(b *testing.B) {
+	ctx := context.Background()
+	st, err := store.Open(b.TempDir())
+	if err != nil {
+		b.Fatalf("store.Open: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+	s := New(st)
+
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "BENCH", Title: "Bench"}, testActor, testCorrelationID, "", ""); err != nil {
+		b.Fatalf("create project: %v", err)
+	}
+
+	var counter int64
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			n := atomic.AddInt64(&counter, 1)
+			_, err := s.CreateTicket(ctx, CreateTicketRequest{
+				ProjectKey: "BENCH", Type: domain.TicketTypeTask, Title: fmt.Sprintf("Bench ticket %d", n),
+			}, testActor, testCorrelationID, "", "")
+			if err != nil {
+				b.Errorf("CreateTicket: %v", err)
+			}
+		}
+	})
 }

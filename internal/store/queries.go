@@ -213,12 +213,22 @@ type ProjectPage struct {
 
 // ListProjects returns up to limit projects with (created_at, id) after
 // the given cursor values (both zero-value for the first page).
+//
+// The WHERE clause's explicit e.kind = 'project' is redundant with the
+// projects p JOIN (only project entities have a projects row at all)
+// but is what lets SQLite use idx_entities_kind_created_at
+// (migration 0003_entities_kind_index.sql) to seek directly to
+// project-kind rows in created_at order — without it, EXPLAIN QUERY
+// PLAN showed a full scan of every entities row (tickets included)
+// followed by a sort, since nothing told the planner project rows are
+// a small, kind-scoped subset. See that migration's comment for the
+// benchmark that found this.
 func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt string, afterID int64) (ProjectPage, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT e.id, e.uuid, p.key, p.title, p.description, p.status, e.version,
 		        e.created_at, e.updated_at
 		 FROM projects p JOIN entities e ON e.id = p.id
-		 WHERE e.deleted_at IS NULL
+		 WHERE e.kind = 'project' AND e.deleted_at IS NULL
 		   AND (e.created_at > ? OR (e.created_at = ? AND e.id > ?))
 		 ORDER BY e.created_at ASC, e.id ASC
 		 LIMIT ?`,

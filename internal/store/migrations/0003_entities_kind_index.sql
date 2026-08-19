@@ -1,0 +1,14 @@
+-- store.ListProjects' cursor-paginated query orders entities by
+-- (created_at, id) filtered to kind='project'. Without an index
+-- leading with kind, entities has no usable index for that query at
+-- all: EXPLAIN QUERY PLAN showed a full SCAN of every entities row
+-- (projects, features, and tickets alike) followed by a temp b-tree
+-- sort, on every single call — found via internal/store/bench_test.go
+-- against the fixtures.Full dataset (Phase 1 Step 6), where it cost
+-- ~18ms per call against ~100k entities rows despite returning only
+-- 25 projects. A partial/filtered index scoped to entities.kind
+-- ('project' rows are a small, fixed fraction of the table, and stay
+-- small regardless of how many tickets/comments accumulate) lets
+-- SQLite seek directly to project rows in created_at order and stop
+-- at the page limit, independent of total entity volume.
+CREATE INDEX idx_entities_kind_created_at ON entities(kind, created_at, id);
