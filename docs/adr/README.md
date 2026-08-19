@@ -17,3 +17,8 @@ assumption.
 | [0008](0008-concurrency-idempotency.md) | Optimistic concurrency and idempotency-key semantics |
 | [0009](0009-reference-allocation.md) | Public reference allocation (per-project monotonic counters) |
 | [0010](0010-repo-layout-and-toolchain.md) | Go version, module path, repo layout, embedded web assets |
+| [0011](0011-position-and-rank-ordering.md) | Position allocation (gap-spaced, renumber-on-exhaustion) and rank-based priority/severity ordering |
+| [0012](0012-actors-and-audit-attribution.md) | Actors outside the entity registry, seeded `system`/`local`, uniform audit attribution |
+| [0013](0013-soft-deletion-semantics.md) | Soft-deletion: block-by-default, explicit cascade, `General` undeletable, restore-refuses-orphan |
+| [0014](0014-relationships.md) | Relationship storage, inverse canonicalization, cycle detection, the `duplicate_of` correction |
+| [0015](0015-derived-mentions.md) | Derived mentions: scanner scope, code-fence exclusion, delete-and-reinsert |

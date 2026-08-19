@@ -23,6 +23,15 @@ Notes:
   transition-validation rules — not two parallel copies.
 - `severity` only applies to `ticket_type` `bug` and `security` (§5.5);
   `internal/domain` validation rejects a severity on `task`/`chore`.
+- `priority`/`severity`'s "spec order" above is also their sort order
+  (the priority queue and issue register, §5.6/§5.5): `critical` first,
+  `low` last. Both are stored as `TEXT`, which sorts alphabetically
+  (`critical, high, low, medium`) — wrong. `internal/store/rank.go`'s
+  `priorityRank`/`severityRank` are the single place this table's order
+  gets turned into the `priority_rank`/`severity_rank` integer columns
+  every list query actually sorts by (ADR 0011); changing this table's
+  order without updating that function is a real, silent bug, not just
+  a doc drift.
 - `relationship_type` values are stored as directed pairs
   (`parent_of`/`child_of`, `blocks`/`blocked_by`,
   `supersedes`/`superseded_by`) except `related_to`, which is genuinely

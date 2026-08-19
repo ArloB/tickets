@@ -23,8 +23,13 @@ retry after losing a response.
   bounded retention window. A mutation replayed with the same key and
   matching fingerprint re-fetches and returns the current live record
   without re-executing; a key reused with a different fingerprint is a
-  client error, not a silent overwrite. `actor` joins the fingerprint
-  once ADR 0004's actors exist (Phase 2); Phase 0 has none.
+  client error, not a silent overwrite. `actor_id` still doesn't join
+  the fingerprint even though ADR 0012's actors exist as of Phase 1 —
+  `idempotency_keys.key` is the table's sole PRIMARY KEY, so adding
+  `actor_id` to the hash without widening the key to `(key, actor_id)`
+  wouldn't actually distinguish two actors reusing the same key. That
+  schema change is deferred to Phase 2's real authentication work; see
+  `docs/contracts/concurrency.md`'s Phase 1 note.
 - Reads may retry automatically; writes retry only when an
   `Idempotency-Key` header is present (§8.4).
 

@@ -46,13 +46,15 @@ plan.md).
 - Mentioning a reference creates a derived `mentions` edge (§5.2); it
   never implies a typed relationship (§5.7) or scheduling semantics.
 
-**Scope note:** `internal/domain/reference.go` implements `Format` and
-`Parse` for a single token (all 5 kinds) plus project-key validation —
-the grammar this table defines. Scanning free Markdown text for
-embedded references (the bullet above) is implemented alongside
-comments/backlinks, which is out of Phase 0's vertical slice (deferred
-per Step 5 of the Phase 0 plan); this contract exists now so that
-later scanner is unambiguous about what counts as a match.
+**Implementation note:** `internal/domain/reference.go` implements
+`Format` and `Parse` for a single token (all 5 kinds) plus project-key
+validation — the grammar this table defines. Scanning free Markdown
+text for embedded references (the bullet above) is
+`internal/domain/scan.go`'s `ScanReferences`, built in Phase 1
+alongside comments/backlinks (ADR 0015) against exactly this grammar —
+including stripping fenced code blocks and inline code spans first, so
+a reference quoted as example output inside a code sample is not
+treated as a mention.
 
 ## Errors
 
