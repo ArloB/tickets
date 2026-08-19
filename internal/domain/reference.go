@@ -7,23 +7,50 @@ import (
 	"strings"
 )
 
-// ReferenceKind identifies which entity kind a public reference names.
-// See docs/contracts/references.md for the wire grammar this file
-// implements.
-type ReferenceKind string
+// EntityKind identifies an entity's kind across the whole system: the
+// public reference grammar (docs/contracts/references.md),
+// reference_counters.kind (ADR 0009), and entities.kind (ADR 0002) are
+// all instances of this one type, not three parallel string
+// vocabularies that happen to agree by convention. Before this type
+// existed, internal/service used ad-hoc string literals ("project",
+// "ticket", "feature") that had to be kept in sync with this package's
+// ReferenceKind by hand; EntityKind removes that duplication.
+//
+// KindProject is a deliberate exception to the reference grammar
+// below: a project is named by its Key, not a sequence-numbered
+// reference token, so it has no entry in kindCode and Format rejects
+// it explicitly (see Format).
+type EntityKind string
 
 const (
-	KindTicket   ReferenceKind = "ticket"
-	KindFeature  ReferenceKind = "feature"
-	KindDecision ReferenceKind = "decision"
-	KindPlan     ReferenceKind = "plan"
-	KindDocument ReferenceKind = "document"
+	KindProject  EntityKind = "project"
+	KindTicket   EntityKind = "ticket"
+	KindFeature  EntityKind = "feature"
+	KindDecision EntityKind = "decision"
+	KindPlan     EntityKind = "plan"
+	KindDocument EntityKind = "document"
 )
 
-// kindCode maps a ReferenceKind to its letter code in the reference
-// token grammar. Ticket has no letter code by design (docs/contracts/
-// references.md): "ABC-123", not "ABC-T123".
-var kindCode = map[ReferenceKind]string{
+var validEntityKinds = map[EntityKind]bool{
+	KindProject:  true,
+	KindTicket:   true,
+	KindFeature:  true,
+	KindDecision: true,
+	KindPlan:     true,
+	KindDocument: true,
+}
+
+// Valid reports whether k is a recognized entity kind, including
+// KindProject even though it has no reference-token form.
+func (k EntityKind) Valid() bool {
+	return validEntityKinds[k]
+}
+
+// kindCode maps a referenceable EntityKind to its letter code in the
+// reference token grammar. Ticket has no letter code by design
+// (docs/contracts/references.md): "ABC-123", not "ABC-T123". Deliberately
+// has no entry for KindProject — see the type doc.
+var kindCode = map[EntityKind]string{
 	KindTicket:   "",
 	KindFeature:  "F",
 	KindDecision: "D",
@@ -31,7 +58,7 @@ var kindCode = map[ReferenceKind]string{
 	KindDocument: "DOC",
 }
 
-var codeKind = map[string]ReferenceKind{
+var codeKind = map[string]EntityKind{
 	"":    KindTicket,
 	"F":   KindFeature,
 	"D":   KindDecision,
@@ -50,7 +77,7 @@ var referencePattern = regexp.MustCompile(`^([A-Z][A-Z0-9]{1,9})-(DOC|F|D|P)?([1
 // Reference{ProjectKey: "ABC", Kind: KindFeature, Seq: 12}.
 type Reference struct {
 	ProjectKey string
-	Kind       ReferenceKind
+	Kind       EntityKind
 	Seq        int64
 }
 
@@ -66,6 +93,9 @@ func ValidProjectKey(key string) bool {
 func Format(ref Reference) (string, error) {
 	if !ValidProjectKey(ref.ProjectKey) {
 		return "", fmt.Errorf("domain: invalid project key %q", ref.ProjectKey)
+	}
+	if ref.Kind == KindProject {
+		return "", fmt.Errorf("domain: a project has no reference token; use its key directly")
 	}
 	code, ok := kindCode[ref.Kind]
 	if !ok {

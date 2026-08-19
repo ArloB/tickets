@@ -87,11 +87,11 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 			return fmt.Errorf("service: project %q has no general feature (data integrity)", req.ProjectKey)
 		}
 
-		ticketEntityID, _, err := store.InsertEntity(ctx, tx, &proj.ID, "ticket", now)
+		ticketEntityID, _, err := store.InsertEntity(ctx, tx, &proj.ID, domain.KindTicket, now)
 		if err != nil {
 			return fmt.Errorf("service: create ticket entity: %w", err)
 		}
-		seq, err := store.AllocateReference(ctx, tx, proj.ID, "ticket")
+		seq, err := store.AllocateReference(ctx, tx, proj.ID, domain.KindTicket)
 		if err != nil {
 			return fmt.Errorf("service: allocate ticket reference: %w", err)
 		}

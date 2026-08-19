@@ -25,10 +25,19 @@ Notes:
   `internal/domain` validation rejects a severity on `task`/`chore`.
 - `relationship_type` values are stored as directed pairs
   (`parent_of`/`child_of`, `blocks`/`blocked_by`,
-  `supersedes`/`superseded_by`) except `related_to` and
-  `duplicate_of`, which are their own inverse. `internal/domain`'s
-  cycle/inverse validation (product spec §5.7) is the code this row
-  backs.
+  `supersedes`/`superseded_by`) except `related_to`, which is genuinely
+  its own inverse (symmetric — `A related_to B` and `B related_to A`
+  are the same fact, so `internal/domain.CanonicalRelationship`
+  canonicalizes it to one stored row by UUID order). **`duplicate_of`
+  is not its own inverse** — an earlier version of this table implied
+  it was, which is wrong: "A duplicate_of B" means B is canonical, not
+  the reverse, so treating it as symmetric would let both directions be
+  true simultaneously, a contradiction. §5.7 defines no `duplicated_by`
+  counterpart for it, so a stored `duplicate_of` edge has no inverse
+  view at all — `RelationshipType.Inverse()` returns `ok = false` for
+  it, and `CanonicalRelationship` stores it exactly as given rather
+  than reordering it. `internal/domain`'s cycle/inverse validation
+  (product spec §5.7) is the code this row backs.
 
 ## Scope note
 

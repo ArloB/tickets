@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"testing"
+
+	"github.com/ArloB/tickets/internal/domain"
 )
 
 // TestSeededActorsExist is migration 0002_core_domain.sql's executable
@@ -55,7 +57,7 @@ func TestEntitiesBackfilledToSystemActor(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 
-	id, _, err := InsertEntity(ctx, s.DB(), nil, "project", Now())
+	id, _, err := InsertEntity(ctx, s.DB(), nil, domain.KindProject, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity: %v", err)
 	}
@@ -90,14 +92,14 @@ func TestInsertTicketWritesRankColumns(t *testing.T) {
 	ctx := context.Background()
 	db := s.DB()
 
-	projID, _, err := InsertEntity(ctx, db, nil, "project", Now())
+	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity project: %v", err)
 	}
 	if err := InsertProject(ctx, db, projID, "ABC", "Example", ""); err != nil {
 		t.Fatalf("InsertProject: %v", err)
 	}
-	featID, _, err := InsertEntity(ctx, db, &projID, "feature", Now())
+	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
@@ -105,7 +107,7 @@ func TestInsertTicketWritesRankColumns(t *testing.T) {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 
-	ticketID, _, err := InsertEntity(ctx, db, &projID, "ticket", Now())
+	ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity ticket: %v", err)
 	}
@@ -124,5 +126,53 @@ func TestInsertTicketWritesRankColumns(t *testing.T) {
 	}
 	if severityRankGot != 1 {
 		t.Errorf("severity=high -> severity_rank = %d, want 1", severityRankGot)
+	}
+}
+
+// TestInsertFeatureDefaultRankMatchesDefaultPriority guards an
+// invariant that holds by coincidence today, not by construction:
+// InsertFeature takes no priority parameter, so every feature is
+// created with the column defaults ('medium' priority, rank 2 —
+// medium's rank per rank.go). Those two defaults were chosen to agree.
+// If InsertFeature ever gains an explicit priority parameter (Phase 4,
+// when features get their own create/update surface) without also
+// writing priority_rank the way InsertTicket already does, this test
+// is what catches the drift immediately instead of leaving newly
+// created non-default-priority features silently unranked.
+func TestInsertFeatureDefaultRankMatchesDefaultPriority(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	ctx := context.Background()
+	db := s.DB()
+
+	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, Now())
+	if err != nil {
+		t.Fatalf("InsertEntity project: %v", err)
+	}
+	if err := InsertProject(ctx, db, projID, "ABC", "Example", ""); err != nil {
+		t.Fatalf("InsertProject: %v", err)
+	}
+	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, Now())
+	if err != nil {
+		t.Fatalf("InsertEntity feature: %v", err)
+	}
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General"); err != nil {
+		t.Fatalf("InsertFeature: %v", err)
+	}
+
+	var priority string
+	var rank int
+	if err := db.QueryRow(`SELECT priority, priority_rank FROM features WHERE id = ?`, featID).
+		Scan(&priority, &rank); err != nil {
+		t.Fatalf("query feature priority/rank: %v", err)
+	}
+	if priority != "medium" {
+		t.Errorf("default feature priority = %q, want \"medium\"", priority)
+	}
+	if want := priorityRank(priority); rank != want {
+		t.Errorf("default feature priority_rank = %d, want %d (priorityRank(%q), the value that must match the column default)", rank, want, priority)
 	}
 }

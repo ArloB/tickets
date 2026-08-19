@@ -143,10 +143,17 @@ CREATE INDEX idx_audit_events_actor ON audit_events(actor_id, created_at);
 -- Typed ticket relationships (§5.7). One row per logical edge, not two
 -- kept in sync: parent_of stores parent->child, blocks stores
 -- blocker->blocked, supersedes stores superseder->superseded, and
--- related_to/duplicate_of canonicalize to source_id < target_id at
--- write time (internal/service, not this schema). Reading the far end
--- of a directed edge uses domain.RelationshipType.Inverse(), already
--- implemented in internal/domain, against the same row.
+-- duplicate_of stores dupe->canonical exactly as given (it is
+-- directional with no inverse-named counterpart — see
+-- domain.RelationshipType's doc — so there is nothing to canonicalize
+-- it *against*; canonicalizing it by id order would silently discard
+-- its direction). related_to is the one genuinely symmetric type and
+-- canonicalizes to source_id < target_id. All of this canonicalization
+-- happens in internal/service via domain.CanonicalRelationship, not
+-- this schema. Reading the far end of a directed edge uses
+-- domain.RelationshipType.Inverse() against the same row — Inverse()
+-- deliberately returns false for duplicate_of, matching that it has no
+-- stored inverse view.
 CREATE TABLE ticket_relationships (
     source_id  INTEGER NOT NULL REFERENCES entities(id),
     target_id  INTEGER NOT NULL REFERENCES entities(id),

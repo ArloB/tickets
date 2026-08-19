@@ -50,9 +50,10 @@ func TestFormatErrors(t *testing.T) {
 		ref  Reference
 	}{
 		{"invalid project key", Reference{"abc", KindTicket, 1}},
-		{"unknown kind", Reference{"ABC", ReferenceKind("bogus"), 1}},
+		{"unknown kind", Reference{"ABC", EntityKind("bogus"), 1}},
 		{"zero sequence", Reference{"ABC", KindTicket, 0}},
 		{"negative sequence", Reference{"ABC", KindTicket, -1}},
+		{"project has no reference token", Reference{"ABC", KindProject, 1}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -60,6 +61,18 @@ func TestFormatErrors(t *testing.T) {
 				t.Errorf("Format(%+v) = nil error, want error", c.ref)
 			}
 		})
+	}
+}
+
+func TestEntityKindValid(t *testing.T) {
+	valid := []EntityKind{KindProject, KindTicket, KindFeature, KindDecision, KindPlan, KindDocument}
+	for _, k := range valid {
+		if !k.Valid() {
+			t.Errorf("%s.Valid() = false, want true", k)
+		}
+	}
+	if EntityKind("bogus").Valid() {
+		t.Error(`EntityKind("bogus").Valid() = true, want false`)
 	}
 }
 
@@ -111,7 +124,7 @@ func TestParseErrors(t *testing.T) {
 }
 
 func TestFormatParseRoundTrip(t *testing.T) {
-	kinds := []ReferenceKind{KindTicket, KindFeature, KindDecision, KindPlan, KindDocument}
+	kinds := []EntityKind{KindTicket, KindFeature, KindDecision, KindPlan, KindDocument}
 	for _, k := range kinds {
 		ref := Reference{ProjectKey: "ABC", Kind: k, Seq: 42}
 		s, err := Format(ref)

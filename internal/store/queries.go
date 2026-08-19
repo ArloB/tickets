@@ -57,7 +57,7 @@ func parseTime(s string) (time.Time, error) {
 // §5.2). projectID is nil only when the entity being created is itself
 // a project. now is the caller's shared transaction timestamp (see
 // Now).
-func InsertEntity(ctx context.Context, q Querier, projectID *int64, kind string, now string) (id int64, id36 string, err error) {
+func InsertEntity(ctx context.Context, q Querier, projectID *int64, kind domain.EntityKind, now string) (id int64, id36 string, err error) {
 	u, err := uuid.NewV7()
 	if err != nil {
 		return 0, "", fmt.Errorf("generate uuid: %w", err)
@@ -65,7 +65,7 @@ func InsertEntity(ctx context.Context, q Querier, projectID *int64, kind string,
 	res, err := q.ExecContext(ctx,
 		`INSERT INTO entities(uuid, project_id, kind, version, created_at, updated_at)
 		 VALUES (?, ?, ?, 1, ?, ?)`,
-		u[:], projectID, kind, now, now,
+		u[:], projectID, string(kind), now, now,
 	)
 	if err != nil {
 		return 0, "", fmt.Errorf("insert entity: %w", err)
@@ -81,11 +81,11 @@ func InsertEntity(ctx context.Context, q Querier, projectID *int64, kind string,
 // for (projectID, kind), seeding the counter at 1 if this is the
 // kind's first allocation in the project (ADR 0009). Must be called
 // inside the same transaction as the entity it names.
-func AllocateReference(ctx context.Context, q Querier, projectID int64, kind string) (int64, error) {
+func AllocateReference(ctx context.Context, q Querier, projectID int64, kind domain.EntityKind) (int64, error) {
 	if _, err := q.ExecContext(ctx,
 		`INSERT INTO reference_counters(project_id, kind, next_seq) VALUES (?, ?, 1)
 		 ON CONFLICT(project_id, kind) DO NOTHING`,
-		projectID, kind,
+		projectID, string(kind),
 	); err != nil {
 		return 0, fmt.Errorf("seed reference counter: %w", err)
 	}
@@ -94,7 +94,7 @@ func AllocateReference(ctx context.Context, q Querier, projectID int64, kind str
 		`UPDATE reference_counters SET next_seq = next_seq + 1
 		 WHERE project_id = ? AND kind = ?
 		 RETURNING next_seq - 1`,
-		projectID, kind,
+		projectID, string(kind),
 	).Scan(&seq)
 	if err != nil {
 		return 0, fmt.Errorf("allocate reference: %w", err)

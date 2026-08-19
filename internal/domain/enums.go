@@ -118,10 +118,18 @@ func (s DecisionStatus) Valid() bool {
 }
 
 // RelationshipType values are stored as directed pairs except
-// RelationshipRelatedTo and RelationshipDuplicateOf, which are their
-// own inverse (docs/contracts/enums.md). Inverse() gives the value
-// mapping; full cycle detection (product spec §5.7) is graph-traversal
-// behavior implemented in Phase 1, not here.
+// RelationshipRelatedTo, which is genuinely symmetric — its own
+// inverse. RelationshipDuplicateOf is directional like parent_of/blocks
+// ("A duplicate_of B" means B is canonical, not the reverse) but §5.7
+// defines no "duplicated_by" counterpart the way it does for parent_of
+// and blocks, so it has no Inverse() at all: a stored edge is only ever
+// read from its source end. (An earlier version of
+// docs/contracts/enums.md called duplicate_of "its own inverse" — that
+// was wrong; treating it that way would let "A duplicate_of B" and "B
+// duplicate_of A" both be true, which is a contradiction, not a
+// relationship.) Full cycle detection (product spec §5.7) for
+// parent_of/blocks is graph-traversal behavior implemented in Phase 1's
+// internal/service, not here.
 type RelationshipType string
 
 const (
@@ -135,9 +143,19 @@ const (
 	RelationshipSupersededBy RelationshipType = "superseded_by"
 )
 
+var validRelationshipTypes = map[RelationshipType]bool{
+	RelationshipParentOf:     true,
+	RelationshipChildOf:      true,
+	RelationshipBlocks:       true,
+	RelationshipBlockedBy:    true,
+	RelationshipRelatedTo:    true,
+	RelationshipDuplicateOf:  true,
+	RelationshipSupersedes:   true,
+	RelationshipSupersededBy: true,
+}
+
 func (r RelationshipType) Valid() bool {
-	_, ok := relationshipInverse[r]
-	return ok
+	return validRelationshipTypes[r]
 }
 
 var relationshipInverse = map[RelationshipType]RelationshipType{
@@ -146,13 +164,16 @@ var relationshipInverse = map[RelationshipType]RelationshipType{
 	RelationshipBlocks:       RelationshipBlockedBy,
 	RelationshipBlockedBy:    RelationshipBlocks,
 	RelationshipRelatedTo:    RelationshipRelatedTo,
-	RelationshipDuplicateOf:  RelationshipDuplicateOf,
 	RelationshipSupersedes:   RelationshipSupersededBy,
 	RelationshipSupersededBy: RelationshipSupersedes,
+	// RelationshipDuplicateOf intentionally absent — see the type doc.
 }
 
 // Inverse returns the relationship type seen from the other end of the
-// edge, and whether r is a recognized relationship type at all.
+// edge, and whether r has one. A false result means either r is not a
+// recognized relationship type at all, or it is recognized but
+// directional-only (RelationshipDuplicateOf) — callers that need to
+// distinguish those two cases use Valid() first.
 func (r RelationshipType) Inverse() (RelationshipType, bool) {
 	inv, ok := relationshipInverse[r]
 	return inv, ok

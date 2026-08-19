@@ -42,8 +42,7 @@ func TestRelationshipInverse(t *testing.T) {
 		{RelationshipBlockedBy, RelationshipBlocks},
 		{RelationshipSupersedes, RelationshipSupersededBy},
 		{RelationshipSupersededBy, RelationshipSupersedes},
-		{RelationshipRelatedTo, RelationshipRelatedTo},     // self-inverse
-		{RelationshipDuplicateOf, RelationshipDuplicateOf}, // self-inverse
+		{RelationshipRelatedTo, RelationshipRelatedTo}, // self-inverse
 	}
 	for _, c := range cases {
 		got, ok := c.r.Inverse()
@@ -67,6 +66,22 @@ func TestRelationshipInverse(t *testing.T) {
 
 	if _, ok := RelationshipType("bogus").Inverse(); ok {
 		t.Error(`RelationshipType("bogus").Inverse() ok = true, want false`)
+	}
+}
+
+// TestDuplicateOfHasNoInverse is the regression for the enums.md
+// correction: duplicate_of is directional ("A duplicate_of B" means B
+// is canonical), and §5.7 defines no "duplicated_by" counterpart the
+// way it does for parent_of/blocks, so it must be a recognized
+// relationship type with no Inverse() at all — not a spurious
+// self-inverse, which would let A-duplicates-B and B-duplicates-A both
+// be true simultaneously.
+func TestDuplicateOfHasNoInverse(t *testing.T) {
+	if !RelationshipDuplicateOf.Valid() {
+		t.Error("RelationshipDuplicateOf.Valid() = false, want true")
+	}
+	if _, ok := RelationshipDuplicateOf.Inverse(); ok {
+		t.Error("RelationshipDuplicateOf.Inverse() ok = true, want false (directional, no defined inverse)")
 	}
 }
 

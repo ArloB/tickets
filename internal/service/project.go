@@ -11,7 +11,6 @@ import (
 	"github.com/ArloB/tickets/internal/store"
 )
 
-const generalFeatureKind = "feature"
 const generalFeatureTitle = "General"
 
 // CreateProjectRequest is CreateProject's input.
@@ -62,7 +61,7 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 			return fmt.Errorf("service: check existing project: %w", err)
 		}
 
-		projectEntityID, _, err := store.InsertEntity(ctx, tx, nil, "project", now)
+		projectEntityID, _, err := store.InsertEntity(ctx, tx, nil, domain.KindProject, now)
 		if err != nil {
 			return fmt.Errorf("service: create project entity: %w", err)
 		}
@@ -72,11 +71,11 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 
 		// Mandatory General feature (ADR 0001), created in the same
 		// transaction so a project never briefly exists without one.
-		featureEntityID, _, err := store.InsertEntity(ctx, tx, &projectEntityID, generalFeatureKind, now)
+		featureEntityID, _, err := store.InsertEntity(ctx, tx, &projectEntityID, domain.KindFeature, now)
 		if err != nil {
 			return fmt.Errorf("service: create general feature entity: %w", err)
 		}
-		featureSeq, err := store.AllocateReference(ctx, tx, projectEntityID, generalFeatureKind)
+		featureSeq, err := store.AllocateReference(ctx, tx, projectEntityID, domain.KindFeature)
 		if err != nil {
 			return fmt.Errorf("service: allocate general feature reference: %w", err)
 		}
