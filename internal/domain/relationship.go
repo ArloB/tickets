@@ -94,3 +94,15 @@ func ValidateAssociation(sourceKind, targetKind EntityKind, sourceUUID, targetUU
 	}
 	return nil
 }
+
+// CanonicalAssociation orders two entity UUIDs so an associated_with
+// edge canonicalizes the same way related_to does above: genuinely
+// symmetric, so there's no inherent direction to prefer between two
+// equal partners, and UUID ordering is what migration
+// 0002_core_domain.sql's entity_associations comment specifies.
+func CanonicalAssociation(aUUID, bUUID string) (canonA, canonB string) {
+	if aUUID > bUUID {
+		return bUUID, aUUID
+	}
+	return aUUID, bUUID
+}

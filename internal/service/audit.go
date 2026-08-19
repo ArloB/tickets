@@ -26,6 +26,8 @@ const (
 	eventTicketRestored      = "ticket_restored"
 	eventFeatureDeleted      = "feature_deleted"
 	eventFeatureRestored     = "feature_restored"
+	eventAssociationAdded    = "association_added"
+	eventAssociationRemoved  = "association_removed"
 )
 
 // auditChanges marshals a small before/after or field-summary map into
