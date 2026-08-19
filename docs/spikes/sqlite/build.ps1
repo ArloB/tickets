@@ -15,7 +15,7 @@ Write-Host "--- linux/amd64, CGO_ENABLED=0 ---"
 $env:CGO_ENABLED = "0"; $env:GOOS = "linux"; $env:GOARCH = "amd64"
 go build -o "$out\spike-linux" ./docs/spikes/sqlite
 
-Remove-Item Env:\GOOS, Env:\GOARCH, Env:\CGO_ENABLED
+Remove-Item Env:\GOOS, Env:\GOARCH, Env:\CGO_ENABLED -ErrorAction SilentlyContinue
 
 Write-Host "Built: $out\spike-windows.exe and $out\spike-linux"
 Write-Host "Run each on its native platform to confirm assertions 1-6 also pass there."

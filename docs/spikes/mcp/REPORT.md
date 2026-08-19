@@ -18,10 +18,12 @@ stdio assertion — see main.go.)
 
 ## Evidence
 
-- Every assertion above ran via `go run` on Windows and, separately, in
-  WSL Ubuntu 22.04 — identical PASS results on both (see the raw output
-  transcripts referenced in the Phase 0 implementation session; not
-  reproduced here since the spike itself is the reproduction).
+- Every assertion above ran via `go run` on Windows, then again in WSL
+  Ubuntu 22.04 against the same commit (`0577565`) after `git pull
+  --ff-only` synced the clone — identical 5/5 PASS output on both,
+  including the exact `WWW-Authenticate` header value and both
+  `auth_user_id`/echo values. Reproduce with `go run ./docs/spikes/mcp`
+  on either platform.
 - Assertion 3's HTTP leg used a real `httptest.Server` wrapping
   `mcp.NewStreamableHTTPHandler`, not a mock — the auth middleware, the
   wire protocol, and the tool dispatch are all exercised for real.
