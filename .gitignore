@@ -1,0 +1,24 @@
+# Build artifacts
+/bin/
+/dist/
+tickets
+tickets.exe
+
+# SQLite runtime files
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Web UI
+/web/node_modules/
+/web/dist/*
+!/web/dist/index.html
+
+# Local scratch / OS
+.DS_Store
+Thumbs.db
+*.local
+
+# Go tooling
+/coverage.out

@@ -1,0 +1,59 @@
+# Dormant until a GitHub remote exists (Phase 0 decision: local git + WSL
+# only, no remote yet). Kept in sync with Taskfile.yml so local and CI can
+# never drift — every step here just calls the same tasks a developer runs
+# locally.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: Install go-task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+
+      - name: fmt
+        run: task fmt
+
+      - name: test (with race detector on Linux)
+        if: runner.os == 'Linux'
+        run: task test:race
+
+      - name: test
+        if: runner.os != 'Linux'
+        run: task test
+
+      - name: openapi lint
+        run: task openapi
+
+      - name: build
+        run: task build
+
+      # Platform edge case from product spec §15: verify behavior with a
+      # data directory whose path has spaces and non-ASCII characters.
+      - name: build with unusual path (smoke check only, until Step 5 exists)
+        shell: bash
+        run: mkdir -p "tmp/tickets tëst dir" && ls "tmp/tickets tëst dir"

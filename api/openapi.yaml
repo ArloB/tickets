@@ -1,0 +1,12 @@
+openapi: 3.0.3
+info:
+  title: Tickets API
+  version: 0.1.0
+  description: >
+    Versioned HTTP API for Tickets. This is a placeholder checked in during
+    Phase 0 Step 1 (repository skeleton) so the OpenAPI lint task has a
+    valid target from the start. The real contract for the Phase 0
+    vertical slice (projects, tickets, health) is written in Step 4.
+servers:
+  - url: /api/v1
+paths: {}

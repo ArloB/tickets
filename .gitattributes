@@ -1,0 +1,16 @@
+# This repo is developed identically from Windows and WSL (Phase 0
+# decision: WSL local clone, no Docker). Force LF everywhere so checkouts
+# match byte-for-byte regardless of platform core.autocrlf settings, and
+# so shell scripts / Taskfile invocations from bash never break on CRLF.
+* text=auto eol=lf
+
+*.go   text eol=lf
+*.mod  text eol=lf
+*.sum  text eol=lf
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+*.png  binary
+*.jpg  binary
+*.ico  binary

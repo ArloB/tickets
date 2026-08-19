@@ -1,0 +1,56 @@
+version: "3"
+
+vars:
+  WSL_REPO: ~/tickets
+
+tasks:
+  fmt:
+    desc: Format Go source (gofmt -l fails the task if anything is unformatted).
+    cmds:
+      - gofmt -l -s .
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint against the whole module.
+    cmds:
+      - golangci-lint run ./...
+
+  openapi:
+    desc: Lint the checked-in OpenAPI contract.
+    cmds:
+      - npx --yes @redocly/cli lint api/openapi.yaml
+
+  test:
+    desc: >
+      Run the Go test suite. Windows has no C toolchain, so plain `go test`
+      runs here; the race detector runs only on the Linux leg (task test:race).
+    cmds:
+      - go test ./...
+
+  test:race:
+    desc: Run tests with the race detector. Requires a C toolchain (WSL has gcc; Windows does not).
+    cmds:
+      - go test -race ./...
+
+  build:
+    desc: Build the tickets binary for the host platform.
+    vars:
+      OUT: '{{if eq OS "windows"}}bin/tickets.exe{{else}}bin/tickets{{end}}'
+    cmds:
+      - go build -o {{.OUT}} ./cmd/tickets
+
+  ci:
+    desc: Full local CI gate for the host platform (Windows leg).
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: test
+      - task: openapi
+      - task: build
+
+  ci:linux:
+    desc: >
+      Run the CI gate inside the WSL clone at {{.WSL_REPO}}, including the
+      race detector. Pulls first so it never tests stale code.
+    cmds:
+      - wsl -e bash -lc "cd {{.WSL_REPO}} && git pull --ff-only && task fmt lint test:race openapi build"
