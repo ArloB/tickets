@@ -7,6 +7,11 @@
 /tickets
 /tickets.exe
 
+# Safety net for stray `go build ./some/pkg` output dropped at the repo
+# root without -o (bit us once with mcp.exe from the spike package).
+/*.exe
+/*.test
+
 # SQLite runtime files
 *.db
 *.db-wal
