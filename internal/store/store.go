@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -73,6 +75,25 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
+// migrationVersion parses the leading integer from a migration file's
+// base name (e.g. "migrations/0002_core_domain.sql" -> 2). Versions
+// come from the filename, not the sorted position in the glob result:
+// deriving version from position meant inserting a file that happened
+// to sort before an already-applied one would silently re-map every
+// later version's identity in schema_migrations.
+func migrationVersion(path string) (int, error) {
+	base := filepath.Base(path)
+	digits, _, found := strings.Cut(base, "_")
+	if !found {
+		return 0, fmt.Errorf("migration filename %q has no _ separator after its version prefix", base)
+	}
+	version, err := strconv.Atoi(digits)
+	if err != nil {
+		return 0, fmt.Errorf("migration filename %q has a non-numeric version prefix: %w", base, err)
+	}
+	return version, nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,
@@ -87,8 +108,11 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	sort.Strings(entries)
 
-	for i, name := range entries {
-		version := i + 1
+	for _, name := range entries {
+		version, err := migrationVersion(name)
+		if err != nil {
+			return err
+		}
 		var already int
 		if err := s.db.QueryRowContext(ctx,
 			`SELECT count(*) FROM schema_migrations WHERE version = ?`, version,

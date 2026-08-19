@@ -94,6 +94,41 @@ func TestTimeLayoutIsFixedWidth(t *testing.T) {
 	}
 }
 
+// TestMigrationVersionParsedFromFilename guards against the version
+// being re-derived from a migration file's sorted position in the glob
+// result, which would silently re-map every later migration's identity
+// in schema_migrations if a new file happened to sort before an
+// already-applied one.
+func TestMigrationVersionParsedFromFilename(t *testing.T) {
+	cases := []struct {
+		path    string
+		want    int
+		wantErr bool
+	}{
+		{path: "migrations/0001_initial.sql", want: 1},
+		{path: "migrations/0002_core_domain.sql", want: 2},
+		{path: "migrations/0010_something.sql", want: 10},
+		{path: "noseparator.sql", wantErr: true},
+		{path: "migrations/abc_bad.sql", wantErr: true},
+	}
+	for _, tc := range cases {
+		got, err := migrationVersion(tc.path)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("migrationVersion(%q) = %d, nil; want an error", tc.path, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("migrationVersion(%q): unexpected error: %v", tc.path, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("migrationVersion(%q) = %d, want %d", tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestMigrateIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
