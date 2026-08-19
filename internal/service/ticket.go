@@ -536,3 +536,112 @@ func (s *Service) ReorderTicket(ctx context.Context, req ReorderTicketRequest, a
 	}
 	return result, nil
 }
+
+// DeleteTicketRequest is DeleteTicket's input.
+type DeleteTicketRequest struct {
+	Ref             domain.Reference
+	ExpectedVersion int64
+}
+
+// DeleteTicket soft-deletes a ticket (ADR 0013). Unlike a feature, a
+// ticket has no dependents that could block deletion — its comments,
+// relationships, and mentions aren't blocking dependencies, they're
+// simply filtered out of every read path once the ticket itself is
+// gone (the same pattern already applied to relationship/mention
+// listings that point at a deleted endpoint).
+func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, actor domain.ActorRef, correlationID string) error {
+	return s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("ticket not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up ticket: %w", err)
+		}
+
+		if _, err := store.SoftDeleteEntity(ctx, tx, row.ID, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: soft-delete ticket: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"ref": row.Entity.Ref})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketDeleted, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+		return nil
+	})
+}
+
+// RestoreTicketRequest is RestoreTicket's input.
+type RestoreTicketRequest struct {
+	Ref             domain.Reference
+	ExpectedVersion int64
+}
+
+// RestoreTicket clears a ticket's soft-delete, refusing when the
+// ticket's feature is itself deleted (ADR 0001 forbids a nullable
+// feature_id, so a restored ticket would otherwise point at a deleted
+// feature with no escape hatch — restore the feature first). Cascade-
+// deleted tickets are not auto-restored when their feature is
+// restored; each is restored individually once its parent is live
+// again, which this same check then allows.
+func (s *Service) RestoreTicket(ctx context.Context, req RestoreTicketRequest, actor domain.ActorRef, correlationID string) (domain.Ticket, error) {
+	var result domain.Ticket
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetTicketByRefAnyDeletion(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("ticket not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up ticket: %w", err)
+		}
+		if row.Entity.DeletedAt == nil {
+			return newValidationError("ref", "ticket is not deleted")
+		}
+
+		featureRef, err := domain.Parse(row.Entity.FeatureRef)
+		if err != nil {
+			return fmt.Errorf("service: parse ticket's feature ref: %w", err)
+		}
+		feature, err := store.GetFeatureByRefAnyDeletion(ctx, tx, featureRef)
+		if err != nil {
+			return fmt.Errorf("service: look up ticket's feature: %w", err)
+		}
+		if feature.Entity.DeletedAt != nil {
+			return newValidationError("ref", "cannot restore ticket %s: its feature %s is deleted; restore the feature first", row.Entity.Ref, feature.Entity.Ref)
+		}
+
+		if _, err := store.RestoreEntity(ctx, tx, row.ID, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: restore ticket: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"ref": row.Entity.Ref})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketRestored, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload restored ticket: %w", err)
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	return result, nil
+}

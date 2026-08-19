@@ -286,3 +286,140 @@ func (s *Service) ReorderFeature(ctx context.Context, req ReorderFeatureRequest,
 	}
 	return result, nil
 }
+
+// DeleteFeatureRequest is DeleteFeature's input. Cascade opts into
+// deleting the feature's non-deleted tickets together with it, in one
+// transaction — without it, a non-empty feature is blocked (ADR
+// 0013).
+type DeleteFeatureRequest struct {
+	Ref             domain.Reference
+	Cascade         bool
+	ExpectedVersion int64
+}
+
+// DeleteFeature soft-deletes a feature. The General feature can never
+// be deleted (ADR 0001). A feature holding non-deleted tickets is
+// blocked with has_dependents naming the count unless Cascade is set,
+// in which case every dependent ticket is soft-deleted in the same
+// transaction, each getting its own ticket_deleted audit event in
+// addition to the feature's own feature_deleted event.
+func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, actor domain.ActorRef, correlationID string) error {
+	return s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetFeatureByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("feature not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up feature: %w", err)
+		}
+
+		proj, err := store.GetProjectByKey(ctx, tx, row.Entity.ProjectKey)
+		if err != nil {
+			return fmt.Errorf("service: look up project: %w", err)
+		}
+		if proj.GeneralFeatureID == row.ID {
+			return newValidationError("ref", "the General feature cannot be deleted")
+		}
+
+		dependents, err := store.ListTicketEntityIDsForFeature(ctx, tx, row.ID)
+		if err != nil {
+			return fmt.Errorf("service: list feature's tickets: %w", err)
+		}
+		if len(dependents) > 0 && !req.Cascade {
+			return newHasDependentsError("feature %s has %d non-deleted ticket(s); retry with cascade to delete them together", row.Entity.Ref, len(dependents))
+		}
+
+		if _, err := store.SoftDeleteEntity(ctx, tx, row.ID, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: soft-delete feature: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"ref": row.Entity.Ref, "cascade": req.Cascade, "dependents": len(dependents)})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureDeleted, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		for _, ticketEntityID := range dependents {
+			// Resolve the ref before deleting: GetTicketRefByEntityID
+			// filters deleted_at IS NULL like every other read path, so
+			// it would return not_found if asked after the delete below.
+			ticketRef, err := store.GetTicketRefByEntityID(ctx, tx, ticketEntityID)
+			if err != nil {
+				return fmt.Errorf("service: resolve cascade-deleted ticket ref: %w", err)
+			}
+			ticketRefStr, err := domain.Format(ticketRef)
+			if err != nil {
+				return fmt.Errorf("service: format cascade-deleted ticket ref: %w", err)
+			}
+
+			if err := store.SoftDeleteEntityUnconditional(ctx, tx, ticketEntityID, now); err != nil {
+				return fmt.Errorf("service: cascade-delete ticket: %w", err)
+			}
+
+			ticketChanges := auditChanges(map[string]any{"ref": ticketRefStr, "cascade_from": row.Entity.Ref})
+			if err := store.InsertAuditEvent(ctx, tx, ticketEntityID, actorID, eventTicketDeleted, corrID, nil, ticketChanges, now); err != nil {
+				return fmt.Errorf("service: record cascade audit event: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// RestoreFeatureRequest is RestoreFeature's input.
+type RestoreFeatureRequest struct {
+	Ref             domain.Reference
+	ExpectedVersion int64
+}
+
+// RestoreFeature clears a feature's soft-delete. It does not restore
+// any tickets a cascade delete took down with it — each is restored
+// individually, which RestoreTicket now allows once its feature is
+// live again.
+func (s *Service) RestoreFeature(ctx context.Context, req RestoreFeatureRequest, actor domain.ActorRef, correlationID string) (domain.Feature, error) {
+	var result domain.Feature
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetFeatureByRefAnyDeletion(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("feature not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up feature: %w", err)
+		}
+		if row.Entity.DeletedAt == nil {
+			return newValidationError("ref", "feature is not deleted")
+		}
+
+		if _, err := store.RestoreEntity(ctx, tx, row.ID, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: restore feature: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"ref": row.Entity.Ref})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureRestored, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetFeatureByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload restored feature: %w", err)
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Feature{}, err
+	}
+	return result, nil
+}

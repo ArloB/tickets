@@ -24,7 +24,7 @@ type FeatureRow struct {
 const featureSelectColumns = `
 	e.id, e.uuid, e.version, e.created_at, e.updated_at,
 	p.key, f.project_id, f.seq,
-	f.title, f.description, f.status, f.priority, f.priority_rank, f.position`
+	f.title, f.description, f.status, f.priority, f.priority_rank, f.position, e.deleted_at`
 
 func scanFeatureRow(scan func(dest ...any) error) (FeatureRow, error) {
 	var (
@@ -33,12 +33,20 @@ func scanFeatureRow(scan func(dest ...any) error) (FeatureRow, error) {
 		createdAt, updatedAt string
 		status, priority     string
 		seq                  int64
+		deletedAt            sql.NullString
 	)
 	err := scan(&row.ID, &u, &row.Entity.Version, &createdAt, &updatedAt,
 		&row.Entity.ProjectKey, &row.ProjectEntityID, &seq,
-		&row.Entity.Title, &row.Entity.Description, &status, &priority, &row.PriorityRank, &row.Position)
+		&row.Entity.Title, &row.Entity.Description, &status, &priority, &row.PriorityRank, &row.Position, &deletedAt)
 	if err != nil {
 		return FeatureRow{}, err
+	}
+	if deletedAt.Valid {
+		t, err := parseTime(deletedAt.String)
+		if err != nil {
+			return FeatureRow{}, fmt.Errorf("parse feature deleted_at: %w", err)
+		}
+		row.Entity.DeletedAt = &t
 	}
 	parsed, err := uuid.FromBytes(u)
 	if err != nil {
@@ -80,6 +88,28 @@ func GetFeatureByRef(ctx context.Context, q Querier, ref domain.Reference) (Feat
 	}
 	if err != nil {
 		return FeatureRow{}, fmt.Errorf("get feature %s-F%d: %w", ref.ProjectKey, ref.Seq, err)
+	}
+	return row, nil
+}
+
+// GetFeatureByRefAnyDeletion is GetFeatureByRef without the
+// deleted_at IS NULL filter — see GetTicketByRefAnyDeletion's doc;
+// Restore needs this to find a soft-deleted feature at all.
+func GetFeatureByRefAnyDeletion(ctx context.Context, q Querier, ref domain.Reference) (FeatureRow, error) {
+	if ref.Kind != domain.KindFeature {
+		return FeatureRow{}, ErrNotFound
+	}
+	query := `SELECT` + featureSelectColumns + `
+		FROM features f
+		JOIN entities e ON e.id = f.id
+		JOIN projects p ON p.key = ?
+		WHERE f.project_id = p.id AND f.seq = ?`
+	row, err := scanFeatureRow(q.QueryRowContext(ctx, query, ref.ProjectKey, ref.Seq).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return FeatureRow{}, ErrNotFound
+	}
+	if err != nil {
+		return FeatureRow{}, fmt.Errorf("get feature %s-F%d (any deletion state): %w", ref.ProjectKey, ref.Seq, err)
 	}
 	return row, nil
 }

@@ -48,6 +48,13 @@ type Feature struct {
 	Version     int64          `json:"version"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
+	// DeletedAt is nil on every ordinary read (Get/List filter
+	// deleted_at IS NULL, ADR 0013) — it is only ever non-nil on the
+	// result of a lookup made specifically to check deletion state
+	// (internal/store's *ByRefAnyDeletion functions), which Restore
+	// uses since a soft-deleted record is otherwise invisible to the
+	// normal Get path.
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 // Ticket is the base unit of actionable work (§5.5). Assignee is nil
@@ -69,6 +76,8 @@ type Ticket struct {
 	Version     int64          `json:"version"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
+	// DeletedAt: see Feature.DeletedAt's doc — same contract.
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
 // Comment is a Markdown note attached to a principal entity (§5.10).

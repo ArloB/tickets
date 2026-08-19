@@ -317,7 +317,7 @@ const ticketSelectColumns = `
 	p.key, t.project_id, t.feature_id, f.seq,
 	t.seq, t.type, t.title, t.description, t.status, t.priority, t.severity,
 	t.priority_rank, t.severity_rank, t.position,
-	a.kind, a.name`
+	a.kind, a.name, e.deleted_at`
 
 func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 	var (
@@ -328,14 +328,22 @@ func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 		severity                     sql.NullString
 		featureSeq, ticketSeq        int64
 		assigneeKind, assigneeName   sql.NullString
+		deletedAt                    sql.NullString
 	)
 	err := scan(&row.ID, &u, &row.Entity.Version, &createdAt, &updatedAt,
 		&row.Entity.ProjectKey, &row.ProjectEntityID, &row.FeatureEntityID, &featureSeq,
 		&ticketSeq, &ticketType, &row.Entity.Title, &row.Entity.Description, &status, &priority, &severity,
 		&row.PriorityRank, &row.SeverityRank, &row.Position,
-		&assigneeKind, &assigneeName)
+		&assigneeKind, &assigneeName, &deletedAt)
 	if err != nil {
 		return TicketRow{}, err
+	}
+	if deletedAt.Valid {
+		t, err := parseTime(deletedAt.String)
+		if err != nil {
+			return TicketRow{}, fmt.Errorf("parse ticket deleted_at: %w", err)
+		}
+		row.Entity.DeletedAt = &t
 	}
 	parsed, err := uuid.FromBytes(u)
 	if err != nil {
@@ -399,6 +407,31 @@ func GetTicketByRef(ctx context.Context, q Querier, ref domain.Reference) (Ticke
 	}
 	if err != nil {
 		return TicketRow{}, fmt.Errorf("get ticket %s-%d: %w", ref.ProjectKey, ref.Seq, err)
+	}
+	return row, nil
+}
+
+// GetTicketByRefAnyDeletion is GetTicketByRef without the
+// deleted_at IS NULL filter — a soft-deleted ticket is otherwise
+// invisible to every normal read path (ADR 0013), so Restore needs
+// this to find the row it's restoring at all.
+func GetTicketByRefAnyDeletion(ctx context.Context, q Querier, ref domain.Reference) (TicketRow, error) {
+	if ref.Kind != domain.KindTicket {
+		return TicketRow{}, ErrNotFound
+	}
+	query := `SELECT` + ticketSelectColumns + `
+		FROM tickets t
+		JOIN entities e ON e.id = t.id
+		JOIN projects p ON p.key = ?
+		JOIN features f ON f.id = t.feature_id
+		LEFT JOIN actors a ON a.id = t.assignee_id
+		WHERE t.project_id = p.id AND t.seq = ?`
+	row, err := scanTicketRow(q.QueryRowContext(ctx, query, ref.ProjectKey, ref.Seq).Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TicketRow{}, ErrNotFound
+	}
+	if err != nil {
+		return TicketRow{}, fmt.Errorf("get ticket %s-%d (any deletion state): %w", ref.ProjectKey, ref.Seq, err)
 	}
 	return row, nil
 }
