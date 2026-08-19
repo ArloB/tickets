@@ -69,6 +69,9 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 		if err := store.InsertProject(ctx, tx, projectEntityID, req.Key, title, req.Description); err != nil {
 			return fmt.Errorf("service: create project: %w", err)
 		}
+		if err := rescanMentions(ctx, tx, projectEntityID, sourceOwnBody, req.Key, req.Description, now); err != nil {
+			return err
+		}
 
 		// Mandatory General feature (ADR 0001), created in the same
 		// transaction so a project never briefly exists without one.

@@ -17,6 +17,9 @@ const (
 	eventTicketUpdated       = "ticket_updated"
 	eventTicketAssigned      = "ticket_assigned"
 	eventTicketMoved         = "ticket_moved"
+	eventCommentAdded        = "comment_added"
+	eventCommentEdited       = "comment_edited"
+	eventCommentDeleted      = "comment_deleted"
 )
 
 // auditChanges marshals a small before/after or field-summary map into

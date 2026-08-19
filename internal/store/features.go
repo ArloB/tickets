@@ -118,6 +118,34 @@ func ListFeaturesForProject(ctx context.Context, q Querier, projectEntityID int6
 	return out, nil
 }
 
+// GetFeatureRefByEntityID resolves a feature's public reference from
+// its internal entity id, or ErrNotFound if missing/deleted/not a
+// feature — GetFeatureByRef's reverse, mirroring
+// GetTicketRefByEntityID (relationships.go). Used when a mention edge
+// (which stores bare entity ids) needs to render its target on the
+// wire.
+func GetFeatureRefByEntityID(ctx context.Context, q Querier, entityID int64) (domain.Reference, error) {
+	var (
+		projectKey string
+		seq        int64
+	)
+	err := q.QueryRowContext(ctx,
+		`SELECT p.key, f.seq
+		 FROM features f
+		 JOIN entities e ON e.id = f.id
+		 JOIN projects p ON p.id = f.project_id
+		 WHERE f.id = ? AND e.deleted_at IS NULL`,
+		entityID,
+	).Scan(&projectKey, &seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Reference{}, ErrNotFound
+	}
+	if err != nil {
+		return domain.Reference{}, fmt.Errorf("get feature ref for entity %d: %w", entityID, err)
+	}
+	return domain.Reference{ProjectKey: projectKey, Kind: domain.KindFeature, Seq: seq}, nil
+}
+
 // UpdateFeatureFields applies a conditional update to a feature's
 // title/description/priority (ADR 0008's version-guard pattern via
 // bumpEntityVersion). now is the caller's shared transaction

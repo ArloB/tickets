@@ -70,3 +70,40 @@ type Ticket struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 }
+
+// Comment is a Markdown note attached to a principal entity (§5.10).
+// Unlike Project/Feature/Ticket it has no public reference — migration
+// 0002_core_domain.sql's comment explains why comments keep a
+// dedicated INTEGER PRIMARY KEY instead of joining the entities
+// registry (Phase 5's FTS5 content_rowid). ID is that primary key,
+// exposed directly: ADR 0002's "no bare integer id" rule guards
+// entities.id, a surrogate that always has a real ref/uuid hiding
+// behind it — a comment has neither, so its id is the actual public
+// identity here, not a leaked internal detail.
+//
+// Deletion is a soft-delete with a visible tombstone (§5.10): Body
+// stays intact in storage (the audit trail wants it), and DeletedAt
+// being set is what a caller checks to render the tombstone instead
+// of the content.
+type Comment struct {
+	ID        int64      `json:"id"`
+	Author    ActorRef   `json:"author"`
+	Body      string     `json:"body"`
+	Version   int64      `json:"version"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+}
+
+// CommentVersion is one archived prior body of a Comment (§5.10:
+// "comment edits create versions"). EditedBy is the actor who made
+// the edit that superseded this body — not necessarily who originally
+// wrote it beyond version 1, since nothing but audit_events tracks
+// who authored the *current* live body between edits (see
+// internal/service/comment.go's doc on this).
+type CommentVersion struct {
+	Version   int64     `json:"version"`
+	Body      string    `json:"body"`
+	EditedBy  ActorRef  `json:"edited_by"`
+	CreatedAt time.Time `json:"created_at"`
+}

@@ -106,6 +106,9 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 			string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr); err != nil {
 			return fmt.Errorf("service: create ticket: %w", err)
 		}
+		if err := rescanMentions(ctx, tx, ticketEntityID, sourceOwnBody, req.ProjectKey, req.Description, now); err != nil {
+			return err
+		}
 
 		ref := domain.Reference{ProjectKey: req.ProjectKey, Kind: domain.KindTicket, Seq: seq}
 		refStr, err := domain.Format(ref)
@@ -263,6 +266,9 @@ func (s *Service) UpdateTicketFields(ctx context.Context, req UpdateTicketFields
 				return newVersionConflictError(current)
 			}
 			return fmt.Errorf("service: update ticket: %w", err)
+		}
+		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now); err != nil {
+			return err
 		}
 
 		changes := auditChanges(map[string]any{"title": title, "type": string(req.Type), "priority": string(req.Priority)})

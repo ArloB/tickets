@@ -59,6 +59,9 @@ func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, a
 		if err := store.InsertFeature(ctx, tx, featureEntityID, proj.ID, seq, title, req.Description, string(priority)); err != nil {
 			return fmt.Errorf("service: create feature: %w", err)
 		}
+		if err := rescanMentions(ctx, tx, featureEntityID, sourceOwnBody, req.ProjectKey, req.Description, now); err != nil {
+			return err
+		}
 
 		ref := domain.Reference{ProjectKey: req.ProjectKey, Kind: domain.KindFeature, Seq: seq}
 		refStr, err := domain.Format(ref)
@@ -151,6 +154,9 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 				return newVersionConflictError(current)
 			}
 			return fmt.Errorf("service: update feature: %w", err)
+		}
+		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now); err != nil {
+			return err
 		}
 
 		changes := auditChanges(map[string]any{"title": title, "priority": string(req.Priority)})
