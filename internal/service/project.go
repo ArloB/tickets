@@ -21,15 +21,16 @@ type CreateProjectRequest struct {
 }
 
 // CreateProject creates a project and its mandatory General feature
-// (ADR 0001) in one transaction. idemKey/fingerprint may be empty,
-// meaning the caller supplied no Idempotency-Key.
+// (ADR 0001) in one transaction, attributed to actor (ADR 0012) and
+// tagged with correlationID on its audit event. idemKey/fingerprint
+// may be empty, meaning the caller supplied no Idempotency-Key.
 //
 // The idempotency cache stores only the project's key, never a
 // snapshot of the response (see idempotency.go and the migration's
 // comment on idempotency_keys.ref_key) — so both a fresh create and a
 // replayed one finish by re-fetching the live project via GetProject,
 // and both return identically shaped, fully current data.
-func (s *Service) CreateProject(ctx context.Context, req CreateProjectRequest, idemKey, fingerprint string) (domain.Project, error) {
+func (s *Service) CreateProject(ctx context.Context, req CreateProjectRequest, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (domain.Project, error) {
 	if !domain.ValidProjectKey(req.Key) {
 		return domain.Project{}, newValidationError("key", "project key must be 2-10 uppercase letters/digits starting with a letter")
 	}
@@ -38,16 +39,16 @@ func (s *Service) CreateProject(ctx context.Context, req CreateProjectRequest, i
 		return domain.Project{}, newValidationError("title", "title is required")
 	}
 
-	key, err := s.createProjectTx(ctx, req, title, idemKey, fingerprint)
+	key, err := s.createProjectTx(ctx, req, title, actor, correlationID, idemKey, fingerprint)
 	if err != nil {
 		return domain.Project{}, err
 	}
 	return s.GetProject(ctx, key)
 }
 
-func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest, title, idemKey, fingerprint string) (string, error) {
+func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest, title string, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (string, error) {
 	var result string
-	err := s.withTx(ctx, func(tx *sql.Tx, now string) error {
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		if cached, found, err := checkIdempotency(ctx, tx, idemKey, fingerprint); err != nil {
 			return err
 		} else if found {
@@ -61,7 +62,7 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 			return fmt.Errorf("service: check existing project: %w", err)
 		}
 
-		projectEntityID, _, err := store.InsertEntity(ctx, tx, nil, domain.KindProject, now)
+		projectEntityID, _, err := store.InsertEntity(ctx, tx, nil, domain.KindProject, actorID, now)
 		if err != nil {
 			return fmt.Errorf("service: create project entity: %w", err)
 		}
@@ -71,7 +72,7 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 
 		// Mandatory General feature (ADR 0001), created in the same
 		// transaction so a project never briefly exists without one.
-		featureEntityID, _, err := store.InsertEntity(ctx, tx, &projectEntityID, domain.KindFeature, now)
+		featureEntityID, _, err := store.InsertEntity(ctx, tx, &projectEntityID, domain.KindFeature, actorID, now)
 		if err != nil {
 			return fmt.Errorf("service: create general feature entity: %w", err)
 		}
@@ -84,6 +85,11 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 		}
 		if err := store.SetProjectGeneralFeature(ctx, tx, projectEntityID, featureEntityID); err != nil {
 			return fmt.Errorf("service: link general feature: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"key": req.Key, "title": title})
+		if err := store.InsertAuditEvent(ctx, tx, projectEntityID, actorID, eventProjectCreated, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
 		}
 
 		if err := recordIdempotency(ctx, tx, idemKey, fingerprint, req.Key, now); err != nil {

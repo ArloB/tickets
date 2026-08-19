@@ -27,11 +27,12 @@ type CreateTicketRequest struct {
 }
 
 // CreateTicket allocates a reference and creates a ticket in its
-// project's General feature, in one transaction.
+// project's General feature, in one transaction, attributed to actor
+// (ADR 0012) and tagged with correlationID on its audit event.
 //
 // Like CreateProject, the idempotency cache stores only the created
 // ticket's ref, never a snapshot of the response — see idempotency.go.
-func (s *Service) CreateTicket(ctx context.Context, req CreateTicketRequest, idemKey, fingerprint string) (domain.Ticket, error) {
+func (s *Service) CreateTicket(ctx context.Context, req CreateTicketRequest, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (domain.Ticket, error) {
 	if !req.Type.Valid() {
 		return domain.Ticket{}, newValidationError("type", "invalid ticket type %q", req.Type)
 	}
@@ -55,16 +56,16 @@ func (s *Service) CreateTicket(ctx context.Context, req CreateTicketRequest, ide
 		}
 	}
 
-	ref, err := s.createTicketTx(ctx, req, title, priority, idemKey, fingerprint)
+	ref, err := s.createTicketTx(ctx, req, title, priority, actor, correlationID, idemKey, fingerprint)
 	if err != nil {
 		return domain.Ticket{}, err
 	}
 	return s.GetTicket(ctx, ref)
 }
 
-func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, title string, priority domain.Priority, idemKey, fingerprint string) (domain.Reference, error) {
+func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, title string, priority domain.Priority, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (domain.Reference, error) {
 	var result domain.Reference
-	err := s.withTx(ctx, func(tx *sql.Tx, now string) error {
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		if cached, found, err := checkIdempotency(ctx, tx, idemKey, fingerprint); err != nil {
 			return err
 		} else if found {
@@ -87,7 +88,7 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 			return fmt.Errorf("service: project %q has no general feature (data integrity)", req.ProjectKey)
 		}
 
-		ticketEntityID, _, err := store.InsertEntity(ctx, tx, &proj.ID, domain.KindTicket, now)
+		ticketEntityID, _, err := store.InsertEntity(ctx, tx, &proj.ID, domain.KindTicket, actorID, now)
 		if err != nil {
 			return fmt.Errorf("service: create ticket entity: %w", err)
 		}
@@ -111,6 +112,12 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 		if err != nil {
 			return fmt.Errorf("service: format created ticket ref: %w", err)
 		}
+
+		changes := auditChanges(map[string]any{"ref": refStr, "type": string(req.Type), "title": title})
+		if err := store.InsertAuditEvent(ctx, tx, ticketEntityID, actorID, eventTicketCreated, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
 		if err := recordIdempotency(ctx, tx, idemKey, fingerprint, refStr, now); err != nil {
 			return err
 		}
@@ -151,13 +158,13 @@ type UpdateTicketStatusRequest struct {
 // a status update is already made duplicate-safe by the version check
 // itself (a stale retry fails with version_conflict rather than
 // double-applying), so this endpoint relies on If-Match alone.
-func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatusRequest) (domain.Ticket, error) {
+func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatusRequest, actor domain.ActorRef, correlationID string) (domain.Ticket, error) {
 	if !req.NewStatus.Valid() {
 		return domain.Ticket{}, newValidationError("status", "invalid status %q", req.NewStatus)
 	}
 
 	var result domain.Ticket
-	err := s.withTx(ctx, func(tx *sql.Tx, now string) error {
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
 			return newNotFoundError("ticket not found")
@@ -165,6 +172,7 @@ func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatus
 		if err != nil {
 			return fmt.Errorf("service: look up ticket: %w", err)
 		}
+		fromStatus := row.Entity.Status
 
 		if _, err := store.UpdateTicketStatus(ctx, tx, row.ID, string(req.NewStatus), req.ExpectedVersion, now); err != nil {
 			if errors.Is(err, store.ErrVersionConflict) {
@@ -175,6 +183,11 @@ func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatus
 				return newVersionConflictError(current)
 			}
 			return fmt.Errorf("service: update ticket status: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"from": string(fromStatus), "to": string(req.NewStatus)})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketStatusChanged, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
 		}
 
 		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)

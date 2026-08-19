@@ -40,7 +40,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 
 	proj, err := s.svc.CreateProject(r.Context(), service.CreateProjectRequest{
 		Key: req.Key, Title: req.Title, Description: req.Description,
-	}, idempotencyKey(r), fp)
+	}, requestActor(r), correlationID(r), idempotencyKey(r), fp)
 	if err != nil {
 		writeError(w, r, err)
 		return

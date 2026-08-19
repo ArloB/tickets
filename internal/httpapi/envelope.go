@@ -52,6 +52,18 @@ func correlationID(r *http.Request) string {
 	return id.String()
 }
 
+// requestActor is every mutating handler's actor for internal/service
+// calls (ADR 0012). Phase 1 has no authentication (ADR 0004 lands in
+// Phase 2), so every HTTP request is attributed to the single seeded
+// 'local' actor (migration 0002_core_domain.sql) — a placeholder, not
+// a design decision about who "local" represents long-term. Phase 2
+// replaces this with an actor resolved from the request's session or
+// bearer token; no other code in this package needs to change when it
+// does, since the actor only ever flows through as this one value.
+func requestActor(r *http.Request) domain.ActorRef {
+	return domain.ActorRef{Kind: domain.ActorHuman, Name: "local"}
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

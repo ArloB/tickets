@@ -26,7 +26,7 @@ func TestConcurrentTicketCreateReferenceAllocation(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
 
-	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 
@@ -41,7 +41,7 @@ func TestConcurrentTicketCreateReferenceAllocation(t *testing.T) {
 			defer wg.Done()
 			ticket, err := s.CreateTicket(ctx, CreateTicketRequest{
 				ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: fmt.Sprintf("Ticket %d", i),
-			}, "", "")
+			}, testActor, testCorrelationID, "", "")
 			refs[i] = ticket.Ref
 			errs[i] = err
 		}(i)

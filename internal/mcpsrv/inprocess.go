@@ -14,6 +14,19 @@ type InProcessBackend struct {
 	Svc *service.Service
 }
 
+// mcpActor is every mutating tool call's actor for internal/service
+// calls (ADR 0012). Phase 1 has no authentication (ADR 0004 lands in
+// Phase 2 — spike 2.2's auth.RequireBearerToken assertion is proven
+// but not wired here), so every tool call is attributed to the single
+// seeded 'local' actor (migration 0002_core_domain.sql), the same
+// placeholder internal/httpapi's requestActor uses. Distinguishing
+// individual agent identities (product spec §16's "separately
+// attributed agent identities") is what Phase 2's token-to-actor
+// resolution adds.
+func mcpActor() domain.ActorRef {
+	return domain.ActorRef{Kind: domain.ActorHuman, Name: "local"}
+}
+
 func (b *InProcessBackend) GetProject(ctx context.Context, key string) (domain.Project, error) {
 	return b.Svc.GetProject(ctx, key)
 }
@@ -43,5 +56,5 @@ func (b *InProcessBackend) CreateTicket(ctx context.Context, in CreateTicketInpu
 		Priority:    domain.Priority(in.Priority),
 		Severity:    severity,
 	}
-	return b.Svc.CreateTicket(ctx, req, "", "")
+	return b.Svc.CreateTicket(ctx, req, mcpActor(), service.NewCorrelationID(), "", "")
 }

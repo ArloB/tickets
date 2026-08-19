@@ -30,7 +30,8 @@ func TestOpenUnusualPath(t *testing.T) {
 	// Exercise an actual write, not just PRAGMA/ping — the regression
 	// this guards against is the DSN's "?_pragma=..." suffix breaking
 	// once the path portion itself contains reserved-looking characters.
-	if _, _, err := InsertEntity(context.Background(), s.DB(), nil, domain.KindProject, Now()); err != nil {
+	sysID := mustSystemActorID(t, s.DB())
+	if _, _, err := InsertEntity(context.Background(), s.DB(), nil, domain.KindProject, sysID, Now()); err != nil {
 		t.Fatalf("InsertEntity on unusual path: %v", err)
 	}
 }
@@ -55,13 +56,14 @@ func TestTimeLayoutIsFixedWidth(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 	ctx := context.Background()
+	sysID := mustSystemActorID(t, s.DB())
 
 	// Same instant, formatted at two different (now impossible via
 	// Now(), but historically produced by time.RFC3339Nano) widths.
 	earlier := "2026-08-19T12:00:00.500000000Z" // fixed-width: fractional 5*10^8 ns
 	later := "2026-08-19T12:00:00.510000000Z"   // fixed-width: fractional 5.1*10^8 ns, genuinely later
 
-	projA, _, err := InsertEntity(ctx, s.DB(), nil, domain.KindProject, Now())
+	projA, _, err := InsertEntity(ctx, s.DB(), nil, domain.KindProject, sysID, Now())
 	if err != nil {
 		t.Fatalf("insert project A: %v", err)
 	}
@@ -72,7 +74,7 @@ func TestTimeLayoutIsFixedWidth(t *testing.T) {
 		t.Fatalf("insert projects row A: %v", err)
 	}
 
-	projB, _, err := InsertEntity(ctx, s.DB(), nil, domain.KindProject, Now())
+	projB, _, err := InsertEntity(ctx, s.DB(), nil, domain.KindProject, sysID, Now())
 	if err != nil {
 		t.Fatalf("insert project B: %v", err)
 	}

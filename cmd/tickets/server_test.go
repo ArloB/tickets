@@ -27,12 +27,13 @@ func TestRootHandlerComposition(t *testing.T) {
 	svc := service.New(st)
 
 	ctx := context.Background()
-	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+	actor := domain.ActorRef{Kind: domain.ActorHuman, Name: "local"}
+	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, actor, "test-correlation-id", "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 	ticket, err := svc.CreateTicket(ctx, service.CreateTicketRequest{
 		ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "T",
-	}, "", "")
+	}, actor, "test-correlation-id", "", "")
 	if err != nil {
 		t.Fatalf("create ticket: %v", err)
 	}

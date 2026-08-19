@@ -17,6 +17,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+var testActor = domain.ActorRef{Kind: domain.ActorHuman, Name: "local"}
+
+const testCorrelationID = "test-correlation-id"
+
 // newTestBackend creates a fresh store + service and seeds one project
 // and one ticket, returning the InProcessBackend and the ticket's ref.
 func newTestBackend(t *testing.T) (*InProcessBackend, string) {
@@ -29,12 +33,12 @@ func newTestBackend(t *testing.T) (*InProcessBackend, string) {
 	svc := service.New(st)
 
 	ctx := context.Background()
-	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 	ticket, err := svc.CreateTicket(ctx, service.CreateTicketRequest{
 		ProjectKey: "ABC", Type: domain.TicketTypeBug, Title: "Fix the parser",
-	}, "", "")
+	}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("create ticket: %v", err)
 	}
@@ -215,12 +219,12 @@ func TestStdioBridgeReachesSameService(t *testing.T) {
 	svc := service.New(st)
 
 	ctx := context.Background()
-	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 	ticket, err := svc.CreateTicket(ctx, service.CreateTicketRequest{
 		ProjectKey: "ABC", Type: domain.TicketTypeChore, Title: "Ticket for stdio bridge test",
-	}, "", "")
+	}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("create ticket: %v", err)
 	}

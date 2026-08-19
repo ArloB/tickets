@@ -1,0 +1,27 @@
+package service
+
+import "encoding/json"
+
+// Event type constants for audit_events.event_type (product spec
+// §5.12). Not a domain.go-style closed enum yet — Phase 1 only emits
+// these three; more are added alongside the operations that need them
+// (comments, relationships, positions) rather than pre-declared here.
+const (
+	eventProjectCreated      = "project_created"
+	eventTicketCreated       = "ticket_created"
+	eventTicketStatusChanged = "ticket_status_changed"
+)
+
+// auditChanges marshals a small before/after or field-summary map into
+// the JSON fragment audit_events.changes stores (§5.12: "safe
+// before/after values or a structured patch where appropriate"). v is
+// always a plain map of strings built by the caller, so marshaling
+// cannot realistically fail; a failure falls back to an empty object
+// rather than losing the whole audit write over a formatting problem.
+func auditChanges(v map[string]any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}

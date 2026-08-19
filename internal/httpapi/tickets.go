@@ -49,7 +49,7 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		Priority:    domain.Priority(req.Priority),
 		Severity:    severity,
-	}, idempotencyKey(r), fp)
+	}, requestActor(r), correlationID(r), idempotencyKey(r), fp)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -101,7 +101,7 @@ func (s *Server) updateTicketStatus(w http.ResponseWriter, r *http.Request) {
 
 	ticket, err := s.svc.UpdateTicketStatus(r.Context(), service.UpdateTicketStatusRequest{
 		Ref: ref, NewStatus: domain.WorkflowStatus(req.Status), ExpectedVersion: version,
-	})
+	}, requestActor(r), correlationID(r))
 	if err != nil {
 		writeError(w, r, err)
 		return

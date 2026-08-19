@@ -9,6 +9,10 @@ import (
 	"github.com/ArloB/tickets/internal/store"
 )
 
+var testActor = domain.ActorRef{Kind: domain.ActorHuman, Name: "local"}
+
+const testCorrelationID = "test-correlation-id"
+
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
@@ -26,22 +30,22 @@ func TestReferenceAllocation(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
 
-	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("create project ABC: %v", err)
 	}
-	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "XYZ", Title: "Second"}, "", ""); err != nil {
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "XYZ", Title: "Second"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("create project XYZ: %v", err)
 	}
 
-	t1, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeBug, Title: "Fix the parser"}, "", "")
+	t1, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeBug, Title: "Fix the parser"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("create ticket 1: %v", err)
 	}
-	t2, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "Second ticket"}, "", "")
+	t2, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "Second ticket"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("create ticket 2: %v", err)
 	}
-	t3, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "XYZ", Type: domain.TicketTypeTask, Title: "Unrelated"}, "", "")
+	t3, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "XYZ", Type: domain.TicketTypeTask, Title: "Unrelated"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("create ticket 3: %v", err)
 	}
@@ -64,7 +68,7 @@ func TestCreateProjectGeneralFeature(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
 
-	proj, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example", Description: "desc"}, "", "")
+	proj, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example", Description: "desc"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -85,7 +89,7 @@ func TestCreateProjectInvalidKey(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
 
-	_, err := s.CreateProject(ctx, CreateProjectRequest{Key: "abc", Title: "Example"}, "", "")
+	_, err := s.CreateProject(ctx, CreateProjectRequest{Key: "abc", Title: "Example"}, testActor, testCorrelationID, "", "")
 	var svcErr *Error
 	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrValidationFailed || svcErr.Field != "key" {
 		t.Fatalf("CreateProject(bad key) error = %v, want validation_failed on field key", err)
@@ -96,10 +100,10 @@ func TestCreateProjectDuplicateKey(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
 
-	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "First"}, "", ""); err != nil {
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "First"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	_, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Second"}, "", "")
+	_, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Second"}, testActor, testCorrelationID, "", "")
 	var svcErr *Error
 	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrAlreadyExists {
 		t.Fatalf("duplicate key error = %v, want already_exists", err)
@@ -121,7 +125,7 @@ func TestTicketIdempotentCreateReplay(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
 
-	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 
@@ -131,11 +135,11 @@ func TestTicketIdempotentCreateReplay(t *testing.T) {
 		t.Fatalf("Fingerprint: %v", err)
 	}
 
-	first, err := s.CreateTicket(ctx, req, "key-123", fp)
+	first, err := s.CreateTicket(ctx, req, testActor, testCorrelationID, "key-123", fp)
 	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	second, err := s.CreateTicket(ctx, req, "key-123", fp)
+	second, err := s.CreateTicket(ctx, req, testActor, testCorrelationID, "key-123", fp)
 	if err != nil {
 		t.Fatalf("replayed create: %v", err)
 	}
@@ -145,7 +149,7 @@ func TestTicketIdempotentCreateReplay(t *testing.T) {
 
 	// A third, non-replayed create must still allocate a new reference —
 	// the idempotency cache must not suppress genuinely new requests.
-	third, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "Different ticket"}, "", "")
+	third, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "Different ticket"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("third create: %v", err)
 	}
@@ -168,7 +172,7 @@ func TestIdempotentReplayReturnsFullRecordNotASnapshot(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
 
-	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 
@@ -178,7 +182,7 @@ func TestIdempotentReplayReturnsFullRecordNotASnapshot(t *testing.T) {
 		t.Fatalf("Fingerprint: %v", err)
 	}
 
-	first, err := s.CreateTicket(ctx, req, "replay-uuid-key", fp)
+	first, err := s.CreateTicket(ctx, req, testActor, testCorrelationID, "replay-uuid-key", fp)
 	if err != nil {
 		t.Fatalf("first create: %v", err)
 	}
@@ -186,7 +190,7 @@ func TestIdempotentReplayReturnsFullRecordNotASnapshot(t *testing.T) {
 		t.Fatalf("fresh create returned an empty UUID")
 	}
 
-	second, err := s.CreateTicket(ctx, req, "replay-uuid-key", fp)
+	second, err := s.CreateTicket(ctx, req, testActor, testCorrelationID, "replay-uuid-key", fp)
 	if err != nil {
 		t.Fatalf("replayed create: %v", err)
 	}
@@ -202,17 +206,17 @@ func TestTicketIdempotencyKeyReusedWithDifferentBody(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
 
-	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
 
 	fp1, _ := Fingerprint("POST", "/api/v1/projects/ABC/tickets", []byte(`{"title":"A"}`))
 	fp2, _ := Fingerprint("POST", "/api/v1/projects/ABC/tickets", []byte(`{"title":"B"}`))
 
-	if _, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "A"}, "dup-key", fp1); err != nil {
+	if _, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "A"}, testActor, testCorrelationID, "dup-key", fp1); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	_, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "B"}, "dup-key", fp2)
+	_, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "B"}, testActor, testCorrelationID, "dup-key", fp2)
 	var svcErr *Error
 	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrIdempotencyKeyReused {
 		t.Fatalf("reused key with different body error = %v, want idempotency_key_reused", err)
@@ -223,10 +227,10 @@ func TestUpdateTicketStatusVersionConflict(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
 
-	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	ticket, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "T"}, "", "")
+	ticket, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "T"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("create ticket: %v", err)
 	}
@@ -236,7 +240,7 @@ func TestUpdateTicketStatusVersionConflict(t *testing.T) {
 	}
 
 	// Correct version succeeds and bumps the version.
-	updated, err := s.UpdateTicketStatus(ctx, UpdateTicketStatusRequest{Ref: ref, NewStatus: domain.WorkflowStatusInProgress, ExpectedVersion: ticket.Version})
+	updated, err := s.UpdateTicketStatus(ctx, UpdateTicketStatusRequest{Ref: ref, NewStatus: domain.WorkflowStatusInProgress, ExpectedVersion: ticket.Version}, testActor, testCorrelationID)
 	if err != nil {
 		t.Fatalf("update with correct version: %v", err)
 	}
@@ -246,7 +250,7 @@ func TestUpdateTicketStatusVersionConflict(t *testing.T) {
 
 	// Stale version (the original, now-superseded one) must 409 and
 	// report the current version.
-	_, err = s.UpdateTicketStatus(ctx, UpdateTicketStatusRequest{Ref: ref, NewStatus: domain.WorkflowStatusDone, ExpectedVersion: ticket.Version})
+	_, err = s.UpdateTicketStatus(ctx, UpdateTicketStatusRequest{Ref: ref, NewStatus: domain.WorkflowStatusDone, ExpectedVersion: ticket.Version}, testActor, testCorrelationID)
 	var svcErr *Error
 	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrVersionConflict {
 		t.Fatalf("stale update error = %v, want version_conflict", err)
@@ -261,7 +265,7 @@ func TestListProjectsCursorPagination(t *testing.T) {
 	s := newTestService(t)
 
 	for _, key := range []string{"AAA", "BBB", "CCC"} {
-		if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: key, Title: key}, "", ""); err != nil {
+		if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: key, Title: key}, testActor, testCorrelationID, "", ""); err != nil {
 			t.Fatalf("create %s: %v", key, err)
 		}
 	}

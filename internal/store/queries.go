@@ -55,17 +55,25 @@ func parseTime(s string) (time.Time, error) {
 // InsertEntity inserts a new entities row and returns its internal
 // surrogate id (ADR 0002) and freshly generated UUIDv7 (product spec
 // §5.2). projectID is nil only when the entity being created is itself
-// a project. now is the caller's shared transaction timestamp (see
-// Now).
-func InsertEntity(ctx context.Context, q Querier, projectID *int64, kind domain.EntityKind, now string) (id int64, id36 string, err error) {
+// a project. createdBy is the internal actor id (ADR 0012) — resolve
+// it via GetActorIDByRef first; now is the caller's shared transaction
+// timestamp (see Now).
+//
+// entities.created_by is schema-nullable (migration
+// 0002_core_domain.sql: SQLite forbids a NOT NULL ALTER TABLE ADD
+// COLUMN with a REFERENCES clause) but every InsertEntity call from
+// Step 4a onward supplies one — NOT-NULL-ness for new rows is a Go
+// invariant, not a schema constraint, the same pattern this codebase
+// already uses for enum validation.
+func InsertEntity(ctx context.Context, q Querier, projectID *int64, kind domain.EntityKind, createdBy int64, now string) (id int64, id36 string, err error) {
 	u, err := uuid.NewV7()
 	if err != nil {
 		return 0, "", fmt.Errorf("generate uuid: %w", err)
 	}
 	res, err := q.ExecContext(ctx,
-		`INSERT INTO entities(uuid, project_id, kind, version, created_at, updated_at)
-		 VALUES (?, ?, ?, 1, ?, ?)`,
-		u[:], projectID, string(kind), now, now,
+		`INSERT INTO entities(uuid, project_id, kind, version, created_at, updated_at, created_by)
+		 VALUES (?, ?, ?, 1, ?, ?, ?)`,
+		u[:], projectID, string(kind), now, now, createdBy,
 	)
 	if err != nil {
 		return 0, "", fmt.Errorf("insert entity: %w", err)

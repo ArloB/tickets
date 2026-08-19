@@ -41,24 +41,23 @@ func TestSeededActorsExist(t *testing.T) {
 	}
 }
 
-// TestEntitiesBackfilledToSystemActor guards the migration's backfill
-// UPDATE: every entities row that existed before created_by was added
-// (which, on a fresh database, is none — the column and the backfill
-// both apply before any application code runs) must not be left with a
-// NULL created_by. This test creates a row the old way (InsertEntity,
-// which does not set created_by — that's Step 4's job), confirming the
-// column is nullable for pre-actor-threading code, and separately
-// confirms the system actor a real backfill would use actually exists
-// and is resolvable.
-func TestEntitiesBackfilledToSystemActor(t *testing.T) {
+// TestInsertEntityStampsCreatedBy is Step 4a's replacement for the
+// migration-backfill test this used to be: InsertEntity now takes an
+// explicit createdBy actor id (ADR 0012) and must write it, not leave
+// entities.created_by NULL the way pre-Step-4a code did.
+// entities.created_by stays schema-nullable (SQLite forbids a NOT NULL
+// ALTER TABLE ADD COLUMN with a REFERENCES clause under
+// foreign_keys=ON) but is a Go-level invariant from here on.
+func TestInsertEntityStampsCreatedBy(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer func() { _ = s.Close() }()
 	ctx := context.Background()
+	sysID := mustSystemActorID(t, s.DB())
 
-	id, _, err := InsertEntity(ctx, s.DB(), nil, domain.KindProject, Now())
+	id, _, err := InsertEntity(ctx, s.DB(), nil, domain.KindProject, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity: %v", err)
 	}
@@ -66,16 +65,11 @@ func TestEntitiesBackfilledToSystemActor(t *testing.T) {
 	if err := s.DB().QueryRow(`SELECT created_by FROM entities WHERE id = ?`, id).Scan(&createdBy); err != nil {
 		t.Fatalf("query created_by: %v", err)
 	}
-	if createdBy != nil {
-		t.Errorf("InsertEntity set created_by = %v; want NULL until Step 4 threads an actor through", *createdBy)
+	if createdBy == nil {
+		t.Fatal("InsertEntity left created_by NULL, want the given actor id")
 	}
-
-	var systemID int64
-	if err := s.DB().QueryRow(`SELECT id FROM actors WHERE kind = 'system' AND name = 'system'`).Scan(&systemID); err != nil {
-		t.Fatalf("system actor not resolvable: %v", err)
-	}
-	if systemID <= 0 {
-		t.Errorf("system actor id = %d, want a positive surrogate key", systemID)
+	if *createdBy != sysID {
+		t.Errorf("created_by = %d, want %d (the system actor)", *createdBy, sysID)
 	}
 }
 
@@ -92,15 +86,16 @@ func TestInsertTicketWritesRankColumns(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 	db := s.DB()
+	sysID := mustSystemActorID(t, db)
 
-	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, Now())
+	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity project: %v", err)
 	}
 	if err := InsertProject(ctx, db, projID, "ABC", "Example", ""); err != nil {
 		t.Fatalf("InsertProject: %v", err)
 	}
-	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, Now())
+	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
@@ -108,7 +103,7 @@ func TestInsertTicketWritesRankColumns(t *testing.T) {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 
-	ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, Now())
+	ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity ticket: %v", err)
 	}
@@ -148,15 +143,16 @@ func TestInsertFeatureDefaultRankMatchesDefaultPriority(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 	db := s.DB()
+	sysID := mustSystemActorID(t, db)
 
-	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, Now())
+	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity project: %v", err)
 	}
 	if err := InsertProject(ctx, db, projID, "ABC", "Example", ""); err != nil {
 		t.Fatalf("InsertProject: %v", err)
 	}
-	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, Now())
+	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
@@ -191,22 +187,23 @@ func TestGetTicketByRefRejectsWrongKind(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 	db := s.DB()
+	sysID := mustSystemActorID(t, db)
 
-	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, Now())
+	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity project: %v", err)
 	}
 	if err := InsertProject(ctx, db, projID, "ABC", "Example", ""); err != nil {
 		t.Fatalf("InsertProject: %v", err)
 	}
-	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, Now())
+	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
 	if err := InsertFeature(ctx, db, featID, projID, 1, "General"); err != nil {
 		t.Fatalf("InsertFeature: %v", err)
 	}
-	ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, Now())
+	ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity ticket: %v", err)
 	}

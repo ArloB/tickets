@@ -22,15 +22,16 @@ func testProjectWithTickets(t *testing.T, db Querier, key string, specs []struct
 }) (projID int64, ticketIDs []int64) {
 	t.Helper()
 	ctx := context.Background()
+	sysID := mustSystemActorID(t, db)
 
-	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, Now())
+	projID, _, err := InsertEntity(ctx, db, nil, domain.KindProject, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity project: %v", err)
 	}
 	if err := InsertProject(ctx, db, projID, key, "Example", ""); err != nil {
 		t.Fatalf("InsertProject: %v", err)
 	}
-	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, Now())
+	featID, _, err := InsertEntity(ctx, db, &projID, domain.KindFeature, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
@@ -39,7 +40,7 @@ func testProjectWithTickets(t *testing.T, db Querier, key string, specs []struct
 	}
 
 	for i, spec := range specs {
-		ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, Now())
+		ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, sysID, Now())
 		if err != nil {
 			t.Fatalf("InsertEntity ticket %d: %v", i, err)
 		}
