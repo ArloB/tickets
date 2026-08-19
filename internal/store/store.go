@@ -29,12 +29,22 @@ type Store struct {
 // database/sql pools connections, and a pragma applied as a follow-up
 // statement can land on a different pooled connection than the one a
 // later statement uses.
+//
+// _txlock=immediate (see ADR 0009's implementation note) makes every
+// read-write transaction issue BEGIN IMMEDIATE instead of the driver's
+// default BEGIN DEFERRED. A deferred transaction takes no lock until
+// its first write, so two goroutines can both finish their reads (e.g.
+// internal/service's idempotency check, or the reference-counter read)
+// before either writes — and the loser fails fast with SQLITE_BUSY
+// instead of simply waiting its turn behind busy_timeout. BEGIN
+// IMMEDIATE takes the write lock up front, so concurrent writers
+// genuinely serialize through the busy_timeout wait rather than racing.
 func Open(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("store: create data dir: %w", err)
 	}
 	dbPath := filepath.Join(dataDir, "tickets.db")
-	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"
+	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_txlock=immediate"
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

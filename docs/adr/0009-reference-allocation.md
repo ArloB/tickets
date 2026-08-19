@@ -46,6 +46,26 @@ only one write transaction commits at a time, so two concurrent
 `ticket_create` calls cannot observe or increment the same `next_seq`
 value.
 
+That argument only holds if every read-write transaction actually
+takes SQLite's write lock before its first statement. Go's
+`database/sql` (and `modernc.org/sqlite`) default to `BEGIN DEFERRED`,
+which takes no lock at all until the first write — so two goroutines
+can both finish their reads (the idempotency check, the counter read)
+and then race on the write, with the loser failing fast with
+`SQLITE_BUSY` instead of simply waiting behind `busy_timeout`. This
+was not theoretical: `TestConcurrentTicketCreateReferenceAllocation`
+(`internal/service/concurrency_test.go`), 20 concurrent `CreateTicket`
+calls against one project with no `_txlock` set, failed 18/20 with
+`SQLITE_BUSY` on Windows. Fixed by adding `_txlock=immediate` to the
+DSN (`internal/store/store.go`'s `Open`), so every read-write
+transaction issues `BEGIN IMMEDIATE` and genuinely serializes through
+the `busy_timeout` wait. With that DSN parameter set, the same test
+passes 20/20 with distinct references and no errors. The Step 2 SQLite
+spike's own concurrency assertion didn't catch this because it used
+`SetMaxOpenConns(1)` and single-statement autocommit writes, not
+read-then-write transactions from multiple connections — it isn't a
+substitute for this test.
+
 **No artificial gaps:** because the counter increment lives in the
 same transaction as the row it names, a rolled-back create (validation
 failure, crash before commit) rolls back the increment too — the

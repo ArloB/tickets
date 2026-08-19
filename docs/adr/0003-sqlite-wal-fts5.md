@@ -27,6 +27,16 @@ cross-compilation to both target platforms from one machine.
   as a follow-up statement can land on a different pooled connection
   than the one a later statement uses. The DSN form applies the pragma
   to every connection the pool opens.
+- `_txlock=immediate`, also via the DSN — see ADR 0009's implementation
+  note. The driver's default (`BEGIN DEFERRED`) takes no write lock
+  until a transaction's first write, so two concurrent read-then-write
+  transactions can both pass their reads and then race on the write;
+  `_txlock=immediate` makes every read-write transaction take the lock
+  up front so concurrent writers serialize through `busy_timeout`
+  instead of failing with `SQLITE_BUSY`. Found by a targeted
+  concurrency test in Step 5, not by the Step 2 spike (whose own
+  concurrency assertion used a single pooled connection and autocommit
+  writes, which doesn't exercise this failure mode).
 
 ## Consequences
 

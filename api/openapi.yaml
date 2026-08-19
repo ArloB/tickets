@@ -228,6 +228,8 @@ components:
 
     Project:
       type: object
+      required: [key, title, description, status, version, created_at, updated_at]
+      additionalProperties: false
       properties:
         key: { type: string }
         title: { type: string }
@@ -264,6 +266,8 @@ components:
 
     Ticket:
       type: object
+      required: [ref, project, feature, type, title, description, status, priority, version, created_at, updated_at]
+      additionalProperties: false
       properties:
         ref: { type: string, example: ABC-123 }
         project: { type: string }
