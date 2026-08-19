@@ -1,8 +1,11 @@
-# Build artifacts
+# Build artifacts. /bin/ already covers `task build` output; the old bare
+# `tickets`/`tickets.exe` patterns here were a bug — unanchored, they also
+# matched the cmd/tickets/ source directory and silently excluded it from
+# git entirely. Keep patterns anchored to the repo root.
 /bin/
 /dist/
-tickets
-tickets.exe
+/tickets
+/tickets.exe
 
 # SQLite runtime files
 *.db
