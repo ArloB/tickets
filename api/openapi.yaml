@@ -2,11 +2,291 @@ openapi: 3.0.3
 info:
   title: Tickets API
   version: 0.1.0
+  license:
+    name: UNLICENSED
   description: >
-    Versioned HTTP API for Tickets. This is a placeholder checked in during
-    Phase 0 Step 1 (repository skeleton) so the OpenAPI lint task has a
-    valid target from the start. The real contract for the Phase 0
-    vertical slice (projects, tickets, health) is written in Step 4.
+    Versioned HTTP API for Tickets. This is the Phase 0 vertical slice:
+    project create/list/get, ticket create/get/status-update, and health
+    endpoints. Everything else (auth, comments, relationships, search,
+    attachments, SSE) is out of scope until later phases — see
+    docs/contracts/ and the Phase 0 implementation plan.
 servers:
   - url: /api/v1
-paths: {}
+
+# Phase 0's vertical slice is deliberately unauthenticated behind the
+# 127.0.0.1-by-default bind (see the Phase 0 plan, ADR 0004/0006). This
+# is an honest "no security scheme exists yet," not an oversight -
+# Phase 2 replaces it with real bearer-token/session auth.
+security: []
+
+paths:
+  /projects:
+    post:
+      operationId: createProject
+      summary: Create a project (and its mandatory General feature)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listProjects
+      summary: List projects (cursor-paginated, ordered by created_at then id)
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectsPage'
+        '400':
+          $ref: '#/components/responses/Error'
+
+  /projects/{key}:
+    get:
+      operationId: getProject
+      summary: Get a project by key
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /projects/{key}/tickets:
+    post:
+      operationId: createTicket
+      summary: >
+        Create a ticket in a project. Always lands in the project's
+        General feature (product spec §6.1) — explicit feature
+        selection is Phase 1 work.
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTicketRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}:
+    get:
+      operationId: getTicket
+      summary: Get a ticket by its public reference (e.g. ABC-123)
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateTicketStatus
+      summary: Update a ticket's workflow status (optimistic concurrency)
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - name: If-Match
+          in: header
+          required: true
+          description: >
+            A double-quoted decimal version number, e.g. "3" (see
+            docs/contracts/concurrency.md — not full RFC 7232 ETag
+            semantics).
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTicketStatusRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Version conflict — see error.current_version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+components:
+  parameters:
+    ProjectKey:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Z][A-Z0-9]{1,9}$'
+    TicketRef:
+      name: ref
+      in: path
+      required: true
+      schema:
+        type: string
+        example: ABC-123
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    ProjectStatus:
+      type: string
+      enum: [active, archived]
+    TicketType:
+      type: string
+      enum: [task, bug, security, chore]
+    WorkflowStatus:
+      type: string
+      enum: [backlog, ready, in_progress, blocked, review, done, cancelled]
+    Priority:
+      type: string
+      enum: [critical, high, medium, low]
+    Severity:
+      type: string
+      enum: [critical, high, medium, low]
+
+    CreateProjectRequest:
+      type: object
+      required: [key, title]
+      properties:
+        key:
+          type: string
+          pattern: '^[A-Z][A-Z0-9]{1,9}$'
+        title:
+          type: string
+        description:
+          type: string
+
+    Project:
+      type: object
+      properties:
+        key: { type: string }
+        title: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ProjectsPage:
+      type: object
+      properties:
+        projects:
+          type: array
+          items: { $ref: '#/components/schemas/Project' }
+        next_cursor:
+          type: string
+
+    CreateTicketRequest:
+      type: object
+      required: [type, title]
+      properties:
+        type: { $ref: '#/components/schemas/TicketType' }
+        title: { type: string }
+        description: { type: string }
+        priority: { $ref: '#/components/schemas/Priority' }
+        severity: { $ref: '#/components/schemas/Severity' }
+
+    UpdateTicketStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/WorkflowStatus' }
+
+    Ticket:
+      type: object
+      properties:
+        ref: { type: string, example: ABC-123 }
+        project: { type: string }
+        feature: { type: string, example: ABC-F1 }
+        type: { $ref: '#/components/schemas/TicketType' }
+        title: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/WorkflowStatus' }
+        priority: { $ref: '#/components/schemas/Priority' }
+        severity: { $ref: '#/components/schemas/Severity' }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message, correlation_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            field: { type: string }
+            correlation_id: { type: string }
+            current_version: { type: integer }

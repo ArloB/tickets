@@ -1,6 +1,10 @@
 package service
 
-import "github.com/ArloB/tickets/internal/store"
+import (
+	"context"
+
+	"github.com/ArloB/tickets/internal/store"
+)
 
 // Service is the single authorization/validation/transaction/
 // idempotency boundary shared by internal/httpapi and internal/mcpsrv
@@ -12,4 +16,10 @@ type Service struct {
 
 func New(s *store.Store) *Service {
 	return &Service{store: s}
+}
+
+// Ping confirms the database is reachable, for /readyz (product spec
+// §9).
+func (s *Service) Ping(ctx context.Context) error {
+	return s.store.Ping(ctx)
 }
