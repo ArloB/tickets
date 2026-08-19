@@ -161,6 +161,39 @@ func TestToolErrorMapping(t *testing.T) {
 	}
 }
 
+// TestToolsOverRealStreamableHTTP closes the gap between "MCP over
+// Streamable HTTP" (gate 7's literal wording) and the in-memory-
+// transport test above: this one runs NewStreamableHTTPHandler behind
+// a real httptest.Server (actual TCP, actual HTTP requests) and
+// connects with mcp.StreamableClientTransport, exactly as
+// cmd/tickets' `server` subcommand mounts it at /mcp.
+func TestToolsOverRealStreamableHTTP(t *testing.T) {
+	backend, ref := newTestBackend(t)
+	httpHandler := NewStreamableHTTPHandler(backend)
+	ts := httptest.NewServer(httpHandler)
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+	if err != nil {
+		t.Fatalf("connect over real Streamable HTTP: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_get", Arguments: map[string]any{"ref": ref}})
+	if err != nil {
+		t.Fatalf("CallTool over real HTTP: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("ticket_get over real HTTP returned a tool error: %+v", res.Content)
+	}
+	got := decodeTicketResult(t, res)
+	if got.Ref != ref {
+		t.Errorf("ticket_get over real HTTP returned ref %q, want %q", got.Ref, ref)
+	}
+}
+
 // TestStdioBridgeReachesSameService is Phase 0 verification gate 7,
 // literally: an MCP client reaches ticket_get over a real stdio
 // subprocess (mcpsrv.RunStdio + mcp.CommandTransport, same pattern the
