@@ -99,7 +99,7 @@ func TestInsertTicketWritesRankColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
-	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium"); err != nil {
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium", 1000); err != nil {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestInsertTicketWritesRankColumns(t *testing.T) {
 		t.Fatalf("InsertEntity ticket: %v", err)
 	}
 	severity := "high"
-	if err := InsertTicket(ctx, db, ticketID, projID, featID, 1, "bug", "Title", "", "backlog", "critical", &severity); err != nil {
+	if err := InsertTicket(ctx, db, ticketID, projID, featID, 1, "bug", "Title", "", "backlog", "critical", &severity, 1000); err != nil {
 		t.Fatalf("InsertTicket: %v", err)
 	}
 
@@ -156,7 +156,7 @@ func TestInsertFeatureDefaultRankMatchesDefaultPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
-	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium"); err != nil {
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium", 1000); err != nil {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 
@@ -200,14 +200,14 @@ func TestGetTicketByRefRejectsWrongKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
-	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium"); err != nil {
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium", 1000); err != nil {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 	ticketID, _, err := InsertEntity(ctx, db, &projID, domain.KindTicket, sysID, Now())
 	if err != nil {
 		t.Fatalf("InsertEntity ticket: %v", err)
 	}
-	if err := InsertTicket(ctx, db, ticketID, projID, featID, 1, "task", "Title", "", "backlog", "medium", nil); err != nil {
+	if err := InsertTicket(ctx, db, ticketID, projID, featID, 1, "task", "Title", "", "backlog", "medium", nil, 1000); err != nil {
 		t.Fatalf("InsertTicket: %v", err)
 	}
 

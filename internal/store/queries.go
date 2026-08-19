@@ -139,11 +139,13 @@ func SetProjectGeneralFeature(ctx context.Context, q Querier, projectEntityID, g
 // InsertFeature writes the features row for an already-inserted
 // entities row. priority_rank is derived from priority here (rank.go)
 // — every write path for it must go through the same derivation.
-func InsertFeature(ctx context.Context, q Querier, entityID, projectEntityID, seq int64, title, description, priority string) error {
+// position mirrors InsertTicket's contract: always caller-supplied,
+// not left at the schema's DEFAULT 0.
+func InsertFeature(ctx context.Context, q Querier, entityID, projectEntityID, seq int64, title, description, priority string, position int64) error {
 	_, err := q.ExecContext(ctx,
-		`INSERT INTO features(id, project_id, seq, title, status, description, priority, priority_rank)
-		 VALUES (?, ?, ?, ?, 'backlog', ?, ?, ?)`,
-		entityID, projectEntityID, seq, title, description, priority, priorityRank(priority),
+		`INSERT INTO features(id, project_id, seq, title, status, description, priority, priority_rank, position)
+		 VALUES (?, ?, ?, ?, 'backlog', ?, ?, ?, ?)`,
+		entityID, projectEntityID, seq, title, description, priority, priorityRank(priority), position,
 	)
 	if err != nil {
 		return fmt.Errorf("insert feature: %w", err)
@@ -277,14 +279,17 @@ func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt stri
 // InsertTicket writes the tickets row for an already-inserted entities
 // row. priority_rank/severity_rank are derived from priority/severity
 // here (see rank.go) — every write path for those two columns must go
-// through the same derivation, not just this one.
+// through the same derivation, not just this one. position is always
+// supplied by the caller (typically domain.TailPosition of the
+// group's current max, ADR 0011: "new records land at the tail of
+// their group with a gap") rather than left at the schema's DEFAULT 0.
 func InsertTicket(ctx context.Context, q Querier, entityID, projectEntityID, featureEntityID, seq int64,
-	ticketType, title, description, status, priority string, severity *string) error {
+	ticketType, title, description, status, priority string, severity *string, position int64) error {
 	_, err := q.ExecContext(ctx,
-		`INSERT INTO tickets(id, project_id, feature_id, seq, type, title, description, status, priority, severity, priority_rank, severity_rank)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tickets(id, project_id, feature_id, seq, type, title, description, status, priority, severity, priority_rank, severity_rank, position)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		entityID, projectEntityID, featureEntityID, seq, ticketType, title, description, status, priority, severity,
-		priorityRank(priority), severityRank(severity),
+		priorityRank(priority), severityRank(severity), position,
 	)
 	if err != nil {
 		return fmt.Errorf("insert ticket: %w", err)

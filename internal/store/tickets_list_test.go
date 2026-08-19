@@ -11,10 +11,9 @@ import (
 // testProjectWithTickets creates a project, its General feature, and
 // n tickets (each with the given priority, in insertion order), and
 // returns the project's internal id plus the tickets' internal ids in
-// insertion order. Each ticket's position is left at InsertTicket's
-// default (0) unless the caller updates it afterward — these tests
-// only need distinct priorities/severities to prove rank ordering, not
-// distinct positions.
+// insertion order. Every ticket is inserted at position 0 — these
+// tests only need distinct priorities/severities to prove rank
+// ordering, not distinct positions (created_at breaks position ties).
 func testProjectWithTickets(t *testing.T, db Querier, key string, specs []struct {
 	priority   string
 	severity   *string
@@ -35,7 +34,7 @@ func testProjectWithTickets(t *testing.T, db Querier, key string, specs []struct
 	if err != nil {
 		t.Fatalf("InsertEntity feature: %v", err)
 	}
-	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium"); err != nil {
+	if err := InsertFeature(ctx, db, featID, projID, 1, "General", "", "medium", 1000); err != nil {
 		t.Fatalf("InsertFeature: %v", err)
 	}
 
@@ -48,7 +47,7 @@ func testProjectWithTickets(t *testing.T, db Querier, key string, specs []struct
 		if ticketType == "" {
 			ticketType = "task"
 		}
-		if err := InsertTicket(ctx, db, ticketID, projID, featID, int64(i+1), ticketType, "Title", "", "backlog", spec.priority, spec.severity); err != nil {
+		if err := InsertTicket(ctx, db, ticketID, projID, featID, int64(i+1), ticketType, "Title", "", "backlog", spec.priority, spec.severity, 0); err != nil {
 			t.Fatalf("InsertTicket %d: %v", i, err)
 		}
 		ticketIDs = append(ticketIDs, ticketID)

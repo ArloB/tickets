@@ -102,8 +102,12 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 			v := string(*req.Severity)
 			severityStr = &v
 		}
+		maxPos, err := store.TicketGroupMaxPositionByPriority(ctx, tx, proj.ID, string(priority))
+		if err != nil {
+			return fmt.Errorf("service: load priority group: %w", err)
+		}
 		if err := store.InsertTicket(ctx, tx, ticketEntityID, proj.ID, proj.GeneralFeatureID, seq,
-			string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr); err != nil {
+			string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr, domain.TailPosition(maxPos)); err != nil {
 			return fmt.Errorf("service: create ticket: %w", err)
 		}
 		if err := rescanMentions(ctx, tx, ticketEntityID, sourceOwnBody, req.ProjectKey, req.Description, now); err != nil {
@@ -257,7 +261,15 @@ func (s *Service) UpdateTicketFields(ctx context.Context, req UpdateTicketFields
 			v := string(*req.Severity)
 			severityStr = &v
 		}
-		if _, err := store.UpdateTicketFields(ctx, tx, row.ID, string(req.Type), title, req.Description, string(req.Priority), severityStr, req.ExpectedVersion, now); err != nil {
+		newPosition := row.Position
+		if req.Priority != row.Entity.Priority {
+			maxPos, err := store.TicketGroupMaxPositionByPriority(ctx, tx, row.ProjectEntityID, string(req.Priority))
+			if err != nil {
+				return fmt.Errorf("service: load new priority group: %w", err)
+			}
+			newPosition = domain.TailPosition(maxPos)
+		}
+		if _, err := store.UpdateTicketFields(ctx, tx, row.ID, string(req.Type), title, req.Description, string(req.Priority), severityStr, newPosition, req.ExpectedVersion, now); err != nil {
 			if errors.Is(err, store.ErrVersionConflict) {
 				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
 				if cerr != nil {
@@ -406,6 +418,115 @@ func (s *Service) MoveTicketFeature(ctx context.Context, req MoveTicketFeatureRe
 		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if err != nil {
 			return fmt.Errorf("service: reload updated ticket: %w", err)
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	return result, nil
+}
+
+// ReorderTicketRequest is ReorderTicket's input. AfterRef nil means
+// "move to the head of the ticket's own (project, priority) group";
+// otherwise the ticket is placed immediately after AfterRef, which
+// must be in the same group. Reordering never changes priority — see
+// UpdateTicketFields for the "changing priority moves to the tail of
+// the new group" rule (ADR 0011).
+type ReorderTicketRequest struct {
+	Ref             domain.Reference
+	AfterRef        *domain.Reference
+	ExpectedVersion int64
+}
+
+// ReorderTicket moves a ticket to a new position within its priority
+// group (product spec §5.6, ADR 0011): a head/tail append or
+// domain.MidpointPosition insertion when there's room, or a full
+// group renumber when the gap between the target neighbors is
+// exhausted. A renumber writes every other group member's position
+// with no version bump and no audit event (store.SetTicketPositionUnversioned)
+// — only the ticket the caller actually moved gets a versioned,
+// audited write, so a renumber triggered by one drag-and-drop doesn't
+// invalidate every other open If-Match in the group.
+func (s *Service) ReorderTicket(ctx context.Context, req ReorderTicketRequest, actor domain.ActorRef, correlationID string) (domain.Ticket, error) {
+	var result domain.Ticket
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("ticket not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up ticket: %w", err)
+		}
+
+		others, err := store.TicketGroupOrderedExcluding(ctx, tx, row.ProjectEntityID, row.PriorityRank, row.ID)
+		if err != nil {
+			return fmt.Errorf("service: load priority group: %w", err)
+		}
+
+		insertIdx := 0
+		if req.AfterRef != nil {
+			anchor, err := store.GetTicketByRef(ctx, tx, *req.AfterRef)
+			if errors.Is(err, store.ErrNotFound) {
+				return newNotFoundError("after ticket not found")
+			}
+			if err != nil {
+				return fmt.Errorf("service: look up after ticket: %w", err)
+			}
+			if anchor.ID == row.ID {
+				return newValidationError("after", "cannot reorder a ticket after itself")
+			}
+			if anchor.ProjectEntityID != row.ProjectEntityID || anchor.PriorityRank != row.PriorityRank {
+				return newValidationError("after", "after ticket %s is not in the same priority group", anchor.Entity.Ref)
+			}
+			idx := -1
+			for i, m := range others {
+				if m.EntityID == anchor.ID {
+					idx = i
+					break
+				}
+			}
+			if idx == -1 {
+				return fmt.Errorf("service: after ticket %d not found in its own priority group (data integrity)", anchor.ID)
+			}
+			insertIdx = idx + 1
+		}
+
+		plan := planPlacement(row.ID, others, insertIdx)
+		newPos := plan.Position
+		if plan.Renumber != nil {
+			positions := domain.RenumberPositions(len(plan.Renumber))
+			for i, id := range plan.Renumber {
+				if id == row.ID {
+					newPos = positions[i]
+					continue
+				}
+				if err := store.SetTicketPositionUnversioned(ctx, tx, id, positions[i]); err != nil {
+					return fmt.Errorf("service: renumber priority group: %w", err)
+				}
+			}
+		}
+
+		if _, err := store.SetTicketPositionVersioned(ctx, tx, row.ID, newPos, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: set ticket position: %w", err)
+		}
+
+		reorderChanges := auditChanges(map[string]any{"position": newPos})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketReordered, corrID, nil, reorderChanges, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload reordered ticket: %w", err)
 		}
 		result = updated.Entity
 		return nil

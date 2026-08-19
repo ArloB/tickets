@@ -147,17 +147,20 @@ func GetFeatureRefByEntityID(ctx context.Context, q Querier, entityID int64) (do
 }
 
 // UpdateFeatureFields applies a conditional update to a feature's
-// title/description/priority (ADR 0008's version-guard pattern via
-// bumpEntityVersion). now is the caller's shared transaction
+// title/description/priority/position (ADR 0008's version-guard
+// pattern via bumpEntityVersion). position mirrors
+// UpdateTicketFields' contract: the caller always supplies it
+// explicitly, either unchanged or (on a priority change) the new
+// group's tail position. now is the caller's shared transaction
 // timestamp (see Now).
-func UpdateFeatureFields(ctx context.Context, q Querier, entityID int64, title, description, priority string, expectedVersion int64, now string) (newVersion int64, err error) {
+func UpdateFeatureFields(ctx context.Context, q Querier, entityID int64, title, description, priority string, position, expectedVersion int64, now string) (newVersion int64, err error) {
 	newVersion, err = bumpEntityVersion(ctx, q, entityID, expectedVersion, now)
 	if err != nil {
 		return 0, err
 	}
 	if _, err := q.ExecContext(ctx,
-		`UPDATE features SET title = ?, description = ?, priority = ?, priority_rank = ? WHERE id = ?`,
-		title, description, priority, priorityRank(priority), entityID,
+		`UPDATE features SET title = ?, description = ?, priority = ?, priority_rank = ?, position = ? WHERE id = ?`,
+		title, description, priority, priorityRank(priority), position, entityID,
 	); err != nil {
 		return 0, fmt.Errorf("update feature fields: %w", err)
 	}

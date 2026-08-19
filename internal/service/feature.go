@@ -56,7 +56,11 @@ func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, a
 		if err != nil {
 			return fmt.Errorf("service: allocate feature reference: %w", err)
 		}
-		if err := store.InsertFeature(ctx, tx, featureEntityID, proj.ID, seq, title, req.Description, string(priority)); err != nil {
+		maxPos, err := store.FeatureGroupMaxPositionByPriority(ctx, tx, proj.ID, string(priority))
+		if err != nil {
+			return fmt.Errorf("service: load priority group: %w", err)
+		}
+		if err := store.InsertFeature(ctx, tx, featureEntityID, proj.ID, seq, title, req.Description, string(priority), domain.TailPosition(maxPos)); err != nil {
 			return fmt.Errorf("service: create feature: %w", err)
 		}
 		if err := rescanMentions(ctx, tx, featureEntityID, sourceOwnBody, req.ProjectKey, req.Description, now); err != nil {
@@ -145,7 +149,15 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 			return fmt.Errorf("service: look up feature: %w", err)
 		}
 
-		if _, err := store.UpdateFeatureFields(ctx, tx, row.ID, title, req.Description, string(req.Priority), req.ExpectedVersion, now); err != nil {
+		newPosition := row.Position
+		if req.Priority != row.Entity.Priority {
+			maxPos, err := store.FeatureGroupMaxPositionByPriority(ctx, tx, row.ProjectEntityID, string(req.Priority))
+			if err != nil {
+				return fmt.Errorf("service: load new priority group: %w", err)
+			}
+			newPosition = domain.TailPosition(maxPos)
+		}
+		if _, err := store.UpdateFeatureFields(ctx, tx, row.ID, title, req.Description, string(req.Priority), newPosition, req.ExpectedVersion, now); err != nil {
 			if errors.Is(err, store.ErrVersionConflict) {
 				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
 				if cerr != nil {
@@ -167,6 +179,104 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 		updated, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if err != nil {
 			return fmt.Errorf("service: reload updated feature: %w", err)
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Feature{}, err
+	}
+	return result, nil
+}
+
+// ReorderFeatureRequest mirrors ReorderTicketRequest for features.
+type ReorderFeatureRequest struct {
+	Ref             domain.Reference
+	AfterRef        *domain.Reference
+	ExpectedVersion int64
+}
+
+// ReorderFeature is ReorderTicket's counterpart for features — see
+// its doc for the placement/renumber algorithm, which is identical
+// modulo the table.
+func (s *Service) ReorderFeature(ctx context.Context, req ReorderFeatureRequest, actor domain.ActorRef, correlationID string) (domain.Feature, error) {
+	var result domain.Feature
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetFeatureByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("feature not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up feature: %w", err)
+		}
+
+		others, err := store.FeatureGroupOrderedExcluding(ctx, tx, row.ProjectEntityID, row.PriorityRank, row.ID)
+		if err != nil {
+			return fmt.Errorf("service: load priority group: %w", err)
+		}
+
+		insertIdx := 0
+		if req.AfterRef != nil {
+			anchor, err := store.GetFeatureByRef(ctx, tx, *req.AfterRef)
+			if errors.Is(err, store.ErrNotFound) {
+				return newNotFoundError("after feature not found")
+			}
+			if err != nil {
+				return fmt.Errorf("service: look up after feature: %w", err)
+			}
+			if anchor.ID == row.ID {
+				return newValidationError("after", "cannot reorder a feature after itself")
+			}
+			if anchor.ProjectEntityID != row.ProjectEntityID || anchor.PriorityRank != row.PriorityRank {
+				return newValidationError("after", "after feature %s is not in the same priority group", anchor.Entity.Ref)
+			}
+			idx := -1
+			for i, m := range others {
+				if m.EntityID == anchor.ID {
+					idx = i
+					break
+				}
+			}
+			if idx == -1 {
+				return fmt.Errorf("service: after feature %d not found in its own priority group (data integrity)", anchor.ID)
+			}
+			insertIdx = idx + 1
+		}
+
+		plan := planPlacement(row.ID, others, insertIdx)
+		newPos := plan.Position
+		if plan.Renumber != nil {
+			positions := domain.RenumberPositions(len(plan.Renumber))
+			for i, id := range plan.Renumber {
+				if id == row.ID {
+					newPos = positions[i]
+					continue
+				}
+				if err := store.SetFeaturePositionUnversioned(ctx, tx, id, positions[i]); err != nil {
+					return fmt.Errorf("service: renumber priority group: %w", err)
+				}
+			}
+		}
+
+		if _, err := store.SetFeaturePositionVersioned(ctx, tx, row.ID, newPos, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: set feature position: %w", err)
+		}
+
+		reorderChanges := auditChanges(map[string]any{"position": newPos})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureReordered, corrID, nil, reorderChanges, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetFeatureByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload reordered feature: %w", err)
 		}
 		result = updated.Entity
 		return nil

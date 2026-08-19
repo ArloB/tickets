@@ -83,7 +83,10 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 		if err != nil {
 			return fmt.Errorf("service: allocate general feature reference: %w", err)
 		}
-		if err := store.InsertFeature(ctx, tx, featureEntityID, projectEntityID, featureSeq, generalFeatureTitle, "", string(domain.PriorityMedium)); err != nil {
+		// The General feature is the project's first, so its (project,
+		// priority) group is empty — domain.TailPosition(0) is its tail
+		// position without a query to confirm that.
+		if err := store.InsertFeature(ctx, tx, featureEntityID, projectEntityID, featureSeq, generalFeatureTitle, "", string(domain.PriorityMedium), domain.TailPosition(0)); err != nil {
 			return fmt.Errorf("service: create general feature: %w", err)
 		}
 		if err := store.SetProjectGeneralFeature(ctx, tx, projectEntityID, featureEntityID); err != nil {
