@@ -28,7 +28,7 @@ func TestOpenUnusualPath(t *testing.T) {
 	// Exercise an actual write, not just PRAGMA/ping — the regression
 	// this guards against is the DSN's "?_pragma=..." suffix breaking
 	// once the path portion itself contains reserved-looking characters.
-	if _, _, err := InsertEntity(context.Background(), s.DB(), nil, "project"); err != nil {
+	if _, _, err := InsertEntity(context.Background(), s.DB(), nil, "project", Now()); err != nil {
 		t.Fatalf("InsertEntity on unusual path: %v", err)
 	}
 }
@@ -39,7 +39,7 @@ func TestOpenUnusualPath(t *testing.T) {
 // fractional-digit counts compared lexicographically wrong (e.g.
 // ".5967807Z" sorted after ".59678071Z", since 'Z' > '1'). This test
 // crafts timestamps of deliberately different widths and inserts them
-// directly (bypassing nowUTC, which can't produce mixed widths on its
+// directly (bypassing Now(), which can't produce mixed widths on its
 // own) to prove the layout — and therefore ORDER BY / cursor
 // comparisons over it — no longer depends on wall-clock luck.
 func TestTimeLayoutIsFixedWidth(t *testing.T) {
@@ -55,11 +55,11 @@ func TestTimeLayoutIsFixedWidth(t *testing.T) {
 	ctx := context.Background()
 
 	// Same instant, formatted at two different (now impossible via
-	// nowUTC, but historically produced by time.RFC3339Nano) widths.
+	// Now(), but historically produced by time.RFC3339Nano) widths.
 	earlier := "2026-08-19T12:00:00.500000000Z" // fixed-width: fractional 5*10^8 ns
 	later := "2026-08-19T12:00:00.510000000Z"   // fixed-width: fractional 5.1*10^8 ns, genuinely later
 
-	projA, _, err := InsertEntity(ctx, s.DB(), nil, "project")
+	projA, _, err := InsertEntity(ctx, s.DB(), nil, "project", Now())
 	if err != nil {
 		t.Fatalf("insert project A: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestTimeLayoutIsFixedWidth(t *testing.T) {
 		t.Fatalf("insert projects row A: %v", err)
 	}
 
-	projB, _, err := InsertEntity(ctx, s.DB(), nil, "project")
+	projB, _, err := InsertEntity(ctx, s.DB(), nil, "project", Now())
 	if err != nil {
 		t.Fatalf("insert project B: %v", err)
 	}

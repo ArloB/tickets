@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -62,70 +63,64 @@ func (s *Service) CreateTicket(ctx context.Context, req CreateTicketRequest, ide
 }
 
 func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, title string, priority domain.Priority, idemKey, fingerprint string) (domain.Reference, error) {
-	tx, err := s.store.DB().BeginTx(ctx, nil)
-	if err != nil {
-		return domain.Reference{}, fmt.Errorf("service: begin tx: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
+	var result domain.Reference
+	err := s.withTx(ctx, func(tx *sql.Tx, now string) error {
+		if cached, found, err := checkIdempotency(ctx, tx, idemKey, fingerprint); err != nil {
+			return err
+		} else if found {
+			ref, perr := domain.Parse(cached)
+			if perr != nil {
+				return fmt.Errorf("service: cached idempotent ref %q is invalid: %w", cached, perr)
+			}
+			result = ref
+			return nil // no writes happened on this path; committing is a no-op
 		}
-	}()
 
-	if cached, found, err := checkIdempotency(ctx, tx, idemKey, fingerprint); err != nil {
-		return domain.Reference{}, err
-	} else if found {
-		ref, perr := domain.Parse(cached)
-		if perr != nil {
-			return domain.Reference{}, fmt.Errorf("service: cached idempotent ref %q is invalid: %w", cached, perr)
+		proj, err := store.GetProjectByKey(ctx, tx, req.ProjectKey)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("project %q not found", req.ProjectKey)
 		}
-		return ref, nil // read-only path; rolls back via defer
-	}
+		if err != nil {
+			return fmt.Errorf("service: look up project: %w", err)
+		}
+		if proj.GeneralFeatureID == 0 {
+			return fmt.Errorf("service: project %q has no general feature (data integrity)", req.ProjectKey)
+		}
 
-	proj, err := store.GetProjectByKey(ctx, tx, req.ProjectKey)
-	if errors.Is(err, store.ErrNotFound) {
-		return domain.Reference{}, newNotFoundError("project %q not found", req.ProjectKey)
-	}
-	if err != nil {
-		return domain.Reference{}, fmt.Errorf("service: look up project: %w", err)
-	}
-	if proj.GeneralFeatureID == 0 {
-		return domain.Reference{}, fmt.Errorf("service: project %q has no general feature (data integrity)", req.ProjectKey)
-	}
+		ticketEntityID, _, err := store.InsertEntity(ctx, tx, &proj.ID, "ticket", now)
+		if err != nil {
+			return fmt.Errorf("service: create ticket entity: %w", err)
+		}
+		seq, err := store.AllocateReference(ctx, tx, proj.ID, "ticket")
+		if err != nil {
+			return fmt.Errorf("service: allocate ticket reference: %w", err)
+		}
 
-	ticketEntityID, _, err := store.InsertEntity(ctx, tx, &proj.ID, "ticket")
-	if err != nil {
-		return domain.Reference{}, fmt.Errorf("service: create ticket entity: %w", err)
-	}
-	seq, err := store.AllocateReference(ctx, tx, proj.ID, "ticket")
-	if err != nil {
-		return domain.Reference{}, fmt.Errorf("service: allocate ticket reference: %w", err)
-	}
+		var severityStr *string
+		if req.Severity != nil {
+			v := string(*req.Severity)
+			severityStr = &v
+		}
+		if err := store.InsertTicket(ctx, tx, ticketEntityID, proj.ID, proj.GeneralFeatureID, seq,
+			string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr); err != nil {
+			return fmt.Errorf("service: create ticket: %w", err)
+		}
 
-	var severityStr *string
-	if req.Severity != nil {
-		v := string(*req.Severity)
-		severityStr = &v
-	}
-	if err := store.InsertTicket(ctx, tx, ticketEntityID, proj.ID, proj.GeneralFeatureID, seq,
-		string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr); err != nil {
-		return domain.Reference{}, fmt.Errorf("service: create ticket: %w", err)
-	}
-
-	ref := domain.Reference{ProjectKey: req.ProjectKey, Kind: domain.KindTicket, Seq: seq}
-	refStr, err := domain.Format(ref)
+		ref := domain.Reference{ProjectKey: req.ProjectKey, Kind: domain.KindTicket, Seq: seq}
+		refStr, err := domain.Format(ref)
+		if err != nil {
+			return fmt.Errorf("service: format created ticket ref: %w", err)
+		}
+		if err := recordIdempotency(ctx, tx, idemKey, fingerprint, refStr, now); err != nil {
+			return err
+		}
+		result = ref
+		return nil
+	})
 	if err != nil {
-		return domain.Reference{}, fmt.Errorf("service: format created ticket ref: %w", err)
-	}
-	if err := recordIdempotency(ctx, tx, idemKey, fingerprint, refStr); err != nil {
 		return domain.Reference{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return domain.Reference{}, fmt.Errorf("service: commit: %w", err)
-	}
-	committed = true
-	return ref, nil
+	return result, nil
 }
 
 // GetTicket looks up a ticket by its parsed reference.
@@ -161,43 +156,36 @@ func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatus
 		return domain.Ticket{}, newValidationError("status", "invalid status %q", req.NewStatus)
 	}
 
-	tx, err := s.store.DB().BeginTx(ctx, nil)
-	if err != nil {
-		return domain.Ticket{}, fmt.Errorf("service: begin tx: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
+	var result domain.Ticket
+	err := s.withTx(ctx, func(tx *sql.Tx, now string) error {
+		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("ticket not found")
 		}
-	}()
+		if err != nil {
+			return fmt.Errorf("service: look up ticket: %w", err)
+		}
 
-	row, err := store.GetTicketByRef(ctx, tx, req.Ref)
-	if errors.Is(err, store.ErrNotFound) {
-		return domain.Ticket{}, newNotFoundError("ticket not found")
-	}
-	if err != nil {
-		return domain.Ticket{}, fmt.Errorf("service: look up ticket: %w", err)
-	}
-
-	if _, err := store.UpdateTicketStatus(ctx, tx, row.ID, string(req.NewStatus), req.ExpectedVersion); err != nil {
-		if errors.Is(err, store.ErrVersionConflict) {
-			current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
-			if cerr != nil {
-				return domain.Ticket{}, fmt.Errorf("service: read current version after conflict: %w", cerr)
+		if _, err := store.UpdateTicketStatus(ctx, tx, row.ID, string(req.NewStatus), req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
 			}
-			return domain.Ticket{}, newVersionConflictError(current)
+			return fmt.Errorf("service: update ticket status: %w", err)
 		}
-		return domain.Ticket{}, fmt.Errorf("service: update ticket status: %w", err)
-	}
 
-	updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload updated ticket: %w", err)
+		}
+		result = updated.Entity
+		return nil
+	})
 	if err != nil {
-		return domain.Ticket{}, fmt.Errorf("service: reload updated ticket: %w", err)
+		return domain.Ticket{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return domain.Ticket{}, fmt.Errorf("service: commit: %w", err)
-	}
-	committed = true
-	return updated.Entity, nil
+	return result, nil
 }

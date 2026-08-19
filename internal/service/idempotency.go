@@ -8,9 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
-
-	"github.com/ArloB/tickets/internal/store"
 )
 
 // Fingerprint implements docs/contracts/concurrency.md's canonical
@@ -69,14 +66,17 @@ func checkIdempotency(ctx context.Context, tx *sql.Tx, key, fingerprint string) 
 }
 
 // recordIdempotency stores the mapping after a successful create. A
-// no-op when key is empty.
-func recordIdempotency(ctx context.Context, tx *sql.Tx, key, fingerprint, refKey string) error {
+// no-op when key is empty. now is the caller's shared transaction
+// timestamp (see store.Now) rather than a fresh time.Now() call, so
+// this record's created_at matches every other row written by the
+// same mutation.
+func recordIdempotency(ctx context.Context, tx *sql.Tx, key, fingerprint, refKey, now string) error {
 	if key == "" {
 		return nil
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO idempotency_keys(key, fingerprint, ref_key, created_at) VALUES (?, ?, ?, ?)`,
-		key, fingerprint, refKey, time.Now().UTC().Format(store.TimeLayout),
+		key, fingerprint, refKey, now,
 	); err != nil {
 		return fmt.Errorf("service: store idempotency record: %w", err)
 	}

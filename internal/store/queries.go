@@ -39,7 +39,14 @@ type Querier interface {
 // internal/service uses the same layout for idempotency_keys.created_at.
 const TimeLayout = "2006-01-02T15:04:05.000000000Z07:00"
 
-func nowUTC() string { return time.Now().UTC().Format(TimeLayout) }
+// Now returns the current instant formatted with TimeLayout. Callers
+// that write more than one row inside a single transaction (in
+// particular internal/service's tx helper) call this once and pass the
+// same string to every write, so rows created together share an
+// identical created_at/updated_at rather than drifting by
+// microseconds — audit trails and fixture reproducibility both want
+// that.
+func Now() string { return time.Now().UTC().Format(TimeLayout) }
 
 func parseTime(s string) (time.Time, error) {
 	return time.Parse(TimeLayout, s)
@@ -48,13 +55,13 @@ func parseTime(s string) (time.Time, error) {
 // InsertEntity inserts a new entities row and returns its internal
 // surrogate id (ADR 0002) and freshly generated UUIDv7 (product spec
 // §5.2). projectID is nil only when the entity being created is itself
-// a project.
-func InsertEntity(ctx context.Context, q Querier, projectID *int64, kind string) (id int64, id36 string, err error) {
+// a project. now is the caller's shared transaction timestamp (see
+// Now).
+func InsertEntity(ctx context.Context, q Querier, projectID *int64, kind string, now string) (id int64, id36 string, err error) {
 	u, err := uuid.NewV7()
 	if err != nil {
 		return 0, "", fmt.Errorf("generate uuid: %w", err)
 	}
-	now := nowUTC()
 	res, err := q.ExecContext(ctx,
 		`INSERT INTO entities(uuid, project_id, kind, version, created_at, updated_at)
 		 VALUES (?, ?, ?, 1, ?, ?)`,
@@ -356,9 +363,9 @@ func GetTicketByRef(ctx context.Context, q Querier, ref domain.Reference) (Ticke
 // UpdateTicketStatus applies a conditional status update: it only
 // takes effect if the row's current version matches expectedVersion
 // (ADR 0008 / docs/contracts/concurrency.md). Returns ErrVersionConflict
-// (with the row's actual current version) if it does not.
-func UpdateTicketStatus(ctx context.Context, q Querier, entityID int64, newStatus string, expectedVersion int64) (newVersion int64, err error) {
-	now := nowUTC()
+// (with the row's actual current version) if it does not. now is the
+// caller's shared transaction timestamp (see Now).
+func UpdateTicketStatus(ctx context.Context, q Querier, entityID int64, newStatus string, expectedVersion int64, now string) (newVersion int64, err error) {
 	res, err := q.ExecContext(ctx,
 		`UPDATE entities SET version = version + 1, updated_at = ?
 		 WHERE id = ? AND version = ? AND deleted_at IS NULL`,
