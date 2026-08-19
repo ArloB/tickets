@@ -265,13 +265,16 @@ func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt stri
 }
 
 // InsertTicket writes the tickets row for an already-inserted entities
-// row.
+// row. priority_rank/severity_rank are derived from priority/severity
+// here (see rank.go) — every write path for those two columns must go
+// through the same derivation, not just this one.
 func InsertTicket(ctx context.Context, q Querier, entityID, projectEntityID, featureEntityID, seq int64,
 	ticketType, title, description, status, priority string, severity *string) error {
 	_, err := q.ExecContext(ctx,
-		`INSERT INTO tickets(id, project_id, feature_id, seq, type, title, description, status, priority, severity)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tickets(id, project_id, feature_id, seq, type, title, description, status, priority, severity, priority_rank, severity_rank)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		entityID, projectEntityID, featureEntityID, seq, ticketType, title, description, status, priority, severity,
+		priorityRank(priority), severityRank(severity),
 	)
 	if err != nil {
 		return fmt.Errorf("insert ticket: %w", err)

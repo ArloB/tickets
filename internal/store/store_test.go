@@ -135,11 +135,19 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}
+	var firstCount int
+	if err := s.DB().QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&firstCount); err != nil {
+		t.Fatalf("query schema_migrations after first open: %v", err)
+	}
+	if firstCount == 0 {
+		t.Fatalf("schema_migrations has 0 rows after first open, want at least 1")
+	}
 	if err := s.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// Reopening the same data dir must not fail or reapply migration 1.
+	// Reopening the same data dir must not fail or reapply any migration:
+	// the row count must be identical, whatever it is, not grow.
 	s2, err := Open(dir)
 	if err != nil {
 		t.Fatalf("second Open (same data dir): %v", err)
@@ -150,7 +158,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err := s2.DB().QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("query schema_migrations: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("schema_migrations has %d rows after two opens, want 1", count)
+	if count != firstCount {
+		t.Errorf("schema_migrations has %d rows after two opens, want %d (unchanged from the first open)", count, firstCount)
 	}
 }
