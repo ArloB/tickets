@@ -14,25 +14,27 @@ func main() {
 		os.Exit(2)
 	}
 
+	var err error
 	switch os.Args[1] {
 	case "server":
-		// Implemented in Phase 0 Step 5 (the vertical-slice PoC): wires
-		// internal/config, internal/store, internal/service, and
-		// internal/httpapi behind a 127.0.0.1-by-default listener.
-		fmt.Fprintln(os.Stderr, "tickets server: not implemented yet")
-		os.Exit(1)
+		err = runServer(os.Args[2:])
 	case "setup":
 		fmt.Fprintln(os.Stderr, "tickets setup: not implemented yet")
 		os.Exit(1)
 	case "mcp":
-		fmt.Fprintln(os.Stderr, "tickets mcp: not implemented yet")
-		os.Exit(1)
+		err = runMCPBridge(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
+		return
 	default:
 		fmt.Fprintf(os.Stderr, "tickets: unknown command %q\n", os.Args[1])
 		usage()
 		os.Exit(2)
+	}
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tickets %s: %v\n", os.Args[1], err)
+		os.Exit(1)
 	}
 }
 
@@ -40,7 +42,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `usage: tickets <command> [flags]
 
 commands:
-  server   run the Tickets HTTP server (API, web UI, MCP Streamable HTTP)
+  server   run the Tickets HTTP server (API and MCP Streamable HTTP)
   setup    first-run administrative setup
   mcp      run the MCP stdio bridge against a configured Tickets server`)
 }
