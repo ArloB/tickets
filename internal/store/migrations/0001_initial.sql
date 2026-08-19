@@ -65,11 +65,17 @@ CREATE TABLE reference_counters (
 );
 
 -- Idempotency-key records (ADR 0008 / docs/contracts/concurrency.md).
+-- ref_key is the created record's stable reference (a project key or a
+-- ticket ref) - deliberately NOT a serialized snapshot of the response.
+-- A cache hit re-fetches the live record via that reference, so fields
+-- tagged json:"-" (e.g. domain.Ticket.UUID) and any field a later phase
+-- adds both survive a replay instead of silently reverting to whatever
+-- a stale snapshot happened to contain (see Phase 0 Step 5 review).
 -- Bounded retention is enforced by application-level cleanup, not a
 -- schema constraint, in this phase.
 CREATE TABLE idempotency_keys (
     key           TEXT NOT NULL PRIMARY KEY,
     fingerprint   TEXT NOT NULL,
-    result_json   TEXT NOT NULL,
+    ref_key       TEXT NOT NULL,
     created_at    TEXT NOT NULL
 );

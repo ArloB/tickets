@@ -26,8 +26,18 @@ verify against.
 ## Idempotency keys
 
 - Any mutating request may carry `Idempotency-Key: <opaque client string>`.
-- The server stores `(key, actor_id, request_fingerprint, result)` for
-  a bounded retention window (ADR 0008).
+- The server stores `(key, request_fingerprint, ref_key, created_at)`,
+  where `ref_key` is the created record's stable reference (a project
+  key or ticket ref) — never a snapshot of the response. A cache hit
+  re-fetches the live record by that reference, so fields that don't
+  round-trip through JSON (e.g. the internal UUID) and any field a
+  later phase adds both survive a replay correctly, instead of
+  reverting to whatever a stale snapshot happened to contain.
+- **Phase 0 status:** retention is unbounded — nothing purges old
+  `idempotency_keys` rows yet. ADR 0008 calls for a bounded retention
+  window; that's an administrative maintenance concern (product spec
+  §13's "token revocation and similar commands" pattern) implemented
+  alongside Phase 2's admin operations, not before.
 - `request_fingerprint` = SHA-256 over `method || "\n" || path || "\n"
   || canonical_json_body`, where "canonical" means: parse the request
   body as JSON, then re-marshal with map keys sorted — so two clients

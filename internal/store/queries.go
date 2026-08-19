@@ -30,11 +30,19 @@ type Querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func nowUTC() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+// TimeLayout is fixed-width (unlike time.RFC3339Nano, whose "9"
+// fractional digits strip trailing zeros). Cursor pagination and every
+// ORDER BY on a timestamp column compares these strings
+// lexicographically — a variable-width format sorts wrong the moment
+// two rows' fractional-second digit counts differ (e.g. ".5967807Z"
+// sorts after ".59678071Z", because 'Z' > '1'). Exported so
+// internal/service uses the same layout for idempotency_keys.created_at.
+const TimeLayout = "2006-01-02T15:04:05.000000000Z07:00"
 
-func parseTime(s string) time.Time {
-	t, _ := time.Parse(time.RFC3339Nano, s)
-	return t
+func nowUTC() string { return time.Now().UTC().Format(TimeLayout) }
+
+func parseTime(s string) (time.Time, error) {
+	return time.Parse(TimeLayout, s)
 }
 
 // InsertEntity inserts a new entities row and returns its internal
@@ -164,8 +172,12 @@ func GetProjectByKey(ctx context.Context, q Querier, key string) (projectRow, er
 	}
 	row.Entity.UUID = parsed.String()
 	row.Entity.Status = domain.ProjectStatus(status)
-	row.Entity.CreatedAt = parseTime(createdAt)
-	row.Entity.UpdatedAt = parseTime(updatedAt)
+	if row.Entity.CreatedAt, err = parseTime(createdAt); err != nil {
+		return projectRow{}, fmt.Errorf("parse project created_at: %w", err)
+	}
+	if row.Entity.UpdatedAt, err = parseTime(updatedAt); err != nil {
+		return projectRow{}, fmt.Errorf("parse project updated_at: %w", err)
+	}
 	if generalFeatureID.Valid {
 		row.GeneralFeatureID = generalFeatureID.Int64
 	}
@@ -224,8 +236,12 @@ func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt stri
 		}
 		p.UUID = parsed.String()
 		p.Status = domain.ProjectStatus(status)
-		p.CreatedAt = parseTime(createdAt)
-		p.UpdatedAt = parseTime(updatedAt)
+		if p.CreatedAt, err = parseTime(createdAt); err != nil {
+			return ProjectPage{}, fmt.Errorf("parse project created_at: %w", err)
+		}
+		if p.UpdatedAt, err = parseTime(updatedAt); err != nil {
+			return ProjectPage{}, fmt.Errorf("parse project updated_at: %w", err)
+		}
 		page.Projects = append(page.Projects, p)
 		ids = append(ids, id)
 		createdAts = append(createdAts, createdAt)
@@ -289,8 +305,12 @@ func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 		return TicketRow{}, fmt.Errorf("parse ticket uuid: %w", err)
 	}
 	row.Entity.UUID = parsed.String()
-	row.Entity.CreatedAt = parseTime(createdAt)
-	row.Entity.UpdatedAt = parseTime(updatedAt)
+	if row.Entity.CreatedAt, err = parseTime(createdAt); err != nil {
+		return TicketRow{}, fmt.Errorf("parse ticket created_at: %w", err)
+	}
+	if row.Entity.UpdatedAt, err = parseTime(updatedAt); err != nil {
+		return TicketRow{}, fmt.Errorf("parse ticket updated_at: %w", err)
+	}
 	row.Entity.Type = domain.TicketType(ticketType)
 	row.Entity.Status = domain.WorkflowStatus(status)
 	row.Entity.Priority = domain.Priority(priority)

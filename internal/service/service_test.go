@@ -154,6 +154,50 @@ func TestTicketIdempotentCreateReplay(t *testing.T) {
 	}
 }
 
+// TestIdempotentReplayReturnsFullRecordNotASnapshot guards against the
+// idempotency cache silently dropping fields. An earlier design cached
+// a JSON-marshaled *domain.Ticket* and decoded it back on replay -
+// which silently zeroed UUID (tagged json:"-", so it never round-trips
+// through JSON) and would have zeroed any future field a later phase
+// adds without a matching json tag update here. The fix re-fetches the
+// live record by reference on every replay instead of trusting a
+// cached snapshot; this test asserts the replay's UUID is non-empty
+// and identical to the original, which only holds if a real re-fetch
+// happened.
+func TestIdempotentReplayReturnsFullRecordNotASnapshot(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, "", ""); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	req := CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeBug, Title: "Fix the parser"}
+	fp, err := Fingerprint("POST", "/api/v1/projects/ABC/tickets", []byte(`{"title":"Fix the parser","type":"bug"}`))
+	if err != nil {
+		t.Fatalf("Fingerprint: %v", err)
+	}
+
+	first, err := s.CreateTicket(ctx, req, "replay-uuid-key", fp)
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	if first.UUID == "" {
+		t.Fatalf("fresh create returned an empty UUID")
+	}
+
+	second, err := s.CreateTicket(ctx, req, "replay-uuid-key", fp)
+	if err != nil {
+		t.Fatalf("replayed create: %v", err)
+	}
+	if second.UUID == "" {
+		t.Errorf("replayed create returned an empty UUID — idempotency cache is dropping json:\"-\" fields")
+	}
+	if second.UUID != first.UUID {
+		t.Errorf("replayed create UUID = %q, want %q (same underlying ticket)", second.UUID, first.UUID)
+	}
+}
+
 func TestTicketIdempotencyKeyReusedWithDifferentBody(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)

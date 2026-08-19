@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,6 +23,12 @@ type CreateProjectRequest struct {
 // CreateProject creates a project and its mandatory General feature
 // (ADR 0001) in one transaction. idemKey/fingerprint may be empty,
 // meaning the caller supplied no Idempotency-Key.
+//
+// The idempotency cache stores only the project's key, never a
+// snapshot of the response (see idempotency.go and the migration's
+// comment on idempotency_keys.ref_key) — so both a fresh create and a
+// replayed one finish by re-fetching the live project via GetProject,
+// and both return identically shaped, fully current data.
 func (s *Service) CreateProject(ctx context.Context, req CreateProjectRequest, idemKey, fingerprint string) (domain.Project, error) {
 	if !domain.ValidProjectKey(req.Key) {
 		return domain.Project{}, newValidationError("key", "project key must be 2-10 uppercase letters/digits starting with a letter")
@@ -33,44 +38,70 @@ func (s *Service) CreateProject(ctx context.Context, req CreateProjectRequest, i
 		return domain.Project{}, newValidationError("title", "title is required")
 	}
 
-	return withIdempotency(ctx, s.store.DB(), idemKey, fingerprint, func(tx *sql.Tx) (domain.Project, error) {
-		if _, err := store.GetProjectByKey(ctx, tx, req.Key); err == nil {
-			return domain.Project{}, newAlreadyExistsError("key", "a project with key %q already exists", req.Key)
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return domain.Project{}, fmt.Errorf("service: check existing project: %w", err)
-		}
+	key, err := s.createProjectTx(ctx, req, title, idemKey, fingerprint)
+	if err != nil {
+		return domain.Project{}, err
+	}
+	return s.GetProject(ctx, key)
+}
 
-		projectEntityID, _, err := store.InsertEntity(ctx, tx, nil, "project")
-		if err != nil {
-			return domain.Project{}, fmt.Errorf("service: create project entity: %w", err)
+func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest, title, idemKey, fingerprint string) (string, error) {
+	tx, err := s.store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("service: begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
 		}
-		if err := store.InsertProject(ctx, tx, projectEntityID, req.Key, title, req.Description); err != nil {
-			return domain.Project{}, fmt.Errorf("service: create project: %w", err)
-		}
+	}()
 
-		// Mandatory General feature (ADR 0001), created in the same
-		// transaction so a project never briefly exists without one.
-		featureEntityID, _, err := store.InsertEntity(ctx, tx, &projectEntityID, generalFeatureKind)
-		if err != nil {
-			return domain.Project{}, fmt.Errorf("service: create general feature entity: %w", err)
-		}
-		featureSeq, err := store.AllocateReference(ctx, tx, projectEntityID, generalFeatureKind)
-		if err != nil {
-			return domain.Project{}, fmt.Errorf("service: allocate general feature reference: %w", err)
-		}
-		if err := store.InsertFeature(ctx, tx, featureEntityID, projectEntityID, featureSeq, generalFeatureTitle); err != nil {
-			return domain.Project{}, fmt.Errorf("service: create general feature: %w", err)
-		}
-		if err := store.SetProjectGeneralFeature(ctx, tx, projectEntityID, featureEntityID); err != nil {
-			return domain.Project{}, fmt.Errorf("service: link general feature: %w", err)
-		}
+	if cached, found, err := checkIdempotency(ctx, tx, idemKey, fingerprint); err != nil {
+		return "", err
+	} else if found {
+		return cached, nil // read-only path; rolls back via defer
+	}
 
-		row, err := store.GetProjectByKey(ctx, tx, req.Key)
-		if err != nil {
-			return domain.Project{}, fmt.Errorf("service: reload created project: %w", err)
-		}
-		return row.Entity, nil
-	})
+	if _, err := store.GetProjectByKey(ctx, tx, req.Key); err == nil {
+		return "", newAlreadyExistsError("key", "a project with key %q already exists", req.Key)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return "", fmt.Errorf("service: check existing project: %w", err)
+	}
+
+	projectEntityID, _, err := store.InsertEntity(ctx, tx, nil, "project")
+	if err != nil {
+		return "", fmt.Errorf("service: create project entity: %w", err)
+	}
+	if err := store.InsertProject(ctx, tx, projectEntityID, req.Key, title, req.Description); err != nil {
+		return "", fmt.Errorf("service: create project: %w", err)
+	}
+
+	// Mandatory General feature (ADR 0001), created in the same
+	// transaction so a project never briefly exists without one.
+	featureEntityID, _, err := store.InsertEntity(ctx, tx, &projectEntityID, generalFeatureKind)
+	if err != nil {
+		return "", fmt.Errorf("service: create general feature entity: %w", err)
+	}
+	featureSeq, err := store.AllocateReference(ctx, tx, projectEntityID, generalFeatureKind)
+	if err != nil {
+		return "", fmt.Errorf("service: allocate general feature reference: %w", err)
+	}
+	if err := store.InsertFeature(ctx, tx, featureEntityID, projectEntityID, featureSeq, generalFeatureTitle); err != nil {
+		return "", fmt.Errorf("service: create general feature: %w", err)
+	}
+	if err := store.SetProjectGeneralFeature(ctx, tx, projectEntityID, featureEntityID); err != nil {
+		return "", fmt.Errorf("service: link general feature: %w", err)
+	}
+
+	if err := recordIdempotency(ctx, tx, idemKey, fingerprint, req.Key); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("service: commit: %w", err)
+	}
+	committed = true
+	return req.Key, nil
 }
 
 // GetProject looks up a project by key.

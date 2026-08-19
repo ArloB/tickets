@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -28,6 +27,9 @@ type CreateTicketRequest struct {
 
 // CreateTicket allocates a reference and creates a ticket in its
 // project's General feature, in one transaction.
+//
+// Like CreateProject, the idempotency cache stores only the created
+// ticket's ref, never a snapshot of the response — see idempotency.go.
 func (s *Service) CreateTicket(ctx context.Context, req CreateTicketRequest, idemKey, fingerprint string) (domain.Ticket, error) {
 	if !req.Type.Valid() {
 		return domain.Ticket{}, newValidationError("type", "invalid ticket type %q", req.Type)
@@ -52,43 +54,78 @@ func (s *Service) CreateTicket(ctx context.Context, req CreateTicketRequest, ide
 		}
 	}
 
-	return withIdempotency(ctx, s.store.DB(), idemKey, fingerprint, func(tx *sql.Tx) (domain.Ticket, error) {
-		proj, err := store.GetProjectByKey(ctx, tx, req.ProjectKey)
-		if errors.Is(err, store.ErrNotFound) {
-			return domain.Ticket{}, newNotFoundError("project %q not found", req.ProjectKey)
-		}
-		if err != nil {
-			return domain.Ticket{}, fmt.Errorf("service: look up project: %w", err)
-		}
-		if proj.GeneralFeatureID == 0 {
-			return domain.Ticket{}, fmt.Errorf("service: project %q has no general feature (data integrity)", req.ProjectKey)
-		}
+	ref, err := s.createTicketTx(ctx, req, title, priority, idemKey, fingerprint)
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	return s.GetTicket(ctx, ref)
+}
 
-		ticketEntityID, _, err := store.InsertEntity(ctx, tx, &proj.ID, "ticket")
-		if err != nil {
-			return domain.Ticket{}, fmt.Errorf("service: create ticket entity: %w", err)
+func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, title string, priority domain.Priority, idemKey, fingerprint string) (domain.Reference, error) {
+	tx, err := s.store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return domain.Reference{}, fmt.Errorf("service: begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
 		}
-		seq, err := store.AllocateReference(ctx, tx, proj.ID, "ticket")
-		if err != nil {
-			return domain.Ticket{}, fmt.Errorf("service: allocate ticket reference: %w", err)
-		}
+	}()
 
-		var severityStr *string
-		if req.Severity != nil {
-			v := string(*req.Severity)
-			severityStr = &v
+	if cached, found, err := checkIdempotency(ctx, tx, idemKey, fingerprint); err != nil {
+		return domain.Reference{}, err
+	} else if found {
+		ref, perr := domain.Parse(cached)
+		if perr != nil {
+			return domain.Reference{}, fmt.Errorf("service: cached idempotent ref %q is invalid: %w", cached, perr)
 		}
-		if err := store.InsertTicket(ctx, tx, ticketEntityID, proj.ID, proj.GeneralFeatureID, seq,
-			string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr); err != nil {
-			return domain.Ticket{}, fmt.Errorf("service: create ticket: %w", err)
-		}
+		return ref, nil // read-only path; rolls back via defer
+	}
 
-		row, err := store.GetTicketByRef(ctx, tx, domain.Reference{ProjectKey: req.ProjectKey, Kind: domain.KindTicket, Seq: seq})
-		if err != nil {
-			return domain.Ticket{}, fmt.Errorf("service: reload created ticket: %w", err)
-		}
-		return row.Entity, nil
-	})
+	proj, err := store.GetProjectByKey(ctx, tx, req.ProjectKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return domain.Reference{}, newNotFoundError("project %q not found", req.ProjectKey)
+	}
+	if err != nil {
+		return domain.Reference{}, fmt.Errorf("service: look up project: %w", err)
+	}
+	if proj.GeneralFeatureID == 0 {
+		return domain.Reference{}, fmt.Errorf("service: project %q has no general feature (data integrity)", req.ProjectKey)
+	}
+
+	ticketEntityID, _, err := store.InsertEntity(ctx, tx, &proj.ID, "ticket")
+	if err != nil {
+		return domain.Reference{}, fmt.Errorf("service: create ticket entity: %w", err)
+	}
+	seq, err := store.AllocateReference(ctx, tx, proj.ID, "ticket")
+	if err != nil {
+		return domain.Reference{}, fmt.Errorf("service: allocate ticket reference: %w", err)
+	}
+
+	var severityStr *string
+	if req.Severity != nil {
+		v := string(*req.Severity)
+		severityStr = &v
+	}
+	if err := store.InsertTicket(ctx, tx, ticketEntityID, proj.ID, proj.GeneralFeatureID, seq,
+		string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr); err != nil {
+		return domain.Reference{}, fmt.Errorf("service: create ticket: %w", err)
+	}
+
+	ref := domain.Reference{ProjectKey: req.ProjectKey, Kind: domain.KindTicket, Seq: seq}
+	refStr, err := domain.Format(ref)
+	if err != nil {
+		return domain.Reference{}, fmt.Errorf("service: format created ticket ref: %w", err)
+	}
+	if err := recordIdempotency(ctx, tx, idemKey, fingerprint, refStr); err != nil {
+		return domain.Reference{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.Reference{}, fmt.Errorf("service: commit: %w", err)
+	}
+	committed = true
+	return ref, nil
 }
 
 // GetTicket looks up a ticket by its parsed reference.

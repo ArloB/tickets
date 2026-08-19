@@ -1,7 +1,9 @@
 # Dormant until a GitHub remote exists (Phase 0 decision: local git + WSL
 # only, no remote yet). Kept in sync with Taskfile.yml so local and CI can
 # never drift — every step here just calls the same tasks a developer runs
-# locally.
+# locally, including lint (previously this ran golangci-lint-action's own
+# built-in `run` step instead of `task lint`, which was exactly the kind
+# of drift this comment claims doesn't happen — fixed).
 name: CI
 
 on:
@@ -27,16 +29,16 @@ jobs:
           node-version: 22
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
       - name: Install go-task
         run: go install github.com/go-task/task/v3/cmd/task@latest
 
       - name: fmt
         run: task fmt
+
+      - name: lint
+        run: task lint
 
       - name: test (with race detector on Linux)
         if: runner.os == 'Linux'
@@ -51,9 +53,3 @@ jobs:
 
       - name: build
         run: task build
-
-      # Platform edge case from product spec §15: verify behavior with a
-      # data directory whose path has spaces and non-ASCII characters.
-      - name: build with unusual path (smoke check only, until Step 5 exists)
-        shell: bash
-        run: mkdir -p "tmp/tickets tëst dir" && ls "tmp/tickets tëst dir"

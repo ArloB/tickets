@@ -17,11 +17,14 @@ retry after losing a response.
 - Update endpoints require `If-Match: "<version>"`. A mismatch returns
   `409` with an envelope carrying `current_version` (product spec §9's
   error envelope), so the client can decide whether to retry.
-- `idempotency_keys` records `(key, actor, request fingerprint, result)`
-  with a bounded retention window. A mutation replayed with the same
-  key and matching fingerprint returns the original result without
-  re-executing; a key reused with a different fingerprint is a client
-  error, not a silent overwrite.
+- `idempotency_keys` records `(key, request fingerprint, ref_key)` —
+  `ref_key` being the created record's stable reference, not a
+  snapshot of the response (see implementation note below) — with a
+  bounded retention window. A mutation replayed with the same key and
+  matching fingerprint re-fetches and returns the current live record
+  without re-executing; a key reused with a different fingerprint is a
+  client error, not a silent overwrite. `actor` joins the fingerprint
+  once ADR 0004's actors exist (Phase 2); Phase 0 has none.
 - Reads may retry automatically; writes retry only when an
   `Idempotency-Key` header is present (§8.4).
 
@@ -37,3 +40,18 @@ retry after losing a response.
   that two different creates sharing an accidental key collision are
   still distinguishable as a client error rather than silently
   returning the wrong prior result.
+
+## Implementation note (Step 5)
+
+Caching a serialized snapshot of the response (the first design tried)
+turned out to be lossy: `domain.Ticket.UUID` is tagged `json:"-"` (ADR
+0002 — the wire shape never exposes it), so a snapshot round-tripped
+through JSON silently zeroed it on replay, and any field a later phase
+adds would have the same problem until someone remembered to update
+this cache too. `internal/service` instead caches only the created
+record's reference and re-fetches the live row on every replay — see
+`docs/contracts/concurrency.md` for the current, accurate shape. Gate:
+`internal/service/service_test.go`'s
+`TestIdempotentReplayReturnsFullRecordNotASnapshot`. Retention remains
+unbounded in Phase 0 (docs/contracts/concurrency.md's Phase 0 status
+note) — the bounded window above is not yet implemented.

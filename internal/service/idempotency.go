@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/ArloB/tickets/internal/store"
 )
 
 // Fingerprint implements docs/contracts/concurrency.md's canonical
@@ -38,73 +40,45 @@ func Fingerprint(method, path string, body []byte) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// withIdempotency runs fn inside one transaction. If key is non-empty
-// and a prior call with the same key and fingerprint already
-// committed, it returns the cached result without calling fn again
-// (docs/contracts/concurrency.md). A key reused with a *different*
-// fingerprint is *Error{Code: domain.ErrIdempotencyKeyReused}.
-//
-// Correctness under concurrency relies on SQLite's serialized-writer
-// transaction model (ADR 0003/0009), the same reasoning reference
-// allocation depends on: two concurrent calls with the same key can't
-// both observe "no existing row" and both proceed to insert.
-func withIdempotency[T any](ctx context.Context, db *sql.DB, key, fingerprint string, fn func(tx *sql.Tx) (T, error)) (T, error) {
-	var zero T
-
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return zero, fmt.Errorf("service: begin tx: %w", err)
+// checkIdempotency looks up (key, fingerprint) inside tx. An empty key
+// always returns ("", false, nil) — no idempotent-retry semantics
+// requested. A prior record with a matching fingerprint returns the
+// cached refKey (a project key or ticket ref, never a serialized
+// snapshot — see the migration's comment on idempotency_keys.ref_key)
+// so the caller re-fetches the live record. A prior record with a
+// *different* fingerprint is idempotency_key_reused.
+func checkIdempotency(ctx context.Context, tx *sql.Tx, key, fingerprint string) (refKey string, found bool, err error) {
+	if key == "" {
+		return "", false, nil
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
+	var existingFingerprint string
+	err = tx.QueryRowContext(ctx,
+		`SELECT fingerprint, ref_key FROM idempotency_keys WHERE key = ?`, key,
+	).Scan(&existingFingerprint, &refKey)
+	switch {
+	case err == nil:
+		if existingFingerprint != fingerprint {
+			return "", false, newIdempotencyReusedError()
 		}
-	}()
-
-	if key != "" {
-		var existingFingerprint, existingResult string
-		err := tx.QueryRowContext(ctx,
-			`SELECT fingerprint, result_json FROM idempotency_keys WHERE key = ?`, key,
-		).Scan(&existingFingerprint, &existingResult)
-		switch {
-		case err == nil:
-			if existingFingerprint != fingerprint {
-				return zero, newIdempotencyReusedError()
-			}
-			var out T
-			if err := json.Unmarshal([]byte(existingResult), &out); err != nil {
-				return zero, fmt.Errorf("service: decode cached idempotent result: %w", err)
-			}
-			return out, nil // read-only path; rolls back via defer
-		case errors.Is(err, sql.ErrNoRows):
-			// no prior record; fall through to execute fn
-		default:
-			return zero, fmt.Errorf("service: check idempotency key: %w", err)
-		}
+		return refKey, true, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return "", false, nil
+	default:
+		return "", false, fmt.Errorf("service: check idempotency key: %w", err)
 	}
+}
 
-	result, err := fn(tx)
-	if err != nil {
-		return zero, err
+// recordIdempotency stores the mapping after a successful create. A
+// no-op when key is empty.
+func recordIdempotency(ctx context.Context, tx *sql.Tx, key, fingerprint, refKey string) error {
+	if key == "" {
+		return nil
 	}
-
-	if key != "" {
-		resultBytes, err := json.Marshal(result)
-		if err != nil {
-			return zero, fmt.Errorf("service: marshal idempotent result: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO idempotency_keys(key, fingerprint, result_json, created_at) VALUES (?, ?, ?, ?)`,
-			key, fingerprint, string(resultBytes), time.Now().UTC().Format(time.RFC3339Nano),
-		); err != nil {
-			return zero, fmt.Errorf("service: store idempotency record: %w", err)
-		}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO idempotency_keys(key, fingerprint, ref_key, created_at) VALUES (?, ?, ?, ?)`,
+		key, fingerprint, refKey, time.Now().UTC().Format(store.TimeLayout),
+	); err != nil {
+		return fmt.Errorf("service: store idempotency record: %w", err)
 	}
-
-	if err := tx.Commit(); err != nil {
-		return zero, fmt.Errorf("service: commit: %w", err)
-	}
-	committed = true
-	return result, nil
+	return nil
 }
