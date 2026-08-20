@@ -16,8 +16,7 @@ through HTTP at all.
     "message": "The ticket was modified by another actor since you last read it.",
     "field": null,
     "correlation_id": "01996a3e-...",
-    "current_version": 4,
-    "retry_after": null
+    "current_version": 4
   }
 }
 ```
@@ -33,7 +32,17 @@ through HTTP at all.
   didn't supply one.
 - `current_version` — present only for `version_conflict` (§8.4); lets
   a client retry with a fresh `If-Match` without a second round trip.
-- `retry_after` — present only for `rate_limited`; seconds.
+
+An earlier draft of this doc also specified a `retry_after` field for
+a rate-limiting code, speculatively, before either existed.
+`throttled` (429, added below) is what was actually built — for login
+attempts specifically, not a general per-route rate limit — and its
+envelope carries no `retry_after`; a throttled client just retries
+after the throttle window (`internal/auth/throttle.go`) elapses, which
+this response doesn't currently name explicitly. `internal/httpapi`'s
+`errorBody` (`envelope.go`) is the exhaustive field list: `code`,
+`message`, `field`, `correlation_id`, `current_version` — nothing
+else, on any code.
 
 ## Code catalogue (Phase 0)
 
@@ -47,10 +56,12 @@ through HTTP at all.
 | `unauthorized` | 401 | Missing/invalid credentials (bearer token or session). |
 | `internal_error` | 500 | Unexpected server-side failure; never leaks internals in `message`. |
 
-Additional codes (`forbidden`, `rate_limited`, and others tied to
+Additional codes (`forbidden`, `throttled`, and others tied to
 features outside Step 5's slice) are added alongside the feature that
 needs them — this table only covers what the vertical slice's three
-mutating endpoints can actually return.
+mutating endpoints can actually return. (`throttled` was called
+`rate_limited` in this doc's earlier drafts; see the Phase 2 additions
+table below for the name actually built.)
 
 ## Code catalogue (Phase 1 additions)
 
@@ -59,10 +70,13 @@ mutating endpoints can actually return.
 | `relationship_cycle` | 400 | Adding this `blocks`/`parent_of` edge would create a cycle. |
 | `has_dependents` | 409 | Soft-deleting this record would orphan non-deleted dependents; retry with `cascade: true` to delete them together. |
 
-No endpoint returns either code yet — Phase 1 stays below the API
-line (service-level tests only) — but `internal/httpapi`'s
-`statusForCode` maps both so the mapping isn't invented under
-schedule pressure once Phase 2 exposes them.
+Both are reachable over HTTP as of Phase 2: `relationship_cycle` from
+`POST /tickets/{ref}/relationships` (a `blocks`/`parent_of` edge that
+would close a cycle, ADR 0014), `has_dependents` from
+`DELETE /features/{ref}` (a feature with non-deleted tickets, retry
+with `?cascade=true`, ADR 0013). `internal/httpapi`'s `statusForCode`
+mapped both correctly from the day they were written, well before
+either endpoint existed to exercise it.
 
 ## Code catalogue (Phase 2 additions)
 
@@ -78,6 +92,22 @@ permission-level checks live in the translation layer for Phase 2.
 `internal/auth.TooManyAttempts`), same as every other error code:
 `internal/service` stays the sole authorization/validation boundary
 for it.
+
+## OpenAPI's `code` field is a bare string, not an enum
+
+`api/openapi.yaml`'s `ErrorEnvelope` schema declares `error.code` as
+`type: string`, with no `enum:` constraint against this catalogue. The
+Phase 2 plan's Step 5 originally called for `ErrForbidden` to "touch
+… the OpenAPI error-code enum," but no such enum exists in the schema
+that shipped — enumerating this table's ~13 codes in the schema would
+mean every new code (this doc has grown one per phase so far) needs a
+synchronized edit to `api/openapi.yaml` on top of `internal/domain`'s
+own `ErrorCode` type, for a constraint `openapi3filter`'s
+response-schema validation doesn't actually need to catch a
+mismatch — every httpapi test already asserts the exact `code` string
+a response carries, which is the real enforcement mechanism. This
+doc's table is the enum, in effect; keep it in sync with
+`internal/domain/errors.go`'s constants, not with `api/openapi.yaml`.
 
 ## Consistency across interfaces
 

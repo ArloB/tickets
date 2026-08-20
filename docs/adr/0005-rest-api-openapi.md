@@ -35,3 +35,17 @@ duplicating validation, authorization, or audit logic.
 - Because `internal/service` is the only place business logic lives,
   the MCP tool surface (ADR 0006) can be added or changed later without
   touching authorization or validation code.
+- **A documented, narrow exception, added in Phase 2 (ADR 0004):**
+  `internal/httpapi`'s `requireEditor`/`requireAdmin` gates (driven by
+  `server.go`'s route table) reject a request based purely on the
+  authenticated caller's permission level, before the handler — and
+  therefore before `internal/service` — ever runs. This is a
+  permission-level check, not a business-logic or entity-specific
+  authorization decision: it depends only on the request's
+  `auth.Principal`, never on which project/ticket/feature is targeted,
+  so it doesn't violate the spirit of "`internal/service` is the
+  single authorization boundary" so much as sit just outside its
+  scope. If per-project ACLs are ever added (product spec §18), that
+  check would have to move into `internal/service`, since it would
+  then depend on which project the request targets — see ADR 0004's
+  Consequences for the fuller reasoning.

@@ -17,19 +17,20 @@ retry after losing a response.
 - Update endpoints require `If-Match: "<version>"`. A mismatch returns
   `409` with an envelope carrying `current_version` (product spec §9's
   error envelope), so the client can decide whether to retry.
-- `idempotency_keys` records `(key, request fingerprint, ref_key)` —
-  `ref_key` being the created record's stable reference, not a
-  snapshot of the response (see implementation note below) — with a
-  bounded retention window. A mutation replayed with the same key and
-  matching fingerprint re-fetches and returns the current live record
-  without re-executing; a key reused with a different fingerprint is a
-  client error, not a silent overwrite. `actor_id` still doesn't join
-  the fingerprint even though ADR 0012's actors exist as of Phase 1 —
-  `idempotency_keys.key` is the table's sole PRIMARY KEY, so adding
-  `actor_id` to the hash without widening the key to `(key, actor_id)`
-  wouldn't actually distinguish two actors reusing the same key. That
-  schema change is deferred to Phase 2's real authentication work; see
-  `docs/contracts/concurrency.md`'s Phase 1 note.
+- `idempotency_keys` records `(key, actor_id, request fingerprint,
+  ref_key)` — `ref_key` being the created record's stable reference,
+  not a snapshot of the response (see implementation note below) —
+  with a bounded retention window. A mutation replayed with the same
+  key, same actor, and matching fingerprint re-fetches and returns the
+  current live record without re-executing; a key reused with a
+  different fingerprint is a client error, not a silent overwrite.
+  **Phase 2 (Step 2/migration `0004_identity_and_auth.sql`) widened
+  the primary key from `(key)` to `(key, actor_id)`** and threaded
+  `actorID` through `internal/service/idempotency.go`'s
+  `checkIdempotency`/`recordIdempotency` — the gap this bullet
+  originally flagged (adding `actor_id` to the hash without widening
+  the key wouldn't have distinguished two actors reusing the same key)
+  is closed. See `docs/contracts/concurrency.md`.
 - Reads may retry automatically; writes retry only when an
   `Idempotency-Key` header is present (§8.4).
 
@@ -57,6 +58,10 @@ this cache too. `internal/service` instead caches only the created
 record's reference and re-fetches the live row on every replay — see
 `docs/contracts/concurrency.md` for the current, accurate shape. Gate:
 `internal/service/service_test.go`'s
-`TestIdempotentReplayReturnsFullRecordNotASnapshot`. Retention remains
-unbounded in Phase 0 (docs/contracts/concurrency.md's Phase 0 status
-note) — the bounded window above is not yet implemented.
+`TestIdempotentReplayReturnsFullRecordNotASnapshot`. Retention was
+unbounded through Phase 0/1; Phase 2 closes that with
+`tickets admin purge-idempotency-keys` (`cmd/tickets/admin.go`,
+default `--older-than 720h`), wrapping the already-existing
+`store.PurgeIdempotencyKeysOlderThan` — an operator-run maintenance
+command, not automatic expiry, matching product spec §13's "token
+revocation and similar commands" pattern.

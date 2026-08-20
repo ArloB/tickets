@@ -82,18 +82,22 @@ used.
 
 ## Consequences
 
-- **Restore is undiscoverable through the current API surface.**
-  `DeleteTicket`/`DeleteFeature` return only `error` — no version, no
-  confirmation the caller could use to construct a `RestoreTicket`
-  call. Every normal read hides the deleted row, so a caller has no
-  way to learn the version `RestoreTicket` needs without already
-  knowing it from before the delete. `internal/service/soft_delete_test.go`'s
-  tests only work because they compute the post-delete version by
-  hand (`ticket.Version + 1`). This doesn't block Phase 1 (no HTTP
-  endpoints exist for any of this yet), but it is a real gap Phase 2's
-  wire-up needs to close — either have `Delete*` return the new
-  version, or give `internal/service` an include-deleted read a caller
-  can use to look up what it needs before restoring.
+- **Restore's discoverability gap is closed as of Phase 2 (Step 9).**
+  Through Phase 1, `DeleteTicket`/`DeleteFeature` returned only
+  `error` — no version, no confirmation the caller could use to
+  construct a `RestoreTicket` call, and every normal read hid the
+  deleted row, so a caller had no way to learn the version
+  `RestoreTicket` needs without already knowing it from before the
+  delete. Both now return `(newVersion int64, err error)` —
+  `store.SoftDeleteEntity` already computed this value; Step 9 was
+  purely plumbing it out. Over HTTP (Step 13), `DELETE
+  /tickets/{ref}`/`DELETE /features/{ref}` return a `deleteResponse{
+  version int64}` body carrying exactly that value
+  (`internal/httpapi/wire.go`), so a caller can construct the
+  subsequent `POST .../restore` call's `If-Match` from the delete
+  response alone, no second read required. `internal/service/soft_delete_test.go`'s
+  tests now assert against the real returned value instead of the
+  hand-computed `ticket.Version + 1` this bullet originally described.
 - `TestReadPathsSoftDeleteFiltering`
   (`internal/service/soft_delete_readpath_test.go`) is the checklist
   the Phase 1 plan's Risks table asked for: every exported

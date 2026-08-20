@@ -176,10 +176,13 @@ type ticketsPage struct {
 }
 
 // featureDetail is every feature-returning endpoint's response shape —
-// same "explicit field list, no creator, no deleted_at" contract as
-// ticketDetail (see this file's top doc). No assignee: features are
-// never assigned (product spec §5.4), so domain.Feature has no such
-// field to omit in the first place.
+// same "explicit field list, no deleted_at" contract as ticketDetail
+// (see this file's top doc). Unlike ticketDetail, no creator field
+// yet: domain.Feature gained Creator in Step 9 for the store/service
+// layers, but no caller has needed it on the wire — add it here,
+// deliberately, when one does. No assignee at all: features are never
+// assigned (product spec §5.4), so domain.Feature has no such field to
+// omit in the first place.
 type featureDetail struct {
 	Ref         string    `json:"ref"`
 	Project     string    `json:"project"`

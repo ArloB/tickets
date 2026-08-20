@@ -29,11 +29,17 @@ tokens while exposing `TokenInfo` to the tool handler.
   Tickets HTTP API**, not the local database, per §8.1's "no client
   reads SQLite directly" boundary. (The spike's stdio server called
   `internal/service` in-process only to prove the transport; the real
-  bridge in Phase 3 is an HTTP client.)
+  bridge, built in Phase 2 Step 15, is `internal/mcpsrv.HTTPBackend`
+  over `internal/apiclient.Client`, an HTTP client.)
 - `auth.RequireBearerToken` wraps the HTTP handler; a tool handler
   reads the verified agent identity via
-  `req.Extra.TokenInfo.UserID` (`req` being the `*mcp.CallToolRequest`),
-  which is the same agent-actor UUID ADR 0004 defines.
+  `req.Extra.TokenInfo.UserID` (`req` being the `*mcp.CallToolRequest`).
+  **Correction to this ADR's original wording:** as actually built in
+  Phase 2, `UserID` carries the agent actor's `kind:name` wire form
+  (`domain.ActorRef.String()`), not a UUID — see ADR 0004's
+  Consequences for why `kind:name` won out (it's already the canonical
+  actor identifier everywhere else in the system, and
+  `Service.withTx` resolves actors by `(kind, name)`, not UUID).
   `RequireBearerTokenOptions.ResourceMetadataURL` must be set for the
   `WWW-Authenticate` header to appear on a 401 — confirmed by the
   spike; omitting it still returns 401 but silently drops the header
@@ -48,9 +54,13 @@ tokens while exposing `TokenInfo` to the tool handler.
 - The full MCP tool surface (§7.2: `projects_list`, `ticket_create`,
   etc.) is built once against `internal/service` and is automatically
   available over both transports.
-- Phase 0's vertical slice (Step 5) ships 3 tools unauthenticated
-  behind the loopback bind (see the Phase 0 plan) — the bearer-token
-  wiring proven here is not activated until Phase 2 defines real agent
-  tokens (ADR 0004).
+- Phase 0's vertical slice (Step 5) shipped 3 tools unauthenticated
+  behind the loopback bind (see the Phase 0 plan). **Phase 2 (Step 8)
+  activated the bearer-token wiring proven here**:
+  `mcp.NewStreamableHTTPHandler` is wrapped with
+  `auth.RequireBearerToken`, backed by a `TokenVerifier`
+  (`internal/mcpsrv/auth.go`) that calls `service.VerifyBearerToken`;
+  an unauthenticated tool call is rejected, and a valid one attributes
+  the calling agent correctly in the resulting audit trail.
 - No SDK fallback is needed; the API surface is pinned at v1.2.0 in
   `go.mod`.

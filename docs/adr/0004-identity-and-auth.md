@@ -34,11 +34,47 @@ externally.
   row, even for anonymous-read-enabled installs (anonymous requests
   simply cannot reach a mutating endpoint).
 - Agent token verification is the concrete `auth.TokenVerifier`
-  function plugged into `auth.RequireBearerToken` (ADR 0006):
-  it hashes the presented token, looks up the `agent_tokens` row, and
-  returns `TokenInfo{UserID: agent's actor UUID, Scopes: ["read","write"]}`
-  or an error wrapping `auth.ErrInvalidToken`.
-- Full implementation (schema, hashing, session cookies, the anonymous
-  toggle and its warning) lands in Phase 2 per the roadmap; Phase 0's
-  vertical slice deliberately ships with no auth at all, behind the
-  loopback default (see Step 5 of the Phase 0 plan).
+  function plugged into `auth.RequireBearerToken` (ADR 0006): it
+  hashes the presented token, looks up the `agent_tokens` row, and
+  returns `TokenInfo{UserID: "kind:name", Scopes: ["read","write"]}` or
+  an error wrapping `auth.ErrInvalidToken`. **Correction to this ADR's
+  original wording:** `UserID` carries the `kind:name` wire form
+  (`domain.ActorRef.String()`), not the actor's UUID as first written
+  here — `kind:name` is already the canonical actor identifier
+  everywhere else in the system (ADR 0012), and `Service.withTx`
+  resolves actors by `(kind, name)`, not by UUID, so a UUID-carrying
+  `UserID` would have needed a new lookup path whose only caller was
+  this one.
+- **Implemented as of Phase 2 (Steps 1-9).** `internal/auth` provides
+  Argon2id password hashing, session/bearer token generation, and
+  login throttling; migration `0004_identity_and_auth.sql` adds
+  `human_accounts`, `sessions`, `agent_tokens`, `login_attempts`.
+  `internal/httpapi`'s authentication middleware resolves a
+  `auth.Principal{Actor, Permission, IsAdmin, AuthMethod}` from a
+  session cookie, a bearer token, or anonymous access (in that order),
+  and stores it on the request context — `requestActor(r)` becomes a
+  one-line context read, exactly as this ADR's original "Consequences"
+  anticipated, with no change to any of the ~20 service methods that
+  consume the result. `internal/mcpsrv`'s `withCallerActor` does the
+  analogous thing for the MCP transport, reading
+  `req.Extra.TokenInfo.UserID`.
+- **A documented exception to ADR 0005.** Permission-level checks
+  (`requireEditor`/`requireAdmin` in `internal/httpapi/server.go`,
+  driven by the route table's `routePermission` field) live in the
+  translation layer, not in `internal/service` — a deliberate
+  exception to ADR 0005's "internal/service is the sole
+  authorization boundary," because the check depends only on the
+  request's authenticated `Principal`, never on any entity a service
+  method would inspect. If per-project ACLs are ever added (product
+  spec §18), that check would have to move into `internal/service`,
+  since it would then depend on *which* project is targeted — noted
+  here so the exception doesn't quietly become the permanent shape of
+  every future permission check.
+- Session ids are stored raw; agent tokens are hashed. Asymmetric but
+  deliberate: sessions are short-lived and never logged or exported
+  the way a long-lived agent token might be, so the extra hashing cost
+  buys little for them.
+- Multi-project scoping ("how does an agent know which project it's
+  in without a per-project token dimension" — plan.md §7.4, left open
+  when this ADR was written) is resolved separately as ADR 0016 — a
+  client-side `--project` default, not a token/authorization concept.

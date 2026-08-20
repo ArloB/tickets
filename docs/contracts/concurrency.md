@@ -32,8 +32,11 @@ deliberate decision made while building Step 4b, not an oversight:
   editing a comment never bumps the ticket/feature it's attached to;
   only the comment's own version changes. `current_version` on a
   `version_conflict` from the comment-edit/delete path is therefore a
-  *comment* version, not the parent entity's — harmless while
-  comments have no HTTP endpoint, worth remembering once they do.
+  *comment* version, not the parent entity's — this matters now that
+  comments have a real HTTP endpoint (`PATCH /comments/{id}`,
+  `DELETE /comments/{id}`, Phase 2 Step 11): a client tracking a
+  ticket's `If-Match` and a comment's `If-Match` must keep them as two
+  separate values, never assume one covers the other.
 - `ticket_relationships` and `entity_associations` rows have no
   version column at all and are not version-guarded. A duplicate
   add is `409 already_exists`, which is its own idempotency
@@ -61,11 +64,12 @@ deliberate decision made while building Step 4b, not an oversight:
   round-trip through JSON (e.g. the internal UUID) and any field a
   later phase adds both survive a replay correctly, instead of
   reverting to whatever a stale snapshot happened to contain.
-- **Phase 0 status:** retention is unbounded — nothing purges old
-  `idempotency_keys` rows yet. ADR 0008 calls for a bounded retention
-  window; that's an administrative maintenance concern (product spec
-  §13's "token revocation and similar commands" pattern) implemented
-  alongside Phase 2's admin operations, not before.
+- Retention was unbounded through Phase 0/1. Phase 2 adds
+  `tickets admin purge-idempotency-keys` (`cmd/tickets/admin.go`,
+  default `--older-than 720h`) — an operator-run maintenance command
+  (product spec §13's "token revocation and similar commands"
+  pattern), not automatic expiry. Nothing purges keys on its own; an
+  operator (or a cron job wrapping this command) has to run it.
 - `request_fingerprint` = SHA-256 over `method || "\n" || path || "\n"
   || canonical_json_body`, where "canonical" means: parse the request
   body as JSON, then re-marshal with map keys sorted — so two clients
@@ -76,19 +80,21 @@ deliberate decision made while building Step 4b, not an oversight:
   the same key with a *different* fingerprint is
   `409 idempotency_key_reused` — a client bug, not a silent overwrite
   of unrelated data.
-  **Phase 1 note:** `actor_id` is still not part of the fingerprint,
-  but the reason changed — Phase 1 gave every mutation a real,
-  resolved actor (ADR 0012), so the original "there are no
-  authenticated actors yet" reasoning no longer holds. What's actually
-  blocking it now: `idempotency_keys.key` is the table's sole PRIMARY
-  KEY, so two actors legitimately reusing the same client-chosen key
-  would collide at the schema level regardless of what the fingerprint
-  hashes — adding `actor_id` to the hash without also widening the key
-  to `(key, actor_id)` wouldn't fix anything. That schema change (and
-  the fingerprint update alongside it) is deferred to Phase 2's real
-  authentication work, which is the same phase that first makes
-  "two different actors reusing the same key" a scenario worth
-  distinguishing — see the Step 4a commit that made this call.
+  **Phase 2 status: `actor_id` scoping is implemented, not part of the
+  fingerprint hash itself.** Migration `0004_identity_and_auth.sql`
+  widened `idempotency_keys`' primary key from `(key)` to
+  `(key, actor_id)` — existing Phase 0/1 rows all predated real actor
+  attribution and were dropped outright rather than backfilled (the
+  table is a bounded-retention cache by ADR 0008's own design, nothing
+  in it was worth preserving across the schema change).
+  `internal/service/idempotency.go`'s `checkIdempotency`/
+  `recordIdempotency` now take an `actorID` parameter and look up
+  `WHERE key = ? AND actor_id = ?`, so two different actors reusing
+  the same client-chosen key get two independent records rather than
+  colliding. `Fingerprint(method, path, body)` itself is deliberately
+  unchanged — actor identity is the *lookup key*, not an input to the
+  content hash; a request's fingerprint should only ever reflect what
+  the request actually says, not who sent it.
 - Reads never require an idempotency key and may be retried freely by
   the client (§8.4); only writes consult this mechanism.
 
