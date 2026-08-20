@@ -185,7 +185,7 @@ func TestGetAssociationsHidesSoftDeletedEndpoint(t *testing.T) {
 		t.Fatalf("AddAssociation: %v", err)
 	}
 
-	if err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: bRef, ExpectedVersion: b.Version}, testActor, testCorrelationID); err != nil {
+	if _, err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: bRef, ExpectedVersion: b.Version}, testActor, testCorrelationID); err != nil {
 		t.Fatalf("DeleteTicket(b): %v", err)
 	}
 

@@ -3,13 +3,28 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
+	"github.com/ArloB/tickets/internal/auth"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/service"
 	"github.com/google/uuid"
 )
+
+// logger is this package's own operational logger (encode failures,
+// unexpected/internal errors) - distinct from anything the service
+// layer logs. It defaults to slog.Default() so tests and any caller
+// that never touches SetLogger still get usable output; cmd/tickets
+// installs the real process logger (internal/logging.New's result) at
+// startup.
+var logger = slog.Default()
+
+// SetLogger installs the logger internal/httpapi uses for its own
+// operational logging.
+func SetLogger(l *slog.Logger) {
+	logger = l
+}
 
 // errorEnvelope is the wire shape from docs/contracts/errors.md.
 type errorEnvelope struct {
@@ -36,6 +51,10 @@ func statusForCode(code domain.ErrorCode) int {
 		return http.StatusUnauthorized
 	case domain.ErrRelationshipCycle:
 		return http.StatusBadRequest
+	case domain.ErrThrottled:
+		return http.StatusTooManyRequests
+	case domain.ErrForbidden:
+		return http.StatusForbidden
 	default:
 		return http.StatusInternalServerError
 	}
@@ -55,22 +74,22 @@ func correlationID(r *http.Request) string {
 }
 
 // requestActor is every mutating handler's actor for internal/service
-// calls (ADR 0012). Phase 1 has no authentication (ADR 0004 lands in
-// Phase 2), so every HTTP request is attributed to the single seeded
-// 'local' actor (migration 0002_core_domain.sql) — a placeholder, not
-// a design decision about who "local" represents long-term. Phase 2
-// replaces this with an actor resolved from the request's session or
-// bearer token; no other code in this package needs to change when it
-// does, since the actor only ever flows through as this one value.
+// calls (ADR 0012). It reads whatever auth.WithPrincipal attached to
+// the request context — the authenticate middleware (auth_middleware.go)
+// resolves a real Principal from a session cookie or bearer token
+// before any handler runs, so this is a context read that cannot fail,
+// not a lookup. Every handler call site written in Phase 0/1 is
+// unchanged by this: the actor only ever flowed through as this one
+// function's return value.
 func requestActor(r *http.Request) domain.ActorRef {
-	return domain.ActorRef{Kind: domain.ActorHuman, Name: "local"}
+	return auth.FromContext(r.Context()).Actor
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("httpapi: encode response: %v", err)
+		logger.Error("httpapi: encode response", "error", err)
 	}
 }
 
@@ -93,7 +112,7 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 
-	log.Printf("httpapi: unexpected error [correlation_id=%s]: %v", corrID, err)
+	logger.Error("httpapi: unexpected error", "correlation_id", corrID, "error", err)
 	writeJSON(w, http.StatusInternalServerError, errorEnvelope{Error: errorBody{
 		Code:          string(domain.ErrInternal),
 		Message:       "internal server error",

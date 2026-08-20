@@ -18,6 +18,12 @@ import (
 type HTTPBackend struct {
 	BaseURL string // e.g. "http://127.0.0.1:8080/api/v1"
 	Client  *http.Client
+	// Token is the agent bearer token forwarded as Authorization: Bearer
+	// on every request (ADR 0004). HTTPBackend does not itself verify
+	// this — it just attaches whatever cmd/tickets' `mcp` subcommand was
+	// configured with; the server on the other end verifies it the same
+	// way it verifies any other HTTP client's bearer token (ADR 0005).
+	Token string
 }
 
 func (b *HTTPBackend) httpClient() *http.Client {
@@ -57,6 +63,9 @@ func (b *HTTPBackend) do(ctx context.Context, method, path string, reqBody any, 
 	}
 	if reqBody != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if b.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+b.Token)
 	}
 
 	resp, err := b.httpClient().Do(req)

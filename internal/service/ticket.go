@@ -66,7 +66,7 @@ func (s *Service) CreateTicket(ctx context.Context, req CreateTicketRequest, act
 func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, title string, priority domain.Priority, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (domain.Reference, error) {
 	var result domain.Reference
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
-		if cached, found, err := checkIdempotency(ctx, tx, idemKey, fingerprint); err != nil {
+		if cached, found, err := checkIdempotency(ctx, tx, idemKey, actorID, fingerprint); err != nil {
 			return err
 		} else if found {
 			ref, perr := domain.Parse(cached)
@@ -125,7 +125,7 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
 
-		if err := recordIdempotency(ctx, tx, idemKey, fingerprint, refStr, now); err != nil {
+		if err := recordIdempotency(ctx, tx, idemKey, actorID, fingerprint, refStr, now); err != nil {
 			return err
 		}
 		result = ref
@@ -549,8 +549,14 @@ type DeleteTicketRequest struct {
 // simply filtered out of every read path once the ticket itself is
 // gone (the same pattern already applied to relationship/mention
 // listings that point at a deleted endpoint).
-func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, actor domain.ActorRef, correlationID string) error {
-	return s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+//
+// Returns the entity's new version (ADR 0013's restore-discoverability
+// gap: store.SoftDeleteEntity already computes this, a caller — the
+// HTTP delete route, in particular — needs it to hand back a version a
+// subsequent RestoreTicket's If-Match can target without a second read).
+func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, actor domain.ActorRef, correlationID string) (int64, error) {
+	var newVersion int64
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
 			return newNotFoundError("ticket not found")
@@ -559,7 +565,8 @@ func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, act
 			return fmt.Errorf("service: look up ticket: %w", err)
 		}
 
-		if _, err := store.SoftDeleteEntity(ctx, tx, row.ID, req.ExpectedVersion, now); err != nil {
+		v, err := store.SoftDeleteEntity(ctx, tx, row.ID, req.ExpectedVersion, now)
+		if err != nil {
 			if errors.Is(err, store.ErrVersionConflict) {
 				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
 				if cerr != nil {
@@ -569,6 +576,7 @@ func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, act
 			}
 			return fmt.Errorf("service: soft-delete ticket: %w", err)
 		}
+		newVersion = v
 
 		changes := auditChanges(map[string]any{"ref": row.Entity.Ref})
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketDeleted, corrID, nil, changes, now); err != nil {
@@ -576,6 +584,10 @@ func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, act
 		}
 		return nil
 	})
+	if err != nil {
+		return 0, err
+	}
+	return newVersion, nil
 }
 
 // RestoreTicketRequest is RestoreTicket's input.

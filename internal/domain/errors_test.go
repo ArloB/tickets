@@ -6,7 +6,7 @@ func TestErrorCodeValid(t *testing.T) {
 	valid := []ErrorCode{
 		ErrValidationFailed, ErrNotFound, ErrAlreadyExists, ErrVersionConflict,
 		ErrIdempotencyKeyReused, ErrUnauthorized, ErrInternal,
-		ErrRelationshipCycle, ErrHasDependents,
+		ErrRelationshipCycle, ErrHasDependents, ErrThrottled, ErrForbidden,
 	}
 	for _, c := range valid {
 		if !c.Valid() {

@@ -21,6 +21,16 @@ import (
 // Add a row here (and, if untested elsewhere, a case) for every new
 // exported read function this package's tables gain.
 //
+// Step 9 added a creator join (LEFT JOIN actors ca ON ca.id =
+// e.created_by) to every row below marked hidesDeleted=yes except
+// ListAuditEvents. It must stay a LEFT JOIN, never an INNER JOIN: rows
+// created before Phase 2's identity work backfilled entities.created_by
+// to the system actor via migration 0002_core_domain.sql, but the
+// column is still schema-nullable (queries.go's InsertEntity doc
+// explains why), so an INNER JOIN would silently drop any pre-Phase-2
+// row from every one of these read paths instead of just returning a
+// nil Creator for it.
+//
 //	Function                         hidesDeleted  Covered by
 //	GetProjectByKey                  yes           (query filters; no dedicated test — low risk, single-row lookup mirrors GetTicketByRef)
 //	ListProjects                     yes           this file
@@ -55,7 +65,7 @@ func TestReadPathsSoftDeleteFiltering(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse ref: %v", err)
 		}
-		if err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
+		if _, err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
 			t.Fatalf("DeleteTicket: %v", err)
 		}
 
@@ -86,7 +96,7 @@ func TestReadPathsSoftDeleteFiltering(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse ref: %v", err)
 		}
-		if err := s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: featureRef, ExpectedVersion: feature.Version}, testActor, testCorrelationID); err != nil {
+		if _, err := s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: featureRef, ExpectedVersion: feature.Version}, testActor, testCorrelationID); err != nil {
 			t.Fatalf("DeleteFeature: %v", err)
 		}
 
@@ -124,7 +134,7 @@ func TestReadPathsSoftDeleteFiltering(t *testing.T) {
 			t.Fatalf("mentions before delete = %+v, err=%v, want exactly one", mentions, err)
 		}
 
-		if err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: targetRef, ExpectedVersion: target.Version}, testActor, testCorrelationID); err != nil {
+		if _, err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: targetRef, ExpectedVersion: target.Version}, testActor, testCorrelationID); err != nil {
 			t.Fatalf("DeleteTicket(target): %v", err)
 		}
 
@@ -146,7 +156,7 @@ func TestReadPathsSoftDeleteFiltering(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse ref: %v", err)
 		}
-		if err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
+		if _, err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
 			t.Fatalf("DeleteTicket: %v", err)
 		}
 

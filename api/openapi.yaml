@@ -5,19 +5,26 @@ info:
   license:
     name: UNLICENSED
   description: >
-    Versioned HTTP API for Tickets. This is the Phase 0 vertical slice:
-    project create/list/get, ticket create/get/status-update, and health
-    endpoints. Everything else (auth, comments, relationships, search,
-    attachments, SSE) is out of scope until later phases — see
-    docs/contracts/ and the Phase 0 implementation plan.
+    Versioned HTTP API for Tickets. Covers project/ticket CRUD, health
+    endpoints, and Phase 2's identity surface: session login/logout,
+    the caller's own resolved principal, and admin agent/token
+    management. Comments, relationships, search, attachments, and SSE
+    are still out of scope until later phases — see docs/contracts/ and
+    the implementation plan.
 servers:
   - url: /api/v1
 
-# Phase 0's vertical slice is deliberately unauthenticated behind the
-# 127.0.0.1-by-default bind (see the Phase 0 plan, ADR 0004/0006). This
-# is an honest "no security scheme exists yet," not an oversight -
-# Phase 2 replaces it with real bearer-token/session auth.
-security: []
+# Phase 2 replaces Phase 0's "no security scheme exists yet" (ADR 0004)
+# with the two real credential types product spec §4.1 defines: a
+# session cookie for humans, a bearer token for agents. Anonymous read
+# is a server-wide runtime toggle (product spec §4.2), not something
+# OpenAPI's security model can express per-operation, so it isn't
+# represented here — every operation below documents the credentials
+# it accepts when the caller *is* authenticated; whether an
+# unauthenticated GET succeeds anyway is a deployment-time decision.
+security:
+  - cookieAuth: []
+  - bearerAuth: []
 
 paths:
   /projects:
@@ -26,6 +33,7 @@ paths:
       summary: Create a project (and its mandatory General feature)
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CSRFToken'
       requestBody:
         required: true
         content:
@@ -40,6 +48,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/Project'
         '400':
+          $ref: '#/components/responses/Error'
+        '403':
           $ref: '#/components/responses/Error'
         '409':
           $ref: '#/components/responses/Error'
@@ -93,6 +103,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ProjectKey'
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CSRFToken'
       requestBody:
         required: true
         content:
@@ -108,9 +119,50 @@ paths:
                 $ref: '#/components/schemas/Ticket'
         '400':
           $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
         '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listTickets
+      summary: >
+        List a project's tickets (product spec §5.6). Priority-queue
+        order by default; ?view=issue_register switches to the
+        severity-ordered bug/security-only view (§5.5).
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [priority_queue, issue_register]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: fields
+          in: query
+          description: Comma-separated list of fields to narrow each list item to (docs/contracts/representations.md).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketsPage'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
           $ref: '#/components/responses/Error'
 
   /tickets/{ref}:
@@ -119,6 +171,24 @@ paths:
       summary: Get a ticket by its public reference (e.g. ABC-123)
       parameters:
         - $ref: '#/components/parameters/TicketRef'
+        - name: include
+          in: query
+          description: Comma-separated sub-resources to expand (comments, relationships).
+          schema:
+            type: string
+        - name: fields
+          in: query
+          description: >
+            Comma-separated list of fields to narrow the response to
+            (docs/contracts/representations.md). When present, the
+            response is a subset object containing only the named
+            fields, not the full Ticket shape this operation's 200
+            schema documents — OpenAPI 3.0 has no way to express a
+            response shape conditioned on a query parameter's value,
+            the same limitation CSRFToken's conditional requirement
+            already documents this way.
+          schema:
+            type: string
       responses:
         '200':
           description: OK
@@ -126,6 +196,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
     patch:
@@ -133,15 +205,8 @@ paths:
       summary: Update a ticket's workflow status (optimistic concurrency)
       parameters:
         - $ref: '#/components/parameters/TicketRef'
-        - name: If-Match
-          in: header
-          required: true
-          description: >
-            A double-quoted decimal version number, e.g. "3" (see
-            docs/contracts/concurrency.md — not full RFC 7232 ETag
-            semantics).
-          schema:
-            type: string
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
       requestBody:
         required: true
         content:
@@ -157,6 +222,8 @@ paths:
                 $ref: '#/components/schemas/Ticket'
         '400':
           $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
         '409':
@@ -165,6 +232,856 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+    put:
+      operationId: updateTicketFields
+      summary: >
+        Replace a ticket's type/title/description/priority/severity
+        (optimistic concurrency). A distinct route from the status-only
+        PATCH above — see updateTicketFields' doc comment
+        (internal/httpapi/tickets.go) for why they aren't merged.
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTicketFieldsRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteTicket
+      summary: Soft-delete a ticket (ADR 0013). A ticket has no dependents check.
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK. The response's version is the ticket's new version, for a subsequent restore's If-Match.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/assign:
+    post:
+      operationId: assignTicket
+      summary: Set or clear a ticket's assignee (optimistic concurrency)
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignTicketRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/move:
+    post:
+      operationId: moveTicket
+      summary: Move a ticket to a different feature in the same project (optimistic concurrency)
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveTicketRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/reorder:
+    post:
+      operationId: reorderTicket
+      summary: Move a ticket to a new position within its priority group
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/restore:
+    post:
+      operationId: restoreTicket
+      summary: Clear a ticket's soft-delete. Refuses if the ticket's feature is itself deleted.
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /projects/{key}/features:
+    post:
+      operationId: createFeature
+      summary: Create a feature in a project
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFeatureRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listFeatures
+      summary: List every non-deleted feature in a project, ordered by priority then position
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeaturesPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}:
+    get:
+      operationId: getFeature
+      summary: Get a feature by its public reference (e.g. ABC-F1)
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateFeature
+      summary: Update a feature's title/description/priority (optimistic concurrency)
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFeatureRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteFeature
+      summary: >
+        Soft-delete a feature. Blocked by 409 has_dependents if it
+        holds non-deleted tickets, unless cascade=true deletes them
+        together (ADR 0013). The General feature can never be deleted.
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+        - name: cascade
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: OK. The response's version is the feature's new version, for a subsequent restore's If-Match.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}/reorder:
+    post:
+      operationId: reorderFeature
+      summary: Move a feature to a new position within its priority group
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}/restore:
+    post:
+      operationId: restoreFeature
+      summary: Clear a feature's soft-delete. Does not restore any tickets a cascade delete took down with it.
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/comments:
+    post:
+      operationId: createComment
+      summary: Add a comment to a ticket
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCommentRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listComments
+      summary: List every comment on a ticket, oldest first, tombstones included
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /comments/{id}:
+    get:
+      operationId: getComment
+      summary: Get a comment by id. Tombstones (soft-deleted comments) are returned, not hidden.
+      parameters:
+        - $ref: '#/components/parameters/CommentID'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: editComment
+      summary: >
+        Edit a comment's body (optimistic concurrency). Archives the
+        prior body into its edit history. A soft-deleted comment
+        cannot be edited.
+      parameters:
+        - $ref: '#/components/parameters/CommentID'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCommentRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteComment
+      summary: >
+        Soft-delete a comment (the tombstone stays visible, §5.10).
+        There is no comment restore.
+      parameters:
+        - $ref: '#/components/parameters/CommentID'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /comments/{id}/history:
+    get:
+      operationId: getCommentHistory
+      summary: List a comment's archived prior bodies, oldest first
+      parameters:
+        - $ref: '#/components/parameters/CommentID'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentHistoryPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/relationships:
+    post:
+      operationId: addRelationship
+      summary: >
+        Add a typed relationship edge between two tickets (product spec
+        §5.7). type may be any of the eight wire values, including the
+        child_of/blocked_by/superseded_by "view" types.
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddRelationshipRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listRelationships
+      summary: List every relationship touching a ticket, from that ticket's perspective, both ends included
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelationshipsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/relationships/{type}/{target}:
+    delete:
+      operationId: removeRelationship
+      summary: Remove a relationship edge, as supplied from either end
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/RelationshipType'
+        - $ref: '#/components/parameters/TargetRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/associations:
+    post:
+      operationId: addTicketAssociation
+      summary: Add a loose associated_with link from this ticket to another ticket or feature
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddAssociationRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listTicketAssociations
+      summary: List every entity associated with this ticket
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssociationsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/associations/{target}:
+    delete:
+      operationId: removeTicketAssociation
+      summary: Remove an association, as supplied from either end
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/TargetRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}/associations:
+    post:
+      operationId: addFeatureAssociation
+      summary: Add a loose associated_with link from this feature to a ticket or another feature
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddAssociationRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listFeatureAssociations
+      summary: List every entity associated with this feature
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssociationsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}/associations/{target}:
+    delete:
+      operationId: removeFeatureAssociation
+      summary: Remove an association, as supplied from either end
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/TargetRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /auth/login:
+    post:
+      operationId: login
+      summary: Authenticate a human with username/password and start a session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: >
+            OK. Sets the tickets_session cookie; the response body's
+            csrf_token must be echoed back as X-CSRF-Token on every
+            subsequent mutating request made with this session.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: End the caller's session
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+
+  /auth/me:
+    get:
+      operationId: getMe
+      summary: Report the caller's own resolved permission level and identity
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/Error'
+
+  /agents:
+    post:
+      operationId: createAgent
+      summary: Create a new agent actor, owned by the calling human (admin only)
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentDetail'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listAgents
+      summary: List every agent actor (admin only)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentsPage'
+        '403':
+          $ref: '#/components/responses/Error'
+
+  /agents/{name}/tokens:
+    post:
+      operationId: createAgentToken
+      summary: >
+        Issue a fresh bearer token for an agent (admin only). The raw
+        token value is returned exactly once, in this response only —
+        see AgentTokenCreated.
+      parameters:
+        - $ref: '#/components/parameters/AgentName'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentTokenRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTokenCreated'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listAgentTokens
+      summary: List an agent's tokens, including revoked/expired ones (admin only)
+      parameters:
+        - $ref: '#/components/parameters/AgentName'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTokensPage'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /agents/{name}/tokens/{id}:
+    delete:
+      operationId: revokeAgentToken
+      summary: Permanently revoke an agent token (admin only; there is no un-revoke)
+      parameters:
+        - $ref: '#/components/parameters/AgentName'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '403':
+          $ref: '#/components/responses/Error'
 
 components:
   parameters:
@@ -182,12 +1099,82 @@ components:
       schema:
         type: string
         example: ABC-123
+    FeatureRef:
+      name: ref
+      in: path
+      required: true
+      schema:
+        type: string
+        example: ABC-F1
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: >
+        A double-quoted decimal version number, e.g. "3" (see
+        docs/contracts/concurrency.md — not full RFC 7232 ETag
+        semantics).
+      schema:
+        type: string
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: false
       schema:
         type: string
+    CSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: false
+      description: >
+        Required when authenticated via the tickets_session cookie
+        (product spec §10); not required for bearer-token requests,
+        which aren't subject to browser CSRF. Documented as optional
+        here because whether it's actually required depends on which
+        credential the request uses, which OpenAPI 3.0 can't express
+        conditionally.
+      schema:
+        type: string
+    AgentName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+    CommentID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    RelationshipType:
+      name: type
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/RelationshipType'
+    TargetRef:
+      name: target
+      in: path
+      required: true
+      description: A ticket or feature reference (e.g. ABC-123 or ABC-F1).
+      schema:
+        type: string
+
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: tickets_session
+      description: >
+        Human session cookie, set by POST /auth/login (ADR 0004).
+        Mutating requests using it must also carry X-CSRF-Token.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Agent bearer token, issued once by POST
+        /agents/{name}/tokens and never shown again (ADR 0004).
 
   responses:
     Error:
@@ -280,6 +1267,33 @@ components:
       properties:
         status: { $ref: '#/components/schemas/WorkflowStatus' }
 
+    UpdateTicketFieldsRequest:
+      type: object
+      required: [type, title, priority]
+      properties:
+        type: { $ref: '#/components/schemas/TicketType' }
+        title: { type: string }
+        description: { type: string }
+        priority: { $ref: '#/components/schemas/Priority' }
+        severity: { $ref: '#/components/schemas/Severity' }
+
+    AssignTicketRequest:
+      type: object
+      properties:
+        assignee:
+          type: string
+          nullable: true
+          example: 'human:alice'
+          description: Null clears the assignment.
+
+    MoveTicketRequest:
+      type: object
+      required: [feature]
+      properties:
+        feature:
+          type: string
+          example: ABC-F2
+
     Ticket:
       type: object
       required: [ref, project, feature, type, title, description, status, priority, version, created_at, updated_at]
@@ -294,9 +1308,225 @@ components:
         status: { $ref: '#/components/schemas/WorkflowStatus' }
         priority: { $ref: '#/components/schemas/Priority' }
         severity: { $ref: '#/components/schemas/Severity' }
+        assignee:
+          type: string
+          example: 'human:alice'
+          description: Absent when unassigned.
+        creator:
+          type: string
+          example: 'human:alice'
+          description: >
+            Absent only for entities created before Phase 2's identity
+            work (ADR 0012); always present for anything created since.
         version: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        comments:
+          type: array
+          items: { $ref: '#/components/schemas/Comment' }
+          description: Present only when requested via ?include=comments.
+        relationships:
+          type: array
+          items: { $ref: '#/components/schemas/RelationshipView' }
+          description: Present only when requested via ?include=relationships.
+
+    TicketCompact:
+      type: object
+      required: [ref, title, type, status, priority, version, updated_at]
+      additionalProperties: false
+      description: >
+        GET /projects/{key}/tickets' list-item shape
+        (docs/contracts/representations.md) — no description or body,
+        same compact/detail split as FeatureCompact/ProjectCompact.
+      properties:
+        ref: { type: string, example: ABC-123 }
+        title: { type: string }
+        type: { $ref: '#/components/schemas/TicketType' }
+        status: { $ref: '#/components/schemas/WorkflowStatus' }
+        priority: { $ref: '#/components/schemas/Priority' }
+        severity: { $ref: '#/components/schemas/Severity' }
+        version: { type: integer }
+        updated_at: { type: string, format: date-time }
+
+    TicketsPage:
+      type: object
+      required: [tickets]
+      properties:
+        tickets:
+          type: array
+          items: { $ref: '#/components/schemas/TicketCompact' }
+        next_cursor:
+          type: string
+          description: Opaque pagination cursor. Absent on the last page.
+
+    CreateFeatureRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        priority: { $ref: '#/components/schemas/Priority' }
+
+    UpdateFeatureRequest:
+      type: object
+      required: [title, priority]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        priority: { $ref: '#/components/schemas/Priority' }
+
+    Feature:
+      type: object
+      required: [ref, project, title, description, status, priority, version, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        ref: { type: string, example: ABC-F1 }
+        project: { type: string }
+        title: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/WorkflowStatus' }
+        priority: { $ref: '#/components/schemas/Priority' }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    FeatureCompact:
+      type: object
+      required: [ref, title, status, priority, version, updated_at]
+      additionalProperties: false
+      description: >
+        GET /projects/{key}/features' list-item shape. No description —
+        same compact/detail split as ProjectCompact.
+      properties:
+        ref: { type: string, example: ABC-F1 }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/WorkflowStatus' }
+        priority: { $ref: '#/components/schemas/Priority' }
+        version: { type: integer }
+        updated_at: { type: string, format: date-time }
+
+    FeaturesPage:
+      type: object
+      properties:
+        features:
+          type: array
+          items: { $ref: '#/components/schemas/FeatureCompact' }
+
+    ReorderRequest:
+      type: object
+      properties:
+        after_ref:
+          type: string
+          nullable: true
+          description: >
+            Place immediately after this reference, which must be in
+            the same priority group. Omit or null to move to the head
+            of the group.
+
+    AddCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string }
+
+    Comment:
+      type: object
+      required: [id, author, body, version, created_at, updated_at]
+      additionalProperties: false
+      description: >
+        Unlike Ticket/Feature, this schema's id is a bare integer and
+        is the comment's actual public identity (ADR 0002's exception
+        — a comment has no formatted reference or UUID for a surrogate
+        to hide behind; see internal/httpapi/wire_test.go's
+        schemasWhereIDIsThePublicIdentity). deleted_at is also exposed
+        deliberately here, unlike Ticket/Feature: §5.10's tombstone is
+        meant to reach the wire — body stays intact, and a client
+        checks deleted_at to render a tombstone instead of the content.
+      properties:
+        id: { type: integer }
+        author: { type: string, example: 'human:alice' }
+        body: { type: string }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time }
+
+    CommentsPage:
+      type: object
+      properties:
+        comments:
+          type: array
+          items: { $ref: '#/components/schemas/Comment' }
+
+    CommentHistoryEntry:
+      type: object
+      required: [version, body, edited_by, created_at]
+      additionalProperties: false
+      properties:
+        version: { type: integer }
+        body: { type: string }
+        edited_by: { type: string, example: 'human:alice' }
+        created_at: { type: string, format: date-time }
+
+    CommentHistoryPage:
+      type: object
+      properties:
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/CommentHistoryEntry' }
+
+    RelationshipType:
+      type: string
+      enum: [parent_of, child_of, blocks, blocked_by, related_to, duplicate_of, supersedes, superseded_by]
+
+    AddRelationshipRequest:
+      type: object
+      required: [target, type]
+      properties:
+        target: { type: string, example: ABC-124 }
+        type: { $ref: '#/components/schemas/RelationshipType' }
+
+    RelationshipView:
+      type: object
+      required: [type, other]
+      additionalProperties: false
+      properties:
+        type: { $ref: '#/components/schemas/RelationshipType' }
+        other: { type: string, example: ABC-124 }
+
+    RelationshipsPage:
+      type: object
+      properties:
+        relationships:
+          type: array
+          items: { $ref: '#/components/schemas/RelationshipView' }
+
+    AddAssociationRequest:
+      type: object
+      required: [target]
+      properties:
+        target:
+          type: string
+          description: A ticket or feature reference (e.g. ABC-123 or ABC-F1).
+          example: ABC-F2
+
+    AssociationsPage:
+      type: object
+      properties:
+        associated:
+          type: array
+          items: { type: string }
+
+    DeleteResponse:
+      type: object
+      required: [version]
+      additionalProperties: false
+      description: >
+        The soft-deleted entity's new version (ADR 0013) — enough for
+        a caller to construct a subsequent restore call's If-Match
+        without a second read.
+      properties:
+        version: { type: integer }
 
     ErrorEnvelope:
       type: object
@@ -310,3 +1540,99 @@ components:
             field: { type: string }
             correlation_id: { type: string }
             current_version: { type: integer }
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+
+    LoginResponse:
+      type: object
+      required: [actor, csrf_token]
+      additionalProperties: false
+      properties:
+        actor: { type: string, example: 'human:alice' }
+        csrf_token: { type: string }
+
+    MeResponse:
+      type: object
+      required: [permission, is_admin]
+      additionalProperties: false
+      properties:
+        actor:
+          type: string
+          example: 'human:alice'
+          description: Absent for an anonymous caller.
+        permission:
+          type: string
+          enum: [viewer, editor]
+        is_admin:
+          type: boolean
+
+    CreateAgentRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+
+    AgentDetail:
+      type: object
+      required: [name, description, created_at]
+      additionalProperties: false
+      properties:
+        name: { type: string }
+        description: { type: string }
+        owner:
+          type: string
+          example: 'human:alice'
+        created_at: { type: string, format: date-time }
+
+    AgentsPage:
+      type: object
+      properties:
+        agents:
+          type: array
+          items: { $ref: '#/components/schemas/AgentDetail' }
+
+    CreateAgentTokenRequest:
+      type: object
+      properties:
+        description: { type: string }
+        expires_at:
+          type: string
+          format: date-time
+          description: Omit for a token with no expiry (product spec §10).
+
+    AgentTokenCreated:
+      type: object
+      required: [id, token, description]
+      additionalProperties: false
+      description: >
+        The only response shape that ever carries a raw token value
+        (ADR 0004: shown once, at creation).
+      properties:
+        id: { type: integer }
+        token: { type: string }
+        description: { type: string }
+        expires_at: { type: string, format: date-time }
+
+    AgentTokenSummary:
+      type: object
+      required: [id, description, created_at]
+      additionalProperties: false
+      properties:
+        id: { type: integer }
+        description: { type: string }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+
+    AgentTokensPage:
+      type: object
+      properties:
+        tokens:
+          type: array
+          items: { $ref: '#/components/schemas/AgentTokenSummary' }

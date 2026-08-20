@@ -170,15 +170,17 @@ func GetProjectByKey(ctx context.Context, q Querier, key string) (ProjectRow, er
 		u                            []byte
 		status, createdAt, updatedAt string
 		generalFeatureID             sql.NullInt64
+		creatorKind, creatorName     sql.NullString
 	)
 	err := q.QueryRowContext(ctx,
 		`SELECT e.id, e.uuid, p.key, p.title, p.description, p.status, e.version,
-		        e.created_at, e.updated_at, p.general_feature_id
+		        e.created_at, e.updated_at, p.general_feature_id, ca.kind, ca.name
 		 FROM projects p JOIN entities e ON e.id = p.id
+		 LEFT JOIN actors ca ON ca.id = e.created_by
 		 WHERE p.key = ? AND e.deleted_at IS NULL`,
 		key,
 	).Scan(&row.ID, &u, &row.Entity.Key, &row.Entity.Title, &row.Entity.Description,
-		&status, &row.Entity.Version, &createdAt, &updatedAt, &generalFeatureID)
+		&status, &row.Entity.Version, &createdAt, &updatedAt, &generalFeatureID, &creatorKind, &creatorName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ProjectRow{}, ErrNotFound
 	}
@@ -199,6 +201,9 @@ func GetProjectByKey(ctx context.Context, q Querier, key string) (ProjectRow, er
 	}
 	if generalFeatureID.Valid {
 		row.GeneralFeatureID = generalFeatureID.Int64
+	}
+	if creatorKind.Valid {
+		row.Entity.Creator = &domain.ActorRef{Kind: domain.ActorKind(creatorKind.String), Name: creatorName.String}
 	}
 	return row, nil
 }
@@ -226,8 +231,9 @@ type ProjectPage struct {
 func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt string, afterID int64) (ProjectPage, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT e.id, e.uuid, p.key, p.title, p.description, p.status, e.version,
-		        e.created_at, e.updated_at
+		        e.created_at, e.updated_at, ca.kind, ca.name
 		 FROM projects p JOIN entities e ON e.id = p.id
+		 LEFT JOIN actors ca ON ca.id = e.created_by
 		 WHERE e.kind = 'project' AND e.deleted_at IS NULL
 		   AND (e.created_at > ? OR (e.created_at = ? AND e.id > ?))
 		 ORDER BY e.created_at ASC, e.id ASC
@@ -255,8 +261,9 @@ func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt stri
 			u                            []byte
 			status, createdAt, updatedAt string
 			p                            domain.Project
+			creatorKind, creatorName     sql.NullString
 		)
-		if err := rows.Scan(&id, &u, &p.Key, &p.Title, &p.Description, &status, &p.Version, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&id, &u, &p.Key, &p.Title, &p.Description, &status, &p.Version, &createdAt, &updatedAt, &creatorKind, &creatorName); err != nil {
 			return ProjectPage{}, fmt.Errorf("scan project: %w", err)
 		}
 		parsed, err := uuid.FromBytes(u)
@@ -270,6 +277,9 @@ func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt stri
 		}
 		if p.UpdatedAt, err = parseTime(updatedAt); err != nil {
 			return ProjectPage{}, fmt.Errorf("parse project updated_at: %w", err)
+		}
+		if creatorKind.Valid {
+			p.Creator = &domain.ActorRef{Kind: domain.ActorKind(creatorKind.String), Name: creatorName.String}
 		}
 		page.Projects = append(page.Projects, p)
 		ids = append(ids, id)
@@ -327,7 +337,7 @@ const ticketSelectColumns = `
 	p.key, t.project_id, t.feature_id, f.seq,
 	t.seq, t.type, t.title, t.description, t.status, t.priority, t.severity,
 	t.priority_rank, t.severity_rank, t.position,
-	a.kind, a.name, e.deleted_at`
+	a.kind, a.name, e.deleted_at, ca.kind, ca.name`
 
 func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 	var (
@@ -339,14 +349,18 @@ func scanTicketRow(scan func(dest ...any) error) (TicketRow, error) {
 		featureSeq, ticketSeq        int64
 		assigneeKind, assigneeName   sql.NullString
 		deletedAt                    sql.NullString
+		creatorKind, creatorName     sql.NullString
 	)
 	err := scan(&row.ID, &u, &row.Entity.Version, &createdAt, &updatedAt,
 		&row.Entity.ProjectKey, &row.ProjectEntityID, &row.FeatureEntityID, &featureSeq,
 		&ticketSeq, &ticketType, &row.Entity.Title, &row.Entity.Description, &status, &priority, &severity,
 		&row.PriorityRank, &row.SeverityRank, &row.Position,
-		&assigneeKind, &assigneeName, &deletedAt)
+		&assigneeKind, &assigneeName, &deletedAt, &creatorKind, &creatorName)
 	if err != nil {
 		return TicketRow{}, err
+	}
+	if creatorKind.Valid {
+		row.Entity.Creator = &domain.ActorRef{Kind: domain.ActorKind(creatorKind.String), Name: creatorName.String}
 	}
 	if deletedAt.Valid {
 		t, err := parseTime(deletedAt.String)
@@ -410,6 +424,7 @@ func GetTicketByRef(ctx context.Context, q Querier, ref domain.Reference) (Ticke
 		JOIN projects p ON p.key = ?
 		JOIN features f ON f.id = t.feature_id
 		LEFT JOIN actors a ON a.id = t.assignee_id
+		LEFT JOIN actors ca ON ca.id = e.created_by
 		WHERE t.project_id = p.id AND t.seq = ? AND e.deleted_at IS NULL`
 	row, err := scanTicketRow(q.QueryRowContext(ctx, query, ref.ProjectKey, ref.Seq).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -435,6 +450,7 @@ func GetTicketByRefAnyDeletion(ctx context.Context, q Querier, ref domain.Refere
 		JOIN projects p ON p.key = ?
 		JOIN features f ON f.id = t.feature_id
 		LEFT JOIN actors a ON a.id = t.assignee_id
+		LEFT JOIN actors ca ON ca.id = e.created_by
 		WHERE t.project_id = p.id AND t.seq = ?`
 	row, err := scanTicketRow(q.QueryRowContext(ctx, query, ref.ProjectKey, ref.Seq).Scan)
 	if errors.Is(err, sql.ErrNoRows) {

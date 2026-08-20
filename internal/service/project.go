@@ -49,7 +49,7 @@ func (s *Service) CreateProject(ctx context.Context, req CreateProjectRequest, a
 func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest, title string, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (string, error) {
 	var result string
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
-		if cached, found, err := checkIdempotency(ctx, tx, idemKey, fingerprint); err != nil {
+		if cached, found, err := checkIdempotency(ctx, tx, idemKey, actorID, fingerprint); err != nil {
 			return err
 		} else if found {
 			result = cached
@@ -98,7 +98,7 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
 
-		if err := recordIdempotency(ctx, tx, idemKey, fingerprint, req.Key, now); err != nil {
+		if err := recordIdempotency(ctx, tx, idemKey, actorID, fingerprint, req.Key, now); err != nil {
 			return err
 		}
 		result = req.Key

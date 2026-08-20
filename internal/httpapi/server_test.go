@@ -23,10 +23,21 @@ import (
 // fresh internal/store) plus an OpenAPI router, so every call can be
 // validated against api/openapi.yaml directly - Phase 0 verification
 // gate 5's literal requirement, not just hand-checked assertions.
+//
+// It authenticates as a freshly created admin account and attaches the
+// resulting session cookie/CSRF token to every do() call by default:
+// most tests built on this helper predate Phase 2's auth work and
+// exercise ordinary project/ticket CRUD as an editor, not auth itself
+// (auth_test.go covers auth directly, with its own server instances
+// for scenarios — genuinely anonymous requests, missing CSRF, expired
+// sessions — that need to control credentials precisely rather than
+// have them transparently attached).
 type testServer struct {
-	t      *testing.T
-	url    string
-	router routers.Router
+	t         *testing.T
+	url       string
+	router    routers.Router
+	sessionID string
+	csrfToken string
 }
 
 func newTestServer(t *testing.T) *testServer {
@@ -39,7 +50,7 @@ func newTestServer(t *testing.T) *testServer {
 	t.Cleanup(func() { _ = st.Close() })
 	svc := service.New(st)
 
-	ts := httptest.NewServer(NewHandler(svc))
+	ts := httptest.NewServer(NewHandler(svc, false))
 	t.Cleanup(ts.Close)
 
 	loader := openapi3.NewLoader()
@@ -55,7 +66,55 @@ func newTestServer(t *testing.T) *testServer {
 		t.Fatalf("build openapi router: %v", err)
 	}
 
-	return &testServer{t: t, url: ts.URL, router: router}
+	server := &testServer{t: t, url: ts.URL, router: router}
+	server.loginAsTestAdmin(svc)
+	return server
+}
+
+// loginAsTestAdmin creates the one admin account this test server
+// needs (directly through internal/service, not HTTP — first-run
+// setup itself is cmd/tickets/setup.go's concern, not this helper's)
+// and authenticates via the real login endpoint, so do()'s callers get
+// a genuine session cookie and CSRF token exactly as a browser would.
+func (ts *testServer) loginAsTestAdmin(svc *service.Service) {
+	t := ts.t
+	t.Helper()
+
+	if _, err := svc.CreateAdminAccount(context.Background(), "test-admin", "test-admin-password"); err != nil {
+		t.Fatalf("CreateAdminAccount: %v", err)
+	}
+
+	body, err := json.Marshal(map[string]string{"username": "test-admin", "password": "test-admin-password"})
+	if err != nil {
+		t.Fatalf("marshal login body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, ts.url+"/api/v1/auth/login", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new login request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("login request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("login as test-admin: status %d, body=%s", resp.StatusCode, respBody)
+	}
+	for _, c := range resp.Cookies() {
+		if c.Name == sessionCookieName {
+			ts.sessionID = c.Value
+		}
+	}
+	if ts.sessionID == "" {
+		t.Fatalf("login response set no %s cookie", sessionCookieName)
+	}
+	var loginResp loginResponse
+	if err := json.NewDecoder(resp.Body).Decode(&loginResp); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+	ts.csrfToken = loginResp.CSRFToken
 }
 
 // do sends a request under /api/v1 and validates both the request and
@@ -72,6 +131,15 @@ func (ts *testServer) do(method, path string, headers map[string]string, body []
 	}
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	// Attached first so a test can still override either via headers
+	// (e.g. to exercise a missing/wrong CSRF token deliberately) — the
+	// loop below runs after and wins on any key collision.
+	if ts.sessionID != "" {
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: ts.sessionID})
+	}
+	if ts.csrfToken != "" {
+		req.Header.Set("X-CSRF-Token", ts.csrfToken)
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -113,6 +181,13 @@ func (ts *testServer) validate(method, path string, headers map[string]string, b
 		PathParams:  pathParams,
 		QueryParams: vReq.URL.Query(),
 		Route:       route,
+		// This validates request/response *shapes* against the schema,
+		// not whether the caller is actually authorized — that's
+		// requireEditor/requireAdmin's job, exercised directly by
+		// auth_test.go. Without a no-op AuthenticationFunc,
+		// openapi3filter refuses to validate anything against an
+		// operation that declares a security requirement at all.
+		Options: &openapi3filter.Options{AuthenticationFunc: openapi3filter.NoopAuthenticationFunc},
 	}
 	if err := openapi3filter.ValidateRequest(context.Background(), reqInput); err != nil {
 		t.Errorf("openapi: request %s %s fails schema validation: %v", method, path, err)
@@ -148,6 +223,47 @@ func (ts *testServer) rawGet(t *testing.T, path string) *http.Response {
 		t.Fatalf("GET %s: %v", path, err)
 	}
 	return resp
+}
+
+// doUnvalidated is do's counterpart for ?fields=-narrowed responses: a
+// fields= request's success body is a subset object, not the full
+// Ticket/Feature/... shape the operation's 200 schema documents —
+// OpenAPI 3.0 has no way to express a response shape conditioned on a
+// query parameter's value (documented on the fields param itself in
+// api/openapi.yaml), so unlike do, this deliberately skips contract
+// validation rather than fail it. Still hits the real /api/v1 route,
+// so the handler and route wiring stay fully exercised.
+func (ts *testServer) doUnvalidated(method, path string, headers map[string]string, body []byte) (*http.Response, []byte) {
+	t := ts.t
+	t.Helper()
+
+	req, err := http.NewRequest(method, ts.url+"/api/v1"+path, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if ts.sessionID != "" {
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: ts.sessionID})
+	}
+	if ts.csrfToken != "" {
+		req.Header.Set("X-CSRF-Token", ts.csrfToken)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request %s %s: %v", method, path, err)
+	}
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read response body: %v", err)
+	}
+	_ = resp.Body.Close()
+	return resp, respBody
 }
 
 func TestHealthAndReady(t *testing.T) {

@@ -290,14 +290,15 @@ func TestPurgeIdempotencyKeysOlderThan(t *testing.T) {
 	ctx := context.Background()
 	db := s.DB()
 
+	actorID := mustSystemActorID(t, db)
 	old := "2020-01-01T00:00:00.000000000Z"
 	recent := "2030-01-01T00:00:00.000000000Z"
-	if _, err := db.ExecContext(ctx, `INSERT INTO idempotency_keys(key, fingerprint, ref_key, created_at) VALUES (?, ?, ?, ?)`,
-		"old-key", "fp1", "ABC-1", old); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO idempotency_keys(key, actor_id, fingerprint, ref_key, created_at) VALUES (?, ?, ?, ?, ?)`,
+		"old-key", actorID, "fp1", "ABC-1", old); err != nil {
 		t.Fatalf("insert old key: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO idempotency_keys(key, fingerprint, ref_key, created_at) VALUES (?, ?, ?, ?)`,
-		"recent-key", "fp2", "ABC-2", recent); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO idempotency_keys(key, actor_id, fingerprint, ref_key, created_at) VALUES (?, ?, ?, ?, ?)`,
+		"recent-key", actorID, "fp2", "ABC-2", recent); err != nil {
 		t.Fatalf("insert recent key: %v", err)
 	}
 

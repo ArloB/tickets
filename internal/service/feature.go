@@ -303,8 +303,15 @@ type DeleteFeatureRequest struct {
 // in which case every dependent ticket is soft-deleted in the same
 // transaction, each getting its own ticket_deleted audit event in
 // addition to the feature's own feature_deleted event.
-func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, actor domain.ActorRef, correlationID string) error {
-	return s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+//
+// Returns the feature's new version — see DeleteTicket's doc for why
+// (ADR 0013's restore-discoverability gap). Cascade-deleted tickets
+// are deleted unconditionally (store.SoftDeleteEntityUnconditional)
+// and so have no per-ticket version to hand back here; each is
+// resolvable via a normal GetTicket(AnyDeletion) call instead.
+func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, actor domain.ActorRef, correlationID string) (int64, error) {
+	var newVersion int64
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
 			return newNotFoundError("feature not found")
@@ -329,7 +336,8 @@ func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, a
 			return newHasDependentsError("feature %s has %d non-deleted ticket(s); retry with cascade to delete them together", row.Entity.Ref, len(dependents))
 		}
 
-		if _, err := store.SoftDeleteEntity(ctx, tx, row.ID, req.ExpectedVersion, now); err != nil {
+		v, err := store.SoftDeleteEntity(ctx, tx, row.ID, req.ExpectedVersion, now)
+		if err != nil {
 			if errors.Is(err, store.ErrVersionConflict) {
 				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
 				if cerr != nil {
@@ -339,6 +347,7 @@ func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, a
 			}
 			return fmt.Errorf("service: soft-delete feature: %w", err)
 		}
+		newVersion = v
 
 		changes := auditChanges(map[string]any{"ref": row.Entity.Ref, "cascade": req.Cascade, "dependents": len(dependents)})
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureDeleted, corrID, nil, changes, now); err != nil {
@@ -369,6 +378,10 @@ func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, a
 		}
 		return nil
 	})
+	if err != nil {
+		return 0, err
+	}
+	return newVersion, nil
 }
 
 // RestoreFeatureRequest is RestoreFeature's input.

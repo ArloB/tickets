@@ -1,0 +1,138 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"net/http"
+	"strconv"
+	"testing"
+)
+
+// TestCommentLifecycleOverHTTP exercises Step 11's full route set —
+// create/list/get/edit/delete/history — each validated against
+// api/openapi.yaml. This is also the first place comment-author
+// attribution becomes independently verifiable over HTTP, alongside
+// ticketDetail's still-pending Creator exposure (Step 13).
+func TestCommentLifecycleOverHTTP(t *testing.T) {
+	ts := newTestServer(t)
+	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+
+	// --- create ---
+	createResp, createBody := ts.do(http.MethodPost, "/tickets/ABC-1/comments", nil,
+		mustJSON(t, map[string]string{"body": "First pass"}))
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create comment status = %d, body=%s", createResp.StatusCode, createBody)
+	}
+	var comment map[string]any
+	if err := json.Unmarshal(createBody, &comment); err != nil {
+		t.Fatalf("unmarshal comment: %v", err)
+	}
+	if comment["body"] != "First pass" {
+		t.Errorf("comment body = %v, want %q", comment["body"], "First pass")
+	}
+	if comment["author"] != "human:test-admin" {
+		t.Errorf("comment author = %v, want human:test-admin", comment["author"])
+	}
+	id := int64(comment["id"].(float64))
+	version := int64(comment["version"].(float64))
+
+	// --- list ---
+	listResp, listBody := ts.do(http.MethodGet, "/tickets/ABC-1/comments", nil, nil)
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list comments status = %d, body=%s", listResp.StatusCode, listBody)
+	}
+	var page map[string]any
+	_ = json.Unmarshal(listBody, &page)
+	if comments, _ := page["comments"].([]any); len(comments) != 1 {
+		t.Errorf("list comments returned %d, want 1", len(comments))
+	}
+
+	// --- get ---
+	idStr := strconv.FormatInt(id, 10)
+	getResp, getBody := ts.do(http.MethodGet, "/comments/"+idStr, nil, nil)
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get comment status = %d, body=%s", getResp.StatusCode, getBody)
+	}
+
+	// --- edit ---
+	editResp, editBody := ts.do(http.MethodPatch, "/comments/"+idStr,
+		map[string]string{"If-Match": `"` + strconv.FormatInt(version, 10) + `"`},
+		mustJSON(t, map[string]string{"body": "Revised"}))
+	if editResp.StatusCode != http.StatusOK {
+		t.Fatalf("edit comment status = %d, body=%s", editResp.StatusCode, editBody)
+	}
+	var edited map[string]any
+	_ = json.Unmarshal(editBody, &edited)
+	if edited["body"] != "Revised" {
+		t.Errorf("edited comment body = %v, want %q", edited["body"], "Revised")
+	}
+	version = int64(edited["version"].(float64))
+
+	// --- history ---
+	historyResp, historyBody := ts.do(http.MethodGet, "/comments/"+idStr+"/history", nil, nil)
+	if historyResp.StatusCode != http.StatusOK {
+		t.Fatalf("comment history status = %d, body=%s", historyResp.StatusCode, historyBody)
+	}
+	var history map[string]any
+	_ = json.Unmarshal(historyBody, &history)
+	versions, _ := history["versions"].([]any)
+	if len(versions) != 1 {
+		t.Fatalf("comment history = %d entries, want 1 (the pre-edit body)", len(versions))
+	}
+	firstVersion, _ := versions[0].(map[string]any)
+	if firstVersion["body"] != "First pass" {
+		t.Errorf("archived version body = %v, want %q", firstVersion["body"], "First pass")
+	}
+
+	// --- delete (tombstone stays visible, per §5.10) ---
+	deleteResp, deleteBody := ts.do(http.MethodDelete, "/comments/"+idStr,
+		map[string]string{"If-Match": `"` + strconv.FormatInt(version, 10) + `"`}, nil)
+	if deleteResp.StatusCode != http.StatusOK {
+		t.Fatalf("delete comment status = %d, body=%s", deleteResp.StatusCode, deleteBody)
+	}
+
+	tombstoneResp, tombstoneBody := ts.do(http.MethodGet, "/comments/"+idStr, nil, nil)
+	if tombstoneResp.StatusCode != http.StatusOK {
+		t.Fatalf("get deleted comment status = %d, want 200 (visible tombstone), body=%s", tombstoneResp.StatusCode, tombstoneBody)
+	}
+	var tombstone map[string]any
+	_ = json.Unmarshal(tombstoneBody, &tombstone)
+	if tombstone["deleted_at"] == nil {
+		t.Errorf("tombstoned comment deleted_at is nil, want set")
+	}
+	if tombstone["body"] != "Revised" {
+		t.Errorf("tombstoned comment body = %v, want the intact last body %q (§5.10: body stays intact in storage)", tombstone["body"], "Revised")
+	}
+
+	// An already-deleted comment cannot be edited again — not_found,
+	// same as if it never existed (comment.go's doc explains why).
+	reEditResp, reEditBody := ts.do(http.MethodPatch, "/comments/"+idStr,
+		map[string]string{"If-Match": `"` + strconv.FormatInt(version+1, 10) + `"`},
+		mustJSON(t, map[string]string{"body": "too late"}))
+	if reEditResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("edit a deleted comment status = %d, want 404, body=%s", reEditResp.StatusCode, reEditBody)
+	}
+}
+
+// TestCreateCommentOnMissingTicket confirms the ticket lookup failure
+// translates to 404, not a confusing validation error.
+func TestCreateCommentOnMissingTicket(t *testing.T) {
+	ts := newTestServer(t)
+	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
+
+	resp, body := ts.do(http.MethodPost, "/tickets/ABC-999/comments", nil, mustJSON(t, map[string]string{"body": "x"}))
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("create comment on missing ticket status = %d, want 404, body=%s", resp.StatusCode, body)
+	}
+}
+
+// TestGetCommentNotFound confirms a bad comment id is a plain
+// not_found, not a validation error masquerading as one — id parses
+// fine, it just doesn't name a real comment.
+func TestGetCommentNotFound(t *testing.T) {
+	ts := newTestServer(t)
+	resp, body := ts.do(http.MethodGet, "/comments/999999", nil, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("get missing comment status = %d, want 404, body=%s", resp.StatusCode, body)
+	}
+}

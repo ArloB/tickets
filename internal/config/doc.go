@@ -1,8 +1,9 @@
-// Package config resolves server and CLI configuration from flags,
-// environment variables, and an OS-appropriate config file, in that
-// documented precedence order (product spec §7.3).
+// Package config resolves server and CLI configuration from, in
+// increasing priority: built-in defaults, an OS-appropriate config
+// file (path overridable via TICKETS_CONFIG_FILE), TICKETS_*
+// environment variables, and command-line flags (product spec §7.3).
 //
-// Implemented starting Phase 0 Step 5: the server's --data-dir flag and
-// the 127.0.0.1-by-default bind address. The full precedence chain and
-// remaining server settings land in Phase 2.
+// Phase 0 implemented only --data-dir and the loopback-by-default bind
+// address. Phase 2 added the full precedence chain plus the remaining
+// server settings (anonymous-read, log format, shutdown timeout).
 package config

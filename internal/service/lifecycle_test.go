@@ -89,10 +89,11 @@ func TestTicketLifecycleAuditTrail(t *testing.T) {
 	}
 
 	// soft-delete, then restore
-	if err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
+	newVersion, err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID)
+	if err != nil {
 		t.Fatalf("DeleteTicket: %v", err)
 	}
-	if _, err := s.RestoreTicket(ctx, RestoreTicketRequest{Ref: ref, ExpectedVersion: ticket.Version + 1}, testActor, testCorrelationID); err != nil {
+	if _, err := s.RestoreTicket(ctx, RestoreTicketRequest{Ref: ref, ExpectedVersion: newVersion}, testActor, testCorrelationID); err != nil {
 		t.Fatalf("RestoreTicket: %v", err)
 	}
 

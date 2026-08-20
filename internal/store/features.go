@@ -24,22 +24,28 @@ type FeatureRow struct {
 const featureSelectColumns = `
 	e.id, e.uuid, e.version, e.created_at, e.updated_at,
 	p.key, f.project_id, f.seq,
-	f.title, f.description, f.status, f.priority, f.priority_rank, f.position, e.deleted_at`
+	f.title, f.description, f.status, f.priority, f.priority_rank, f.position, e.deleted_at,
+	ca.kind, ca.name`
 
 func scanFeatureRow(scan func(dest ...any) error) (FeatureRow, error) {
 	var (
-		row                  FeatureRow
-		u                    []byte
-		createdAt, updatedAt string
-		status, priority     string
-		seq                  int64
-		deletedAt            sql.NullString
+		row                      FeatureRow
+		u                        []byte
+		createdAt, updatedAt     string
+		status, priority         string
+		seq                      int64
+		deletedAt                sql.NullString
+		creatorKind, creatorName sql.NullString
 	)
 	err := scan(&row.ID, &u, &row.Entity.Version, &createdAt, &updatedAt,
 		&row.Entity.ProjectKey, &row.ProjectEntityID, &seq,
-		&row.Entity.Title, &row.Entity.Description, &status, &priority, &row.PriorityRank, &row.Position, &deletedAt)
+		&row.Entity.Title, &row.Entity.Description, &status, &priority, &row.PriorityRank, &row.Position, &deletedAt,
+		&creatorKind, &creatorName)
 	if err != nil {
 		return FeatureRow{}, err
+	}
+	if creatorKind.Valid {
+		row.Entity.Creator = &domain.ActorRef{Kind: domain.ActorKind(creatorKind.String), Name: creatorName.String}
 	}
 	if deletedAt.Valid {
 		t, err := parseTime(deletedAt.String)
@@ -81,6 +87,7 @@ func GetFeatureByRef(ctx context.Context, q Querier, ref domain.Reference) (Feat
 		FROM features f
 		JOIN entities e ON e.id = f.id
 		JOIN projects p ON p.key = ?
+		LEFT JOIN actors ca ON ca.id = e.created_by
 		WHERE f.project_id = p.id AND f.seq = ? AND e.deleted_at IS NULL`
 	row, err := scanFeatureRow(q.QueryRowContext(ctx, query, ref.ProjectKey, ref.Seq).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -103,6 +110,7 @@ func GetFeatureByRefAnyDeletion(ctx context.Context, q Querier, ref domain.Refer
 		FROM features f
 		JOIN entities e ON e.id = f.id
 		JOIN projects p ON p.key = ?
+		LEFT JOIN actors ca ON ca.id = e.created_by
 		WHERE f.project_id = p.id AND f.seq = ?`
 	row, err := scanFeatureRow(q.QueryRowContext(ctx, query, ref.ProjectKey, ref.Seq).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -125,6 +133,7 @@ func ListFeaturesForProject(ctx context.Context, q Querier, projectEntityID int6
 		 FROM features f
 		 JOIN entities e ON e.id = f.id
 		 JOIN projects p ON p.id = f.project_id
+		 LEFT JOIN actors ca ON ca.id = e.created_by
 		 WHERE f.project_id = ? AND e.deleted_at IS NULL
 		 ORDER BY f.priority_rank ASC, f.position ASC`,
 		projectEntityID,

@@ -19,8 +19,7 @@ func main() {
 	case "server":
 		err = runServer(os.Args[2:])
 	case "setup":
-		fmt.Fprintln(os.Stderr, "tickets setup: not implemented yet")
-		os.Exit(1)
+		err = runSetup(os.Args[2:])
 	case "mcp":
 		err = runMCPBridge(os.Args[2:])
 	case "-h", "--help", "help":

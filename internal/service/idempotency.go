@@ -37,20 +37,23 @@ func Fingerprint(method, path string, body []byte) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// checkIdempotency looks up (key, fingerprint) inside tx. An empty key
-// always returns ("", false, nil) — no idempotent-retry semantics
-// requested. A prior record with a matching fingerprint returns the
-// cached refKey (a project key or ticket ref, never a serialized
-// snapshot — see the migration's comment on idempotency_keys.ref_key)
-// so the caller re-fetches the live record. A prior record with a
-// *different* fingerprint is idempotency_key_reused.
-func checkIdempotency(ctx context.Context, tx *sql.Tx, key, fingerprint string) (refKey string, found bool, err error) {
+// checkIdempotency looks up (key, actorID, fingerprint) inside tx. An
+// empty key always returns ("", false, nil) — no idempotent-retry
+// semantics requested. actorID scopes the lookup (ADR 0008): two
+// different actors reusing the same client-chosen key must not
+// collide, so this only ever matches a record the same actor created.
+// A prior record with a matching fingerprint returns the cached refKey
+// (a project key or ticket ref, never a serialized snapshot — see the
+// migration's comment on idempotency_keys.ref_key) so the caller
+// re-fetches the live record. A prior record with a *different*
+// fingerprint is idempotency_key_reused.
+func checkIdempotency(ctx context.Context, tx *sql.Tx, key string, actorID int64, fingerprint string) (refKey string, found bool, err error) {
 	if key == "" {
 		return "", false, nil
 	}
 	var existingFingerprint string
 	err = tx.QueryRowContext(ctx,
-		`SELECT fingerprint, ref_key FROM idempotency_keys WHERE key = ?`, key,
+		`SELECT fingerprint, ref_key FROM idempotency_keys WHERE key = ? AND actor_id = ?`, key, actorID,
 	).Scan(&existingFingerprint, &refKey)
 	switch {
 	case err == nil:
@@ -70,13 +73,13 @@ func checkIdempotency(ctx context.Context, tx *sql.Tx, key, fingerprint string) 
 // timestamp (see store.Now) rather than a fresh time.Now() call, so
 // this record's created_at matches every other row written by the
 // same mutation.
-func recordIdempotency(ctx context.Context, tx *sql.Tx, key, fingerprint, refKey, now string) error {
+func recordIdempotency(ctx context.Context, tx *sql.Tx, key string, actorID int64, fingerprint, refKey, now string) error {
 	if key == "" {
 		return nil
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO idempotency_keys(key, fingerprint, ref_key, created_at) VALUES (?, ?, ?, ?)`,
-		key, fingerprint, refKey, now,
+		`INSERT INTO idempotency_keys(key, actor_id, fingerprint, ref_key, created_at) VALUES (?, ?, ?, ?, ?)`,
+		key, actorID, fingerprint, refKey, now,
 	); err != nil {
 		return fmt.Errorf("service: store idempotency record: %w", err)
 	}

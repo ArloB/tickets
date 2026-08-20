@@ -13,6 +13,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// bearerTokenTransport injects a fixed Authorization: Bearer header on
+// every outgoing request — mcp.StreamableClientTransport has no header
+// field of its own, only HTTPClient (ADR 0004/0006).
+type bearerTokenTransport struct{ token string }
+
+func (t bearerTokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	return http.DefaultTransport.RoundTrip(req)
+}
+
 // TestRootHandlerComposition exercises the exact mux newRootHandler
 // builds — the same one runServer ships — rather than a differently-
 // shaped one. Confirms /healthz, /api/v1/*, and specifically /mcp (not
@@ -38,7 +49,20 @@ func TestRootHandlerComposition(t *testing.T) {
 		t.Fatalf("create ticket: %v", err)
 	}
 
-	ts := httptest.NewServer(newRootHandler(svc))
+	// /healthz and GET /api/v1/tickets/{ref} only need anonymous read
+	// enabled; /mcp requires a real agent bearer token regardless of
+	// that toggle (ADR 0004/0006 — MCP's auth is independent of
+	// httpapi's anonymous-read setting).
+	agent, err := svc.CreateAgent(ctx, service.CreateAgentRequest{Name: "codex"}, actor, "test-correlation-id")
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	rawToken, _, err := svc.CreateAgentToken(ctx, agent.Ref, "", nil, actor, "test-correlation-id")
+	if err != nil {
+		t.Fatalf("CreateAgentToken: %v", err)
+	}
+
+	ts := httptest.NewServer(newRootHandler(svc, true))
 	defer ts.Close()
 
 	// --- /healthz through the composed mux ---
@@ -63,7 +87,11 @@ func TestRootHandlerComposition(t *testing.T) {
 
 	// --- /mcp specifically (not the root) through the composed mux ---
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL + "/mcp"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL + "/mcp",
+		HTTPClient: &http.Client{Transport: bearerTokenTransport{token: rawToken}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		t.Fatalf("connect to /mcp: %v", err)
 	}

@@ -1,8 +1,9 @@
 # Compact vs. detail representations
 
 Documented now so the shape is frozen before any client (web UI, CLI,
-MCP tool) is written against it. **Not implemented in Phase 0** beyond
-what Step 5's fixed endpoints need — see Scope note below.
+MCP tool) is written against it. Fully implemented as of Phase 2 Step
+14 — see the status note below for what changed from the original
+contract.
 
 ## Two fixed shapes per entity
 
@@ -28,49 +29,53 @@ Example, ticket compact vs. detail:
   "status": "in_progress", "priority": "high", "severity": "medium",
   "description": "## Repro\n...", "project": "ABC", "feature": "ABC-F1",
   "assignee": null, "creator": "agent:codex-1",
-  "created_at": "...", "updated_at": "...", "version": 3,
-  "comment_count": 2, "relationship_count": 1 }
+  "created_at": "...", "updated_at": "...", "version": 3 }
 ```
 
-## `fields` and `include` (contract only — not built in Phase 0)
+As built, a detail response carries no `comment_count`/
+`relationship_count` summary fields — those two keys in the original
+sketch above are dropped; see the status note below for why.
+
+## `fields` and `include`
 
 - `fields=ref,title,status` narrows *either* shape to exactly the
   named top-level fields — for an agent that only needs three columns
-  across 500 tickets.
-- `include=comments,relationships` expands a detail response with
-  sub-resources that are otherwise summarized (a count) rather than
-  embedded.
+  across 500 tickets. An unknown field name is `validation_failed`,
+  not silently dropped, checked against a per-DTO allow-list
+  (`internal/httpapi/representation.go`'s `allowedTicketCompactFields`/
+  `allowedTicketDetailFields`).
+- `include=comments,relationships` adds a `comments`/`relationships`
+  array to a detail response. Both keys are absent entirely (not
+  present as `null` or a count) unless requested.
 - Both are additive query parameters; omitting them yields the fixed
   compact/detail shape above.
 
-## Scope note
+## Status
 
-Product spec §7.2 and §9 require this mechanism so agent payloads stay
-small, but its actual consumers — the MCP tool surface and CLI
-`--fields`/`--include` flags (§7.3) — don't exist until Phase 3.
-Building the parameter-parsing and dynamic-projection machinery in
-Phase 0 would have no caller to validate it against. `fields` and
-`include` parsing is implemented when Phase 2's `internal/httpapi`
-work and Phase 3's MCP/CLI work actually need it, against this same
-contract.
+Fully implemented as of Phase 2 Step 14
+(`internal/httpapi/representation.go`, `tickets.go`'s `listTickets`/
+`getTicket`). One deliberate departure from the original sketch above:
+`comment_count`/`relationship_count` summary fields were dropped from
+the always-on detail shape. The original idea was that `include=`
+would *expand* a count already present into the full array; building
+that means every `GET /tickets/{ref}` pays for two `COUNT` queries
+whether or not a caller ever asks for `include=`, for a value (a bare
+count, with no way to act on it) that turned out to have no confirmed
+consumer. `include=` in the shipped version instead adds a field that
+is otherwise wholly absent — cheaper, and arguably a cleaner opt-in
+than sketching a count no client asked for.
 
-**Phase 1 status — the compact/detail split is now real for
-projects, still not for tickets.** `GET /projects` returns
-`internal/httpapi/wire.go`'s `projectCompact` DTO (`key`, `title`,
-`status`, `version`, `updated_at` — no `description`, no
-`created_at`), a distinct `api/openapi.yaml` schema
-(`ProjectCompact`) from `GET /projects/{key}`'s full `Project` detail
-shape. `domain.Project`/`domain.Ticket` themselves are still single
-structs — the split lives in `wire.go`'s DTOs and mappers
-(`toProjectDetail`/`toProjectCompact`/`toTicketDetail`), which also
-now exist specifically so a future `domain.Ticket` field (Phase 1
-already added `Assignee` and `DeletedAt`) doesn't reach the wire
+The compact/detail split covers projects, features, and tickets.
+`domain.Project`/`domain.Feature`/`domain.Ticket` themselves stay
+single structs — the split lives in `internal/httpapi/wire.go`'s DTOs
+and mappers (`toProjectDetail`/`toProjectCompact`,
+`toFeatureDetail`/`toFeatureCompact`, `toTicketDetail`/
+`toTicketCompact`), so a future domain field doesn't reach the wire
 without a deliberate edit, not just because no caller sets it yet.
 
-Tickets have no list endpoint in Phase 0/1, so there is still no
-`ticketCompact` — `ticketDetail` covers every ticket-returning
-response. Build the compact shape alongside whichever phase adds a
-ticket list/search endpoint, against the JSON shape this doc's
-example already specifies. `fields`/`include` parsing itself remains
-deferred for the reason above — no MCP/CLI caller exists yet to
-validate the dynamic-projection machinery against.
+`fields=` on a narrowed response is not validated against
+`api/openapi.yaml`'s fixed 200 schema for that operation — OpenAPI 3.0
+has no way to express a response shape conditioned on a query
+parameter's value, documented on the `fields` parameter itself in the
+spec. `include=` stays fully contract-validated, since it only adds
+optional properties the schema already declares.

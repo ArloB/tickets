@@ -14,11 +14,12 @@ import (
 func runMCPBridge(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	apiURL := fs.String("url", envOr("TICKETS_API_URL", "http://127.0.0.1:8080/api/v1"), "base URL of the Tickets HTTP API")
+	token := fs.String("token", envOr("TICKETS_API_TOKEN", ""), "agent bearer token forwarded to the Tickets HTTP API (ADR 0004)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	backend := &mcpsrv.HTTPBackend{BaseURL: *apiURL}
+	backend := &mcpsrv.HTTPBackend{BaseURL: *apiURL, Token: *token}
 	return mcpsrv.RunStdio(context.Background(), backend)
 }
 

@@ -64,6 +64,21 @@ line (service-level tests only) — but `internal/httpapi`'s
 `statusForCode` maps both so the mapping isn't invented under
 schedule pressure once Phase 2 exposes them.
 
+## Code catalogue (Phase 2 additions)
+
+| Code | HTTP status | Meaning |
+| --- | --- | --- |
+| `forbidden` | 403 | Authenticated, but the caller's permission level doesn't allow this request (e.g. an anonymous viewer attempting a write, or a non-admin agent hitting an admin route). Distinct from `unauthorized`, which means no valid credentials were presented at all. |
+| `throttled` | 429 | Too many failed login attempts for this username/IP within the throttle window (`internal/auth/throttle.go`). |
+
+`forbidden` is decided in `internal/httpapi`'s auth middleware, not
+`internal/service` — see ADR 0004/0005's documented exception for why
+permission-level checks live in the translation layer for Phase 2.
+`throttled` is decided in `internal/service.Authenticate` (via
+`internal/auth.TooManyAttempts`), same as every other error code:
+`internal/service` stays the sole authorization/validation boundary
+for it.
+
 ## Consistency across interfaces
 
 MCP tool errors (ADR 0006) and CLI exit-code mappings (§7.3) reuse

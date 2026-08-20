@@ -6,9 +6,14 @@ import "time"
 // internal/httpapi, and internal/mcpsrv. They hold no behavior beyond
 // what's on this package already (enums, references) and do no I/O.
 //
-// Phase 0's vertical slice deliberately omits creator/assignee fields:
-// there are no authenticated actors until ADR 0004 lands in Phase 2
-// (see docs/contracts/representations.md's Phase-0-reduced shape).
+// Phase 0's vertical slice deliberately omitted creator/assignee
+// fields: there were no authenticated actors until ADR 0004 landed in
+// Phase 2 (see docs/contracts/representations.md's Phase-0-reduced
+// shape). Creator is nil only for pre-Phase-2 rows whose entities.
+// created_by predates actor attribution (migration 0002_core_domain.sql
+// backfilled those to the system actor, so this is now a purely
+// historical possibility, not a live one — every entity created from
+// Step 4a onward always has one).
 //
 // UUID fields are tagged json:"-": ADR 0002 makes the UUID the
 // canonical identity references resolve to, but the wire shape only
@@ -29,6 +34,7 @@ type Project struct {
 	Version     int64         `json:"version"`
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
+	Creator     *ActorRef     `json:"creator,omitempty"`
 }
 
 // Feature is a short/medium-term outcome containing tickets (§5.4).
@@ -55,6 +61,7 @@ type Feature struct {
 	// uses since a soft-deleted record is otherwise invisible to the
 	// normal Get path.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	Creator   *ActorRef  `json:"creator,omitempty"`
 }
 
 // Ticket is the base unit of actionable work (§5.5). Assignee is nil
@@ -78,6 +85,7 @@ type Ticket struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 	// DeletedAt: see Feature.DeletedAt's doc — same contract.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	Creator   *ActorRef  `json:"creator,omitempty"`
 }
 
 // Comment is a Markdown note attached to a principal entity (§5.10).

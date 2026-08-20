@@ -157,6 +157,51 @@ func TestConcurrentActorsUpdateSameTicketOneWins(t *testing.T) {
 	}
 }
 
+// TestIdempotencyKeyScopedByActor is the service-level half of ADR
+// 0008's actor-scoping fix (internal/store's half lives in
+// internal/store/identity_migration_test.go): two different actors
+// reusing the same client-chosen Idempotency-Key against the same
+// endpoint must create two distinct tickets, not collide or silently
+// hand one actor's created ticket back to the other. The same actor
+// reusing its own key must still hit the cache as before.
+func TestIdempotencyKeyScopedByActor(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	req := CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "Shared key ticket"}
+	fp, err := Fingerprint("POST", "/api/v1/projects/ABC/tickets", []byte(`{"title":"Shared key ticket","type":"task"}`))
+	if err != nil {
+		t.Fatalf("Fingerprint: %v", err)
+	}
+
+	actorA := testActor
+	actorB := domain.ActorRef{Kind: domain.ActorSystem, Name: "system"}
+
+	first, err := s.CreateTicket(ctx, req, actorA, testCorrelationID, "shared-key", fp)
+	if err != nil {
+		t.Fatalf("actor A create: %v", err)
+	}
+	second, err := s.CreateTicket(ctx, req, actorB, testCorrelationID, "shared-key", fp)
+	if err != nil {
+		t.Fatalf("actor B reusing actor A's idempotency key: want a fresh create to succeed, got %v", err)
+	}
+	if second.Ref == first.Ref {
+		t.Errorf("actor B got actor A's ticket (%s) back instead of creating its own", first.Ref)
+	}
+
+	replay, err := s.CreateTicket(ctx, req, actorA, testCorrelationID, "shared-key", fp)
+	if err != nil {
+		t.Fatalf("actor A replaying its own key: %v", err)
+	}
+	if replay.Ref != first.Ref {
+		t.Errorf("actor A's own key replay = %s, want the original %s", replay.Ref, first.Ref)
+	}
+}
+
 // BenchmarkConcurrentTicketCreate measures concurrent-writer
 // throughput — the direct continuation of ADR 0003/0009's thread
 // (product spec §11, Phase 1 plan Step 6). Every mutation takes

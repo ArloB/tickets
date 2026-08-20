@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ArloB/tickets/internal/domain"
+	"github.com/ArloB/tickets/internal/store"
 )
 
 // TestDeleteFeatureBlockedByDependents is verification gate 8's core
@@ -34,7 +35,7 @@ func TestDeleteFeatureBlockedByDependents(t *testing.T) {
 		t.Fatalf("MoveTicketFeature: %v", err)
 	}
 
-	err = s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: featureRef, Cascade: false, ExpectedVersion: feature.Version}, testActor, testCorrelationID)
+	_, err = s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: featureRef, Cascade: false, ExpectedVersion: feature.Version}, testActor, testCorrelationID)
 	var svcErr *Error
 	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrHasDependents {
 		t.Fatalf("DeleteFeature without cascade = %v, want has_dependents", err)
@@ -73,8 +74,12 @@ func TestDeleteFeatureCascadeDeletesTicketsToo(t *testing.T) {
 		t.Fatalf("MoveTicketFeature: %v", err)
 	}
 
-	if err := s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: featureRef, Cascade: true, ExpectedVersion: feature.Version}, testActor, testCorrelationID); err != nil {
+	newVersion, err := s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: featureRef, Cascade: true, ExpectedVersion: feature.Version}, testActor, testCorrelationID)
+	if err != nil {
 		t.Fatalf("DeleteFeature with cascade: %v", err)
+	}
+	if newVersion != feature.Version+1 {
+		t.Errorf("DeleteFeature returned newVersion = %d, want %d", newVersion, feature.Version+1)
 	}
 
 	if _, err := s.GetFeature(ctx, featureRef); !isNotFound(err) {
@@ -107,7 +112,7 @@ func TestDeleteGeneralFeatureRejected(t *testing.T) {
 		t.Fatalf("GetFeature(General): %v", err)
 	}
 
-	err = s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: generalRef, Cascade: true, ExpectedVersion: general.Version}, testActor, testCorrelationID)
+	_, err = s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: generalRef, Cascade: true, ExpectedVersion: general.Version}, testActor, testCorrelationID)
 	var svcErr *Error
 	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrValidationFailed {
 		t.Fatalf("DeleteFeature(General) = %v, want validation_failed", err)
@@ -127,8 +132,12 @@ func TestDeleteTicketVanishesFromReadPaths(t *testing.T) {
 		t.Fatalf("parse ref: %v", err)
 	}
 
-	if err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
+	newVersion, err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID)
+	if err != nil {
 		t.Fatalf("DeleteTicket: %v", err)
+	}
+	if newVersion != ticket.Version+1 {
+		t.Errorf("DeleteTicket returned newVersion = %d, want %d", newVersion, ticket.Version+1)
 	}
 
 	if _, err := s.GetTicket(ctx, ref); !isNotFound(err) {
@@ -150,11 +159,11 @@ func TestDeleteTicketTwiceIsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ref: %v", err)
 	}
-	if err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
+	if _, err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
 		t.Fatalf("first DeleteTicket: %v", err)
 	}
 
-	err = s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID)
+	_, err = s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID)
 	if !isNotFound(err) {
 		t.Fatalf("second DeleteTicket = %v, want not_found", err)
 	}
@@ -171,11 +180,12 @@ func TestRestoreTicketRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ref: %v", err)
 	}
-	if err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
+	newVersion, err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID)
+	if err != nil {
 		t.Fatalf("DeleteTicket: %v", err)
 	}
 
-	restored, err := s.RestoreTicket(ctx, RestoreTicketRequest{Ref: ref, ExpectedVersion: ticket.Version + 1}, testActor, testCorrelationID)
+	restored, err := s.RestoreTicket(ctx, RestoreTicketRequest{Ref: ref, ExpectedVersion: newVersion}, testActor, testCorrelationID)
 	if err != nil {
 		t.Fatalf("RestoreTicket: %v", err)
 	}
@@ -215,17 +225,28 @@ func TestRestoreTicketRefusesWhenFeatureDeleted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ticket ref: %v", err)
 	}
-	moved, err := s.MoveTicketFeature(ctx, MoveTicketFeatureRequest{Ref: ticketRef, NewFeatureRef: featureRef, ExpectedVersion: ticket.Version}, testActor, testCorrelationID)
-	if err != nil {
+	if _, err := s.MoveTicketFeature(ctx, MoveTicketFeatureRequest{Ref: ticketRef, NewFeatureRef: featureRef, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
 		t.Fatalf("MoveTicketFeature: %v", err)
 	}
-	if err := s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: featureRef, Cascade: true, ExpectedVersion: feature.Version}, testActor, testCorrelationID); err != nil {
+	featureNewVersion, err := s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: featureRef, Cascade: true, ExpectedVersion: feature.Version}, testActor, testCorrelationID)
+	if err != nil {
 		t.Fatalf("DeleteFeature cascade: %v", err)
 	}
-	// The cascade bumped the ticket's version past what MoveTicketFeature
-	// returned (SoftDeleteEntityUnconditional always increments), so the
-	// version to restore with is moved.Version + 1, not ticket.Version + 1.
-	ticketVersionAfterCascade := moved.Version + 1
+	if featureNewVersion != feature.Version+1 {
+		t.Errorf("DeleteFeature cascade returned newVersion = %d, want %d", featureNewVersion, feature.Version+1)
+	}
+	// Cascade-deleted tickets go through
+	// store.SoftDeleteEntityUnconditional, which — unlike DeleteTicket's
+	// own store.SoftDeleteEntity — has no expected/new version to hand
+	// back to a caller (DeleteFeature's doc comment explains why). Read
+	// the version straight from the store rather than hand-computing it
+	// from an arithmetic assumption about how many writes the cascade
+	// made.
+	deletedTicketRow, err := store.GetTicketByRefAnyDeletion(ctx, s.store.DB(), ticketRef)
+	if err != nil {
+		t.Fatalf("GetTicketByRefAnyDeletion after cascade: %v", err)
+	}
+	ticketVersionAfterCascade := deletedTicketRow.Entity.Version
 
 	// Restoring the ticket alone must fail — its feature is deleted.
 	_, err = s.RestoreTicket(ctx, RestoreTicketRequest{Ref: ticketRef, ExpectedVersion: ticketVersionAfterCascade}, testActor, testCorrelationID)
@@ -235,7 +256,7 @@ func TestRestoreTicketRefusesWhenFeatureDeleted(t *testing.T) {
 	}
 
 	// Restore the feature first...
-	restoredFeature, err := s.RestoreFeature(ctx, RestoreFeatureRequest{Ref: featureRef, ExpectedVersion: feature.Version + 1}, testActor, testCorrelationID)
+	restoredFeature, err := s.RestoreFeature(ctx, RestoreFeatureRequest{Ref: featureRef, ExpectedVersion: featureNewVersion}, testActor, testCorrelationID)
 	if err != nil {
 		t.Fatalf("RestoreFeature: %v", err)
 	}
@@ -289,7 +310,7 @@ func TestDeleteTicketVersionConflict(t *testing.T) {
 		t.Fatalf("parse ref: %v", err)
 	}
 
-	err = s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version + 1}, testActor, testCorrelationID)
+	_, err = s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version + 1}, testActor, testCorrelationID)
 	var svcErr *Error
 	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrVersionConflict {
 		t.Fatalf("DeleteTicket with stale version = %v, want version_conflict", err)
@@ -305,7 +326,7 @@ func TestRestoreTicketVersionConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ref: %v", err)
 	}
-	if err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
+	if _, err := s.DeleteTicket(ctx, DeleteTicketRequest{Ref: ref, ExpectedVersion: ticket.Version}, testActor, testCorrelationID); err != nil {
 		t.Fatalf("DeleteTicket: %v", err)
 	}
 

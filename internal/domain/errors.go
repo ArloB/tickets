@@ -27,13 +27,27 @@ const (
 	// explicit cascade, is rejected rather than silently orphaning or
 	// bulk-deleting them (see ADR 0013).
 	ErrHasDependents ErrorCode = "has_dependents"
+
+	// ErrThrottled is Phase 2's addition (429): too many failed login
+	// attempts within internal/auth.TooManyAttempts' trailing window.
+	ErrThrottled ErrorCode = "throttled"
+
+	// ErrForbidden is Phase 2's other addition (403): the caller is
+	// authenticated (or anonymous with reads enabled) but lacks the
+	// permission a mutating route requires — reserved separately from
+	// ErrUnauthorized (401), which means "no valid credentials at all."
+	// Decided in internal/httpapi's auth middleware, not internal/
+	// service, since §4.2's flat viewer/editor/admin levels are a
+	// property of the request, not of any entity a service method
+	// would inspect.
+	ErrForbidden ErrorCode = "forbidden"
 )
 
 func (c ErrorCode) Valid() bool {
 	switch c {
 	case ErrValidationFailed, ErrNotFound, ErrAlreadyExists, ErrVersionConflict,
 		ErrIdempotencyKeyReused, ErrUnauthorized, ErrInternal,
-		ErrRelationshipCycle, ErrHasDependents:
+		ErrRelationshipCycle, ErrHasDependents, ErrThrottled, ErrForbidden:
 		return true
 	}
 	return false

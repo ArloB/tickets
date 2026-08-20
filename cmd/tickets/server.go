@@ -1,12 +1,20 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"net"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/ArloB/tickets/internal/config"
 	"github.com/ArloB/tickets/internal/httpapi"
+	"github.com/ArloB/tickets/internal/logging"
 	"github.com/ArloB/tickets/internal/mcpsrv"
 	"github.com/ArloB/tickets/internal/service"
 	"github.com/ArloB/tickets/internal/store"
@@ -20,21 +28,24 @@ import (
 // the root instead of /mcp) would prove nothing about what actually
 // runs. The web UI is Phase 4 work — web.Dist exists but isn't served
 // yet.
-func newRootHandler(svc *service.Service) http.Handler {
+func newRootHandler(svc *service.Service, anonymousRead bool) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/", httpapi.NewHandler(svc))
+	mux.Handle("/", httpapi.NewHandler(svc, anonymousRead))
 	mux.Handle("/mcp", mcpsrv.NewStreamableHTTPHandler(&mcpsrv.InProcessBackend{Svc: svc}))
 	return mux
 }
 
 // runServer wires internal/config, internal/store, internal/service,
-// and newRootHandler into the Phase 0 vertical-slice server, behind the
-// 127.0.0.1-by-default listener (product spec §10).
+// and newRootHandler into the running server, then hands off to serve
+// for the actual listen/shutdown lifecycle.
 func runServer(args []string) error {
 	cfg, err := config.Load(args)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+
+	logger := logging.New(cfg.LogFormat)
+	httpapi.SetLogger(logger)
 
 	st, err := store.Open(cfg.DataDir)
 	if err != nil {
@@ -43,7 +54,52 @@ func runServer(args []string) error {
 	defer func() { _ = st.Close() }()
 
 	svc := service.New(st)
+	srv := &http.Server{Handler: newRootHandler(svc, cfg.AnonymousRead), ReadHeaderTimeout: 10 * time.Second}
 
-	log.Printf("tickets server listening on http://%s (data dir: %s)", cfg.Addr(), cfg.DataDir)
-	return http.ListenAndServe(cfg.Addr(), newRootHandler(svc))
+	ln, err := net.Listen("tcp", cfg.Addr())
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", cfg.Addr(), err)
+	}
+	logger.Info("tickets server listening",
+		"addr", ln.Addr().String(), "data_dir", cfg.DataDir, "anonymous_read", cfg.AnonymousRead)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return serve(ctx, srv, ln, logger, cfg.ShutdownTimeout)
+}
+
+// serve runs srv on ln until ctx is cancelled, then performs a
+// graceful shutdown bounded by shutdownTimeout before returning
+// (product spec §11: "graceful shutdown stops accepting work,
+// completes bounded in-flight requests, and closes the database
+// cleanly" — the database close is the caller's job, via defer, once
+// serve returns).
+//
+// Split from runServer so tests can drive shutdown by cancelling a
+// context directly, rather than depending on OS signal delivery, which
+// behaves differently enough across platforms — notably Windows — to
+// make an in-process signal-based test unreliable.
+func serve(ctx context.Context, srv *http.Server, ln net.Listener, logger *slog.Logger, shutdownTimeout time.Duration) error {
+	serveErr := make(chan error, 1)
+	go func() {
+		err := srv.Serve(ln)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+			return
+		}
+		serveErr <- nil
+	}()
+
+	select {
+	case err := <-serveErr:
+		return err
+	case <-ctx.Done():
+		logger.Info("shutting down", "timeout", shutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("graceful shutdown: %w", err)
+		}
+		return <-serveErr
+	}
 }

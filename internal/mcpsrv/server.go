@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -18,13 +19,25 @@ func newServer(backend Backend) *mcp.Server {
 }
 
 // NewStreamableHTTPHandler returns the MCP endpoint mounted on the
-// running server, backed by an InProcessBackend (product spec §7.1).
-// Phase 0 ships this unauthenticated behind the loopback bind; ADR
-// 0006's auth.RequireBearerToken wiring is proven in the spike but not
-// activated until Phase 2 defines real agent tokens (ADR 0004).
-func NewStreamableHTTPHandler(backend Backend) http.Handler {
+// running server, backed by backend and requiring a valid agent
+// bearer token on every request (ADR 0004/0006 — Phase 0 shipped this
+// unauthenticated; the auth.RequireBearerToken wiring the spike proved
+// is activated here). backend.Svc backs tokenVerifier's
+// service.VerifyBearerToken calls — the same single source of truth
+// internal/httpapi's bearer-token branch uses (ADR 0005).
+//
+// There is no ResourceMetadataURL set (the spike's note that its
+// absence leaves WWW-Authenticate's header value empty on a 401, not
+// that auth itself breaks): Phase 2 doesn't build the RFC 9728
+// protected-resource-metadata endpoint that URL would point at — MCP
+// bearer tokens here are pre-shared secrets issued by POST
+// /agents/{name}/tokens, not OAuth-issued, so there is nothing real to
+// link to yet.
+func NewStreamableHTTPHandler(backend *InProcessBackend) http.Handler {
 	server := newServer(backend)
-	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
+	streamable := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
+	requireToken := sdkauth.RequireBearerToken(tokenVerifier(backend.Svc), &sdkauth.RequireBearerTokenOptions{})
+	return requireToken(streamable)
 }
 
 // RunStdio runs the MCP stdio bridge until the client disconnects or

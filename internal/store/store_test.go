@@ -133,6 +133,47 @@ func TestMigrationVersionParsedFromFilename(t *testing.T) {
 	}
 }
 
+// TestCheckCompatibilityRejectsNewerSchema simulates a data directory
+// previously opened by a hypothetically newer tickets build: a
+// schema_migrations row beyond anything this binary's embedded
+// migrations know about must refuse to start, not silently proceed
+// and risk corrupting a schema this code doesn't understand.
+func TestCheckCompatibilityRejectsNewerSchema(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	highest, err := highestEmbeddedMigrationVersion()
+	if err != nil {
+		t.Fatalf("highestEmbeddedMigrationVersion: %v", err)
+	}
+	if _, err := s.DB().Exec(
+		`INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)`,
+		highest+1, Now(),
+	); err != nil {
+		t.Fatalf("insert future schema_migrations row: %v", err)
+	}
+
+	if err := s.CheckCompatibility(context.Background()); err == nil {
+		t.Fatalf("CheckCompatibility with a schema_migrations row beyond the embedded max: want error, got nil")
+	}
+}
+
+func TestCheckCompatibilityAcceptsCurrentSchema(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if err := s.CheckCompatibility(context.Background()); err != nil {
+		t.Fatalf("CheckCompatibility on a freshly migrated database: %v", err)
+	}
+}
+
 func TestMigrateIsIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
