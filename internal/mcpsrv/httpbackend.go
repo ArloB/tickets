@@ -1,123 +1,172 @@
 package mcpsrv
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
 
+	"github.com/ArloB/tickets/internal/apiclient"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/service"
 )
 
 // HTTPBackend implements Backend by calling the configured Tickets
-// HTTP API — this is what `tickets mcp` (the stdio bridge) uses, so it
-// never opens SQLite directly (product spec §8.1, ADR 0006).
+// HTTP API through apiclient.Client — this is what `tickets mcp` (the
+// stdio bridge) uses, so it never opens SQLite directly (product spec
+// §8.1, ADR 0006). HTTPBackend's own job is translation at the two
+// edges apiclient deliberately knows nothing about: apiclient's wire
+// DTOs (Project, Ticket) into this package's Backend interface
+// (domain.Project, domain.Ticket), and apiclient.Error into
+// *service.Error, since Backend's callers (tools.go's toolError)
+// already type-switch on *service.Error the same way InProcessBackend
+// produces it — apiclient itself doesn't import internal/service (a
+// client package has no business depending on the server's internal
+// package), so that conversion has to happen here, the one place that
+// already imports both.
 type HTTPBackend struct {
-	BaseURL string // e.g. "http://127.0.0.1:8080/api/v1"
-	Client  *http.Client
-	// Token is the agent bearer token forwarded as Authorization: Bearer
-	// on every request (ADR 0004). HTTPBackend does not itself verify
-	// this — it just attaches whatever cmd/tickets' `mcp` subcommand was
-	// configured with; the server on the other end verifies it the same
-	// way it verifies any other HTTP client's bearer token (ADR 0005).
-	Token string
+	Client *apiclient.Client
+	// DefaultProject fills in an omitted project key on an outgoing
+	// tool call — the plan's Step 15 "--project/TICKETS_PROJECT"
+	// convenience default (cmd/tickets/mcp.go), resolving §7.4's
+	// multi-project scoping question as a client-side convenience, not
+	// a server-side authorization concept: the server never sees this
+	// field or knows it exists.
+	DefaultProject string
 }
 
-func (b *HTTPBackend) httpClient() *http.Client {
-	if b.Client != nil {
-		return b.Client
+func toServiceError(err error) error {
+	var cerr *apiclient.Error
+	if !errors.As(err, &cerr) {
+		// A transport failure (connection refused, unparseable body) —
+		// not something the server sent. Reported through the same
+		// *service.Error path as everything else so toolError
+		// (tools.go) surfaces this message to the agent instead of
+		// collapsing it to the generic "internal_error: an unexpected
+		// error occurred": "can't reach the server" and "the server
+		// rejected the request" read very differently to whoever is
+		// debugging a `tickets mcp` invocation.
+		return &service.Error{Code: domain.ErrInternal, Message: fmt.Sprintf("could not reach the Tickets API: %v", err)}
 	}
-	return http.DefaultClient
+	return &service.Error{
+		Code:           cerr.Code,
+		Message:        cerr.Message,
+		Field:          cerr.Field,
+		CurrentVersion: cerr.CurrentVersion,
+	}
 }
 
-// errorEnvelope mirrors internal/httpapi's wire shape (docs/contracts/
-// errors.md) so an HTTP error round-trips back into the same
-// *service.Error type InProcessBackend produces natively.
-type errorEnvelope struct {
-	Error struct {
-		Code           string `json:"code"`
-		Message        string `json:"message"`
-		Field          string `json:"field"`
-		CurrentVersion *int64 `json:"current_version"`
-	} `json:"error"`
+// errMissingProjectKey is GetProject/CreateTicket's answer when a tool
+// call omits a project key and DefaultProject has nothing to fill in
+// with — a clear validation error, not an empty key silently reaching
+// apiclient.Client and producing "GET /projects/" (a request that
+// either 404s confusingly or, worse, hits the wrong route).
+func errMissingProjectKey() error {
+	return &service.Error{
+		Code:    domain.ErrValidationFailed,
+		Field:   "project_key",
+		Message: "no project key given and no --project/TICKETS_PROJECT default configured",
+	}
 }
 
-func (b *HTTPBackend) do(ctx context.Context, method, path string, reqBody any, out any) error {
-	var bodyReader *bytes.Reader
-	if reqBody != nil {
-		b, err := json.Marshal(reqBody)
+func toDomainProject(p apiclient.Project) domain.Project {
+	return domain.Project{
+		Key:         p.Key,
+		Title:       p.Title,
+		Description: p.Description,
+		Status:      domain.ProjectStatus(p.Status),
+		Version:     p.Version,
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
+	}
+}
+
+// toDomainTicket parses Assignee/Creator's wire "kind:name" strings
+// back into domain.ActorRef — the one step that can fail, since
+// apiclient.Ticket carries them as bare strings precisely so apiclient
+// itself never needs to import internal/domain's ActorRef parsing.
+func toDomainTicket(t apiclient.Ticket) (domain.Ticket, error) {
+	var severity *domain.Severity
+	if t.Severity != nil {
+		v := domain.Severity(*t.Severity)
+		severity = &v
+	}
+	var assignee *domain.ActorRef
+	if t.Assignee != nil {
+		v, err := domain.ParseActorRef(*t.Assignee)
 		if err != nil {
-			return fmt.Errorf("mcpsrv: marshal request: %w", err)
+			return domain.Ticket{}, fmt.Errorf("mcpsrv: parse ticket assignee: %w", err)
 		}
-		bodyReader = bytes.NewReader(b)
-	} else {
-		bodyReader = bytes.NewReader(nil)
+		assignee = &v
 	}
-
-	req, err := http.NewRequestWithContext(ctx, method, b.BaseURL+path, bodyReader)
-	if err != nil {
-		return fmt.Errorf("mcpsrv: build request: %w", err)
-	}
-	if reqBody != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if b.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+b.Token)
-	}
-
-	resp, err := b.httpClient().Do(req)
-	if err != nil {
-		return fmt.Errorf("mcpsrv: request %s %s: %w", method, path, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 300 {
-		var env errorEnvelope
-		if decErr := json.NewDecoder(resp.Body).Decode(&env); decErr != nil || env.Error.Code == "" {
-			return fmt.Errorf("mcpsrv: %s %s returned status %d with no decodable error body", method, path, resp.StatusCode)
+	var creator *domain.ActorRef
+	if t.Creator != nil {
+		v, err := domain.ParseActorRef(*t.Creator)
+		if err != nil {
+			return domain.Ticket{}, fmt.Errorf("mcpsrv: parse ticket creator: %w", err)
 		}
-		return &service.Error{
-			Code:           domain.ErrorCode(env.Error.Code),
-			Message:        env.Error.Message,
-			Field:          env.Error.Field,
-			CurrentVersion: env.Error.CurrentVersion,
-		}
+		creator = &v
 	}
-
-	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("mcpsrv: decode response from %s %s: %w", method, path, err)
-		}
-	}
-	return nil
+	return domain.Ticket{
+		Ref:         t.Ref,
+		ProjectKey:  t.Project,
+		FeatureRef:  t.Feature,
+		Type:        domain.TicketType(t.Type),
+		Title:       t.Title,
+		Description: t.Description,
+		Status:      domain.WorkflowStatus(t.Status),
+		Priority:    domain.Priority(t.Priority),
+		Severity:    severity,
+		Assignee:    assignee,
+		Creator:     creator,
+		Version:     t.Version,
+		CreatedAt:   t.CreatedAt,
+		UpdatedAt:   t.UpdatedAt,
+	}, nil
 }
 
 func (b *HTTPBackend) GetProject(ctx context.Context, key string) (domain.Project, error) {
-	var proj domain.Project
-	err := b.do(ctx, http.MethodGet, "/projects/"+url.PathEscape(key), nil, &proj)
-	return proj, err
+	if key == "" {
+		key = b.DefaultProject
+	}
+	if key == "" {
+		return domain.Project{}, errMissingProjectKey()
+	}
+	p, err := b.Client.GetProject(ctx, key)
+	if err != nil {
+		return domain.Project{}, toServiceError(err)
+	}
+	return toDomainProject(p), nil
 }
 
 func (b *HTTPBackend) GetTicket(ctx context.Context, ref string) (domain.Ticket, error) {
-	var ticket domain.Ticket
-	err := b.do(ctx, http.MethodGet, "/tickets/"+url.PathEscape(ref), nil, &ticket)
-	return ticket, err
+	t, err := b.Client.GetTicket(ctx, ref)
+	if err != nil {
+		return domain.Ticket{}, toServiceError(err)
+	}
+	ticket, err := toDomainTicket(t)
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	return ticket, nil
 }
 
 func (b *HTTPBackend) CreateTicket(ctx context.Context, in CreateTicketInput) (domain.Ticket, error) {
-	reqBody := map[string]any{
-		"type":        in.Type,
-		"title":       in.Title,
-		"description": in.Description,
-		"priority":    in.Priority,
+	projectKey := in.ProjectKey
+	if projectKey == "" {
+		projectKey = b.DefaultProject
 	}
-	if in.Severity != "" {
-		reqBody["severity"] = in.Severity
+	if projectKey == "" {
+		return domain.Ticket{}, errMissingProjectKey()
 	}
-	var ticket domain.Ticket
-	err := b.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(in.ProjectKey)+"/tickets", reqBody, &ticket)
-	return ticket, err
+	t, err := b.Client.CreateTicket(ctx, projectKey, apiclient.CreateTicketRequest{
+		Type: in.Type, Title: in.Title, Description: in.Description, Priority: in.Priority, Severity: in.Severity,
+	})
+	if err != nil {
+		return domain.Ticket{}, toServiceError(err)
+	}
+	ticket, err := toDomainTicket(t)
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	return ticket, nil
 }

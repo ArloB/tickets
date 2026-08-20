@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ArloB/tickets/internal/apiclient"
 	"github.com/ArloB/tickets/internal/auth"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/httpapi"
@@ -438,10 +439,10 @@ func TestStdioBridgeReachesSameService(t *testing.T) {
 	// Anonymous read enabled: ticket_get exercises the bridge's
 	// unauthenticated read path. ticket_create below needs a real agent
 	// bearer token regardless of this setting (ADR 0004 forbids
-	// anonymous writes) — that token is what proves the bridge's Token
-	// field (internal/mcpsrv/httpbackend.go) actually reaches the wire
-	// as a correctly-named Authorization header, not just that the
-	// field compiles. Without this, a misspelled header name would
+	// anonymous writes) — that token is what proves apiclient.Client's
+	// Token field actually reaches the wire as a correctly-named
+	// Authorization header, not just that the field compiles. Without
+	// this, a misspelled header name would
 	// still pass every other test in this package: the in-memory tests
 	// never touch HTTPBackend, and the real-HTTP tests
 	// (TestToolsOverRealStreamableHTTP*) exercise InProcessBackend
@@ -489,9 +490,10 @@ func TestStdioBridgeReachesSameService(t *testing.T) {
 	}
 
 	// This is the write path — it needs the agent bearer token above to
-	// pass httpapi's requireEditor gate. If HTTPBackend.Token weren't
-	// wired onto the outgoing Authorization header correctly, this
-	// would fail as an unauthenticated write, not as a decoding error.
+	// pass httpapi's requireEditor gate. If apiclient.Client's Token
+	// weren't wired onto the outgoing Authorization header correctly,
+	// this would fail as an unauthenticated write, not as a decoding
+	// error.
 	createRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_create", Arguments: map[string]any{
 		"project_key": "ABC", "type": "task", "title": "Created over the stdio bridge",
 	}})
@@ -515,7 +517,10 @@ func TestStdioHelperProcess(t *testing.T) {
 	if os.Getenv("TICKETS_MCP_STDIO_HELPER") != "1" {
 		t.Skip("only runs as a stdio-bridge subprocess helper")
 	}
-	backend := &HTTPBackend{BaseURL: os.Getenv("TICKETS_MCP_HELPER_API_URL"), Token: os.Getenv("TICKETS_MCP_HELPER_API_TOKEN")}
+	backend := &HTTPBackend{Client: &apiclient.Client{
+		BaseURL: os.Getenv("TICKETS_MCP_HELPER_API_URL"),
+		Token:   os.Getenv("TICKETS_MCP_HELPER_API_TOKEN"),
+	}}
 	if err := RunStdio(context.Background(), backend); err != nil {
 		fmt.Fprintln(os.Stderr, "helper RunStdio failed:", err)
 		os.Exit(1)
