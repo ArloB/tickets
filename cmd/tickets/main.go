@@ -22,6 +22,8 @@ func main() {
 		err = runSetup(os.Args[2:])
 	case "mcp":
 		err = runMCPBridge(os.Args[2:])
+	case "admin":
+		err = runAdmin(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -43,5 +45,6 @@ func usage() {
 commands:
   server   run the Tickets HTTP server (API and MCP Streamable HTTP)
   setup    first-run administrative setup
-  mcp      run the MCP stdio bridge against a configured Tickets server`)
+  mcp      run the MCP stdio bridge against a configured Tickets server
+  admin    maintenance operations (purge-idempotency-keys)`)
 }
