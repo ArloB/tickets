@@ -40,11 +40,12 @@ export default defineConfig({
     },
   },
   test: {
-    // Node environment: nothing here touches the DOM yet (the API
-    // client tests are plain fetch-mock unit tests). Switch to jsdom
-    // once component tests need it (Milestone 2/3's Vitest + React
-    // Testing Library work, per the Phase 4 plan's test strategy).
-    // No `globals: true` — test files import describe/it/expect from
-    // 'vitest' explicitly rather than relying on injected globals.
+    // jsdom: Milestone 2 adds the first real React components (auth
+    // shell, read-only views) worth testing with React Testing
+    // Library. No `globals: true` — test files import
+    // describe/it/expect from 'vitest' explicitly rather than relying
+    // on injected globals.
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
   },
 })

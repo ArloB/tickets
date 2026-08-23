@@ -16,3 +16,56 @@ body {
   margin: 0;
   min-height: 100vh;
 }
+
+main {
+  padding: 1.5rem 2rem;
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 2rem;
+  border-bottom: 1px solid light-dark(#ddd, #333);
+}
+
+nav > span {
+  margin-left: auto;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: end;
+  margin-block: 1rem;
+}
+
+form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+}
+
+main.centered-form {
+  max-width: 24rem;
+  margin-inline: auto;
+}
+
+main.centered-form form {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid light-dark(#eee, #333);
+}
