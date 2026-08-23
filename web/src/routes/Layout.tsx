@@ -17,6 +17,7 @@ export default function Layout() {
     <div>
       <nav>
         <Link to="/">Projects</Link>
+        {me.is_admin && <Link to="/admin/agents">Agents</Link>}
         <span>
           {me.permission}
           {me.actor ? ` (${me.actor})` : ' (anonymous)'}

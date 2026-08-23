@@ -47,7 +47,7 @@ describe('apiFetch', () => {
     })
   })
 
-  it('attaches X-CSRF-Token on mutating requests once a token is set, never on GET', async () => {
+  it('attaches X-CSRF-Token on every request once a token is set, including GET', async () => {
     // A fresh Response per call — mockResolvedValue would reuse one
     // Response instance across both calls below, and a Response body
     // can only be read once.
@@ -59,9 +59,23 @@ describe('apiFetch', () => {
     const postHeaders = fetchMock.mock.calls[0][1].headers as Record<string, string>
     expect(postHeaders['X-CSRF-Token']).toBe('csrf-abc')
 
-    await apiFetch('/auth/me')
+    // Not just mutating methods: internal/httpapi/auth_middleware.go's
+    // requireEditor checks X-CSRF-Token for every session-authenticated
+    // request it wraps, regardless of verb — GET /agents and GET
+    // /agents/{name}/tokens are routeAdmin (composes requireEditor), so
+    // a plain read there 403s without the header too.
+    await apiFetch('/agents')
     const getHeaders = fetchMock.mock.calls[1][1].headers as Record<string, string>
-    expect(getHeaders['X-CSRF-Token']).toBeUndefined()
+    expect(getHeaders['X-CSRF-Token']).toBe('csrf-abc')
+  })
+
+  it('omits X-CSRF-Token when no token has been set yet', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { status: 'ok' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await apiFetch('/auth/me')
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>
+    expect(headers['X-CSRF-Token']).toBeUndefined()
   })
 
   it('sends credentials: include on every request', async () => {

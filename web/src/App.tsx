@@ -11,6 +11,7 @@ import TicketDetail from './routes/TicketDetail'
 import FeatureDetail from './routes/FeatureDetail'
 import DecisionRegister from './routes/DecisionRegister'
 import DecisionDetail from './routes/DecisionDetail'
+import AdminAgents from './routes/AdminAgents'
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="/tickets/:ref" element={<TicketDetail />} />
           <Route path="/features/:ref" element={<FeatureDetail />} />
           <Route path="/decisions/:ref" element={<DecisionDetail />} />
+          <Route path="/admin/agents" element={<AdminAgents />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

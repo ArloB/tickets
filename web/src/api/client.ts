@@ -50,8 +50,6 @@ export function setCsrfToken(token: string | null): void {
   csrfToken = token
 }
 
-const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE'])
-
 /** `If-Match: "<version>"` — a double-quoted decimal integer per
  * docs/contracts/concurrency.md (internal/httpapi/concurrency.go's
  * parseIfMatch rejects anything else, including an unquoted number). */
@@ -60,11 +58,19 @@ export function ifMatchHeader(version: number): Record<string, string> {
 }
 
 /** apiFetch issues one request against /api/v1, attaching the session
- * cookie (`credentials: 'include'`) and, for mutating methods, the
- * in-memory CSRF token (internal/httpapi's requireEditor). Throws
- * ApiError on any non-2xx response; a network-level failure (server
- * unreachable) propagates as whatever fetch itself throws — callers
- * that need to tell the two apart check `err instanceof ApiError`. */
+ * cookie (`credentials: 'include'`) and, whenever we hold one, the
+ * in-memory CSRF token. This is *not* limited to mutating methods:
+ * internal/httpapi/auth_middleware.go's requireEditor checks
+ * X-CSRF-Token for every session-authenticated request it wraps,
+ * regardless of HTTP verb — most GETs are routeViewer and never see
+ * this check, but a handful of admin-only reads (GET /agents, GET
+ * /agents/{name}/tokens) are routeAdmin, which composes requireEditor,
+ * so a plain read there 403s without the header too. Sending the
+ * header on every request is harmless for the routes that don't check
+ * it. Throws ApiError on any non-2xx response; a network-level failure
+ * (server unreachable) propagates as whatever fetch itself throws —
+ * callers that need to tell the two apart check `err instanceof
+ * ApiError`. */
 export async function apiFetch<T>(
   path: string,
   init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
@@ -77,7 +83,7 @@ export async function apiFetch<T>(
     headers['Content-Type'] = 'application/json'
     body = JSON.stringify(init.body)
   }
-  if (mutatingMethods.has(method) && csrfToken) {
+  if (csrfToken) {
     headers['X-CSRF-Token'] = csrfToken
   }
 
