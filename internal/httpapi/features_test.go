@@ -150,6 +150,62 @@ func TestFeatureLifecycleOverHTTP(t *testing.T) {
 	}
 }
 
+// TestUpdateFeatureStatusOverHTTP is the Phase 4 addition's own
+// wiring check: POST /features/{ref}/status round-trips through the
+// route table and the OpenAPI contract, succeeds with a fresh
+// If-Match, and 409s with the current version on a stale one — the
+// same contract PATCH /tickets/{ref} already has.
+func TestUpdateFeatureStatusOverHTTP(t *testing.T) {
+	ts := newTestServer(t)
+	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
+	createResp, createBody := ts.do(http.MethodPost, "/projects/ABC/features", nil,
+		mustJSON(t, map[string]string{"title": "Payments", "priority": "medium"}))
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create feature: %d, body=%s", createResp.StatusCode, createBody)
+	}
+	var feature map[string]any
+	_ = json.Unmarshal(createBody, &feature)
+	ref, _ := feature["ref"].(string)
+	if feature["status"] != "backlog" {
+		t.Fatalf("new feature status = %v, want backlog", feature["status"])
+	}
+	version := int64(feature["version"].(float64))
+
+	statusResp, statusBody := ts.do(http.MethodPost, "/features/"+ref+"/status",
+		map[string]string{"If-Match": `"` + strconv.FormatInt(version, 10) + `"`},
+		mustJSON(t, map[string]string{"status": "in_progress"}))
+	if statusResp.StatusCode != http.StatusOK {
+		t.Fatalf("update feature status = %d, body=%s", statusResp.StatusCode, statusBody)
+	}
+	var updated map[string]any
+	_ = json.Unmarshal(statusBody, &updated)
+	if updated["status"] != "in_progress" {
+		t.Errorf("updated feature status = %v, want in_progress", updated["status"])
+	}
+	newVersion := int64(updated["version"].(float64))
+	if newVersion != version+1 {
+		t.Errorf("updated feature version = %d, want %d", newVersion, version+1)
+	}
+
+	// Stale If-Match (the original, now-superseded version) 409s with
+	// the live current_version.
+	staleResp, staleBody := ts.do(http.MethodPost, "/features/"+ref+"/status",
+		map[string]string{"If-Match": `"` + strconv.FormatInt(version, 10) + `"`},
+		mustJSON(t, map[string]string{"status": "done"}))
+	if staleResp.StatusCode != http.StatusConflict {
+		t.Fatalf("stale status update = %d, want 409, body=%s", staleResp.StatusCode, staleBody)
+	}
+	var envelope map[string]any
+	_ = json.Unmarshal(staleBody, &envelope)
+	errObj, _ := envelope["error"].(map[string]any)
+	if errObj["code"] != "version_conflict" {
+		t.Errorf("error.code = %v, want version_conflict", errObj["code"])
+	}
+	if int64(errObj["current_version"].(float64)) != newVersion {
+		t.Errorf("current_version = %v, want %d", errObj["current_version"], newVersion)
+	}
+}
+
 // TestDeleteFeatureCascadeOverHTTP exercises the has_dependents ->
 // cascade=true path end to end, the first time it's reachable over
 // HTTP (previously only internal/service-level tests exercised it).

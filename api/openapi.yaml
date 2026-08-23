@@ -570,6 +570,44 @@ paths:
         '409':
           $ref: '#/components/responses/Error'
 
+  /features/{ref}/status:
+    post:
+      operationId: updateFeatureStatus
+      summary: >
+        Update a feature's workflow status (optimistic concurrency).
+        Phase 4 addition mirroring PATCH /tickets/{ref}'s status-only
+        contract — features previously had no way to change status
+        after creation.
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTicketStatusRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Version conflict — see error.current_version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
   /features/{ref}/reorder:
     post:
       operationId: reorderFeature

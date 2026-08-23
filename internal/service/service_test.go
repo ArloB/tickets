@@ -282,6 +282,69 @@ func TestUpdateTicketStatusVersionConflict(t *testing.T) {
 	}
 }
 
+func TestUpdateFeatureStatusVersionConflict(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	feature, err := s.CreateFeature(ctx, CreateFeatureRequest{ProjectKey: "ABC", Title: "F", Priority: domain.PriorityMedium}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+	if feature.Status != domain.WorkflowStatusBacklog {
+		t.Fatalf("new feature status = %q, want backlog", feature.Status)
+	}
+	ref, err := domain.Parse(feature.Ref)
+	if err != nil {
+		t.Fatalf("parse ref: %v", err)
+	}
+
+	// Correct version succeeds and bumps the version.
+	updated, err := s.UpdateFeatureStatus(ctx, UpdateFeatureStatusRequest{Ref: ref, NewStatus: domain.WorkflowStatusInProgress, ExpectedVersion: feature.Version}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("update with correct version: %v", err)
+	}
+	if updated.Status != domain.WorkflowStatusInProgress || updated.Version != feature.Version+1 {
+		t.Fatalf("unexpected update result: %+v", updated)
+	}
+
+	// Stale version (the original, now-superseded one) must 409 and
+	// report the current version.
+	_, err = s.UpdateFeatureStatus(ctx, UpdateFeatureStatusRequest{Ref: ref, NewStatus: domain.WorkflowStatusDone, ExpectedVersion: feature.Version}, testActor, testCorrelationID)
+	var svcErr *Error
+	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrVersionConflict {
+		t.Fatalf("stale update error = %v, want version_conflict", err)
+	}
+	if svcErr.CurrentVersion == nil || *svcErr.CurrentVersion != updated.Version {
+		t.Fatalf("version_conflict CurrentVersion = %v, want %d", svcErr.CurrentVersion, updated.Version)
+	}
+}
+
+func TestUpdateFeatureStatusInvalidStatus(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	feature, err := s.CreateFeature(ctx, CreateFeatureRequest{ProjectKey: "ABC", Title: "F", Priority: domain.PriorityMedium}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("create feature: %v", err)
+	}
+	ref, err := domain.Parse(feature.Ref)
+	if err != nil {
+		t.Fatalf("parse ref: %v", err)
+	}
+
+	_, err = s.UpdateFeatureStatus(ctx, UpdateFeatureStatusRequest{Ref: ref, NewStatus: domain.WorkflowStatus("bogus"), ExpectedVersion: feature.Version}, testActor, testCorrelationID)
+	var svcErr *Error
+	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrValidationFailed {
+		t.Fatalf("invalid status error = %v, want validation_failed", err)
+	}
+}
+
 func TestListProjectsCursorPagination(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)

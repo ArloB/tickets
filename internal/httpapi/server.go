@@ -76,6 +76,7 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodGet, "/api/v1/projects/{key}/features", routeViewer, s.listFeatures},
 		{http.MethodGet, "/api/v1/features/{ref}", routeViewer, s.getFeature},
 		{http.MethodPatch, "/api/v1/features/{ref}", routeEditor, s.updateFeature},
+		{http.MethodPost, "/api/v1/features/{ref}/status", routeEditor, s.updateFeatureStatus},
 		{http.MethodPost, "/api/v1/features/{ref}/reorder", routeEditor, s.reorderFeature},
 		{http.MethodDelete, "/api/v1/features/{ref}", routeEditor, s.deleteFeature},
 		{http.MethodPost, "/api/v1/features/{ref}/restore", routeEditor, s.restoreFeature},

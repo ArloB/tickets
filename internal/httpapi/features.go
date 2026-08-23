@@ -151,6 +151,47 @@ func (s *Server) updateFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toFeatureDetail(feature))
 }
 
+type updateFeatureStatusRequest struct {
+	Status string `json:"status"`
+}
+
+// updateFeatureStatus is POST /features/{ref}/status, mirroring
+// updateTicketStatus (tickets.go) — the Phase 4 addition giving
+// features the single-field status mutation the feature kanban board
+// needs (features previously had no status write path at all).
+func (s *Server) updateFeatureStatus(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseFeatureRef(r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	version, svcErr := parseIfMatch(r)
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, r, &service.Error{Code: domain.ErrValidationFailed, Message: "failed to read request body"})
+		return
+	}
+	var req updateFeatureStatusRequest
+	if svcErr := decodeJSON(body, &req); svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+
+	feature, err := s.svc.UpdateFeatureStatus(r.Context(), service.UpdateFeatureStatusRequest{
+		Ref: ref, NewStatus: domain.WorkflowStatus(req.Status), ExpectedVersion: version,
+	}, requestActor(r), correlationID(r))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toFeatureDetail(feature))
+}
+
 type reorderFeatureRequest struct {
 	AfterRef *string `json:"after_ref"`
 }

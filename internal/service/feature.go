@@ -291,6 +291,70 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 	return result, nil
 }
 
+// UpdateFeatureStatusRequest is UpdateFeatureStatus's input, mirroring
+// UpdateTicketStatusRequest.
+type UpdateFeatureStatusRequest struct {
+	Ref             domain.Reference
+	NewStatus       domain.WorkflowStatus
+	ExpectedVersion int64
+}
+
+// UpdateFeatureStatus applies a conditional status update (ADR 0008 /
+// docs/contracts/concurrency.md) — the Phase 4 addition giving
+// features the same single-field status mutation
+// Service.UpdateTicketStatus already had, needed by the feature
+// kanban board (a confirmed gap: features previously had no write
+// path for status at all once created). Deliberately its own
+// endpoint/method rather than folded into UpdateFeature, for the same
+// reason UpdateTicketFields stayed split from UpdateTicketStatus
+// (internal/httpapi/tickets.go's updateTicketFields doc comment): a
+// board drag shouldn't have to resend title/description/priority just
+// to avoid clobbering them.
+func (s *Service) UpdateFeatureStatus(ctx context.Context, req UpdateFeatureStatusRequest, actor domain.ActorRef, correlationID string) (domain.Feature, error) {
+	if !req.NewStatus.Valid() {
+		return domain.Feature{}, newValidationError("status", "invalid status %q", req.NewStatus)
+	}
+
+	var result domain.Feature
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetFeatureByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("feature not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up feature: %w", err)
+		}
+		fromStatus := row.Entity.Status
+
+		if _, err := store.UpdateFeatureStatus(ctx, tx, row.ID, string(req.NewStatus), req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: update feature status: %w", err)
+		}
+
+		changes := auditChanges(map[string]any{"from": string(fromStatus), "to": string(req.NewStatus)})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureStatusChanged, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetFeatureByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload updated feature: %w", err)
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Feature{}, err
+	}
+	return result, nil
+}
+
 // ReorderFeatureRequest mirrors ReorderTicketRequest for features.
 type ReorderFeatureRequest struct {
 	Ref             domain.Reference

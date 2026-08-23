@@ -328,3 +328,21 @@ func UpdateFeatureFields(ctx context.Context, q Querier, entityID int64, title, 
 	}
 	return newVersion, nil
 }
+
+// UpdateFeatureStatus applies a conditional status update, mirroring
+// queries.go's UpdateTicketStatus — workflow_status is shared by
+// tickets and features (docs/contracts/enums.md), and this is the
+// Phase 4 addition giving features the same single-field status
+// mutation tickets already had (product spec §5.6 permits transitions
+// between any two states; the server records the transition rather
+// than validating a transition graph).
+func UpdateFeatureStatus(ctx context.Context, q Querier, entityID int64, newStatus string, expectedVersion int64, now string) (newVersion int64, err error) {
+	newVersion, err = bumpEntityVersion(ctx, q, entityID, expectedVersion, now)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := q.ExecContext(ctx, `UPDATE features SET status = ? WHERE id = ?`, newStatus, entityID); err != nil {
+		return 0, fmt.Errorf("update feature status: %w", err)
+	}
+	return newVersion, nil
+}
