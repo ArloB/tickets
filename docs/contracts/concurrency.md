@@ -58,12 +58,16 @@ deliberate decision made while building Step 4b, not an oversight:
 
 - Any mutating request may carry `Idempotency-Key: <opaque client string>`.
 - The server stores `(key, request_fingerprint, ref_key, created_at)`,
-  where `ref_key` is the created record's stable reference (a project
-  key or ticket ref) — never a snapshot of the response. A cache hit
-  re-fetches the live record by that reference, so fields that don't
-  round-trip through JSON (e.g. the internal UUID) and any field a
-  later phase adds both survive a replay correctly, instead of
-  reverting to whatever a stale snapshot happened to contain.
+  where `ref_key` is whatever string the created record's own service
+  method uses to re-fetch it — never a snapshot of the response. For a
+  project or ticket that's the public reference (a project key or
+  ticket ref); a comment has no public reference of its own, so
+  `AddComment` (Phase 3) stores its integer id as a decimal string
+  instead. Either way, a cache hit re-fetches the live record by that
+  value, so fields that don't round-trip through JSON (e.g. the
+  internal UUID) and any field a later phase adds both survive a
+  replay correctly, instead of reverting to whatever a stale snapshot
+  happened to contain.
 - Retention was unbounded through Phase 0/1. Phase 2 adds
   `tickets admin purge-idempotency-keys` (`cmd/tickets/admin.go`,
   default `--older-than 720h`) — an operator-run maintenance command
@@ -97,6 +101,25 @@ deliberate decision made while building Step 4b, not an oversight:
   the request actually says, not who sent it.
 - Reads never require an idempotency key and may be retried freely by
   the client (§8.4); only writes consult this mechanism.
+- **Phase 3 status: the fingerprint scheme differs by transport, and
+  that's a real caveat, not just an implementation detail.** The HTTP
+  API (and everything behind it — `apiclient`, the CLI, and MCP's
+  `HTTPBackend`) computes `Fingerprint(method, path, body)` from the
+  actual HTTP request, as described above. MCP's `InProcessBackend`
+  (the HTTP-mounted MCP endpoint, which calls `internal/service`
+  directly and never constructs an HTTP request) instead computes
+  `Fingerprint(toolName, "", json(input))` — see `mcpFingerprint` in
+  `internal/mcpsrv/inprocess.go`. The two schemes are deliberately
+  incompatible: the same logical call (e.g. creating the same decision
+  with the same key) produces a *different* fingerprint depending on
+  which backend served it. This is harmless in practice today because
+  the fingerprint lookup is additionally scoped by `actor_id`, and the
+  two backends are only ever reachable through different transports
+  with their own token/session — a single agent identity doesn't call
+  both for the same logical retry. But if a future caller ever expects
+  a key replayed against `InProcessBackend` to match one recorded via
+  the HTTP API (or vice versa), it won't — that would need a shared
+  canonical fingerprint input, not two independent schemes.
 
 ## What Step 5 proves end-to-end
 

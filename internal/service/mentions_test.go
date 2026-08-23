@@ -148,7 +148,7 @@ func TestCommentMentionsRescanOnEditAndClearOnDelete(t *testing.T) {
 		t.Fatalf("parse ref: %v", err)
 	}
 
-	c, err := s.AddComment(ctx, AddCommentRequest{Ref: hostRef, Body: "mentions " + target.Ref}, testActor, testCorrelationID)
+	c, err := s.AddComment(ctx, AddCommentRequest{Ref: hostRef, Body: "mentions " + target.Ref}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}

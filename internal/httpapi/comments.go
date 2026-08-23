@@ -43,7 +43,13 @@ func (s *Server) createComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	comment, err := s.svc.AddComment(r.Context(), service.AddCommentRequest{Ref: ref, Body: req.Body}, requestActor(r), correlationID(r))
+	fp, ferr := service.Fingerprint(r.Method, r.URL.Path, body)
+	if ferr != nil {
+		writeError(w, r, &service.Error{Code: domain.ErrValidationFailed, Message: ferr.Error()})
+		return
+	}
+
+	comment, err := s.svc.AddComment(r.Context(), service.AddCommentRequest{Ref: ref, Body: req.Body}, requestActor(r), correlationID(r), idempotencyKey(r), fp)
 	if err != nil {
 		writeError(w, r, err)
 		return

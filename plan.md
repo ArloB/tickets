@@ -351,12 +351,12 @@ Small optional instruction packages for Codex and Claude may document recommende
 The exact schemas are contract-tested before implementation, but the initial tool surface should remain small and task-oriented:
 
 - `projects_list` and `project_get`
-- `work_search`
+- `work_search` (Phase 5 — needs real full-text search; Phase 3's tools rely on list filters instead)
 - `tickets_list`, `ticket_get`, `ticket_create`, and `ticket_update`
 - `ticket_comment` and `ticket_link`
 - `feature_get`, `feature_create`, and `feature_update`
-- `record_get`, `record_create`, and `record_update` for decisions, plans, and documents
-- `notifications_list` and `notifications_mark_read`
+- `record_get`, `record_create`, and `record_update` — Phase 3 scopes this to decisions only (a minimal slice: title/context/decision/rationale/status, no versioning/supersession); plans and documents join once Phase 5 builds those entities
+- `notifications_list` and `notifications_mark_read` (Phase 5 — no notification system exists yet)
 
 Tool responses default to compact summaries. List and search calls omit full Markdown bodies, comments, history, and attachment contents unless explicitly requested. Detail calls accept include fields, and all collections are paginated. Writes return the changed entity's stable reference, version, essential fields, and warnings rather than echoing an entire expanded record.
 
@@ -392,6 +392,14 @@ CLI requirements:
 - Configuration through flags, environment variables, and an OS-appropriate config file, with that precedence documented.
 - Tokens read from protected config, an environment variable, or stdin; never accepted in a way that encourages inclusion in shell history.
 - No terminal color when output is redirected, plus `--no-color` and `NO_COLOR` support.
+
+### 7.4 Multi-project scoping for agents
+
+A server can host multiple, unrelated projects (a `tickets` project and a separate web-server project, for example). An agent working on one must not read or write the other by accident, and needs some way to know which project it's in without being told every time.
+
+Resolved by ADR 0016: scoped bearer tokens were rejected as the wrong tool — they solve a *context* problem (which project is this agent working in right now) with an *access-control* mechanism, adding a per-project authorization dimension nothing else in this codebase's flat viewer/editor model has, for the common single-user/personal-install case this product optimizes for (§2). Instead, the `tickets mcp` stdio bridge takes a `--project`/`TICKETS_PROJECT` default, filled in client-side whenever an outgoing tool call omits a project key (`internal/mcpsrv/httpbackend.go`'s `HTTPBackend.DefaultProject`, `cmd/tickets/mcp.go`) — pure client-side convenience the server never sees, exactly like a shell's `$PWD` biasing a relative path. Tokens stay server-wide, with no project dimension at all. Implemented as of Phase 3.
+
+The more promising direction for team/shared deployments, if a single shared server ever needs real per-project access control, is binding scope to how the MCP server is *launched or configured* (one server process, or one `--project` default in that project's `.mcp.json`, per active project) rather than retrofitting this client-side convenience — see ADR 0016's consequences.
 
 ## 8. Technical architecture
 
@@ -651,6 +659,7 @@ Future work should be driven by observed use rather than included speculatively.
 - Due dates, milestones, estimates, and recurring tickets.
 - Plugin packaging or hosted remote MCP distribution.
 - A PostgreSQL storage option if deployment or concurrency eventually exceeds SQLite's intended role.
+- A project summary/brief view — a single read assembling what a new agent needs to get oriented fast (upcoming/in-progress tickets, issue register highlights, feature list, recent activity, decisions once §5 decision/plan records exist). No new schema: it's an aggregation over data the information model (§5) already covers. Natural fit is the Phase 3 MCP tool surface (§7.2's `project_get`/`work_search` neighborhood) rather than earlier, since a genuinely useful brief wants decisions/plans (§5, Phase 5) too — building it before those exist means reshaping it twice.
 
 None of these should compromise exportability, stable references, attribution, or the single application-service boundary.
 

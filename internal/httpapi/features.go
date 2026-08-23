@@ -3,6 +3,7 @@ package httpapi
 import (
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/service"
@@ -57,18 +58,33 @@ func (s *Server) createFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toFeatureDetail(feature))
 }
 
+// listFeatures supports ?limit=/?cursor=, mirroring listTickets
+// (tickets.go) — Phase 3 Step 5 added real pagination here; Phase 1
+// shipped this endpoint returning every feature at once.
 func (s *Server) listFeatures(w http.ResponseWriter, r *http.Request) {
 	projectKey := r.PathValue("key")
-	features, err := s.svc.ListFeatures(r.Context(), projectKey)
+	q := r.URL.Query()
+
+	limit := 0
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeError(w, r, &service.Error{Code: domain.ErrValidationFailed, Field: "limit", Message: "limit must be a non-negative integer"})
+			return
+		}
+		limit = n
+	}
+
+	result, err := s.svc.ListFeatures(r.Context(), projectKey, limit, q.Get("cursor"))
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	out := make([]featureCompact, len(features))
-	for i, f := range features {
+	out := make([]featureCompact, len(result.Features))
+	for i, f := range result.Features {
 		out[i] = toFeatureCompact(f)
 	}
-	writeJSON(w, http.StatusOK, featuresPage{Features: out})
+	writeJSON(w, http.StatusOK, featuresPage{Features: out, NextCursor: result.NextCursor})
 }
 
 func (s *Server) getFeature(w http.ResponseWriter, r *http.Request) {

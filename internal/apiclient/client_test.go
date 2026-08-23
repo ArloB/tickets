@@ -64,6 +64,38 @@ func TestClientRoundTrip(t *testing.T) {
 	}
 }
 
+// TestCreateProjectRoundTrip proves CreateProject POSTs to /projects
+// (not /projects/, and not nested under an existing project the way
+// CreateTicket is) and forwards its idempotency key — the request
+// shape isn't exercised by the CLI-level TestProjectCreateJSON, which
+// hits a real server that would happily accept a wrong path or a
+// dropped header without failing.
+func TestCreateProjectRoundTrip(t *testing.T) {
+	var gotMethod, gotPath, gotIdempotencyKey string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		gotIdempotencyKey = r.Header.Get("Idempotency-Key")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(Project{Key: "XYZ", Title: "Second Project", Status: "active", Version: 1})
+	}))
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL}
+	created, err := c.CreateProject(t.Context(), CreateProjectRequest{Key: "XYZ", Title: "Second Project"}, "retry-key")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if created.Key != "XYZ" || created.Title != "Second Project" {
+		t.Errorf("CreateProject = %+v, want key=XYZ title=%q", created, "Second Project")
+	}
+	if gotMethod != http.MethodPost || gotPath != "/projects" {
+		t.Errorf("request = %s %s, want POST /projects", gotMethod, gotPath)
+	}
+	if gotIdempotencyKey != "retry-key" {
+		t.Errorf("Idempotency-Key header = %q, want %q", gotIdempotencyKey, "retry-key")
+	}
+}
+
 // TestClientDecodesErrorEnvelope proves a non-2xx response decodes
 // into a client-side *Error a caller can inspect by domain.ErrorCode —
 // not just a generic "request failed" error.

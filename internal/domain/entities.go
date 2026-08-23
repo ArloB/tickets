@@ -64,6 +64,28 @@ type Feature struct {
 	Creator   *ActorRef  `json:"creator,omitempty"`
 }
 
+// Decision is a first-class project record (§5.8). Phase 3 ships a
+// minimal slice — title, context, decision, rationale, status only —
+// just enough to exercise the representative agent workflow's "record
+// a decision" step; no versioning, no diffing, no supersession-
+// linking. Phase 5 extends this same table with those, the way it
+// also fully owns plans/documents (§5.9) as sibling record kinds.
+type Decision struct {
+	UUID       string         `json:"-"`
+	Ref        string         `json:"ref"`
+	ProjectKey string         `json:"project"`
+	Title      string         `json:"title"`
+	Context    string         `json:"context"`
+	Decision   string         `json:"decision"`
+	Rationale  string         `json:"rationale"`
+	Status     DecisionStatus `json:"status"`
+	Version    int64          `json:"version"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	DeletedAt  *time.Time     `json:"deleted_at,omitempty"`
+	Creator    *ActorRef      `json:"creator,omitempty"`
+}
+
 // Ticket is the base unit of actionable work (§5.5). Assignee is nil
 // until Phase 1's AssignTicket is called — every existing Phase 0
 // response keeps its exact shape (omitempty), so this addition does

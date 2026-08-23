@@ -15,16 +15,20 @@ import (
 // operator runs directly against the data directory, not through the
 // HTTP API — the same "open internal/store directly" pattern
 // runSetup/runServer use, since these commands exist specifically for
-// when there may be no running server to call. Only one subcommand
-// exists today; more (product spec §13's "token revocation and
-// similar commands" pattern) get added the same way.
+// when there may be no running server to call. `agent`/`token` (see
+// admin_agent.go) follow the same pattern for a different reason: see
+// runAdminAgent's doc comment.
 func runAdmin(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("admin: expected a subcommand (purge-idempotency-keys)")
+		return fmt.Errorf("admin: expected a subcommand (purge-idempotency-keys, agent, token)")
 	}
 	switch args[0] {
 	case "purge-idempotency-keys":
 		return runAdminPurgeIdempotencyKeys(args[1:])
+	case "agent":
+		return runAdminAgent(args[1:])
+	case "token":
+		return runAdminToken(args[1:])
 	default:
 		return fmt.Errorf("admin: unknown subcommand %q", args[0])
 	}

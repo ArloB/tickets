@@ -89,11 +89,11 @@ func TestDeleteFeatureCascadeDeletesTicketsToo(t *testing.T) {
 		t.Errorf("GetTicket after cascade delete = %v, want not_found", err)
 	}
 
-	features, err := s.ListFeatures(ctx, "ABC")
+	result, err := s.ListFeatures(ctx, "ABC", 0, "")
 	if err != nil {
 		t.Fatalf("ListFeatures: %v", err)
 	}
-	for _, f := range features {
+	for _, f := range result.Features {
 		if f.Ref == feature.Ref {
 			t.Errorf("ListFeatures still includes cascade-deleted feature %q", feature.Ref)
 		}

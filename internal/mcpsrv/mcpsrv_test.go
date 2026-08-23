@@ -80,6 +80,15 @@ func TestInProcessBackendCreateTicketUsesContextActor(t *testing.T) {
 
 func decodeTicketResult(t *testing.T, res *mcp.CallToolResult) domain.Ticket {
 	t.Helper()
+	return decodeResult[domain.Ticket](t, res)
+}
+
+// decodeResult re-marshals a tool call's StructuredContent (a
+// map[string]any, since that's how the MCP SDK represents it) back
+// into T — every _get/_list/_create tool's typed output.
+func decodeResult[T any](t *testing.T, res *mcp.CallToolResult) T {
+	t.Helper()
+	var out T
 	if res == nil || res.StructuredContent == nil {
 		t.Fatalf("no structured content in result: %+v", res)
 	}
@@ -87,11 +96,52 @@ func decodeTicketResult(t *testing.T, res *mcp.CallToolResult) domain.Ticket {
 	if err != nil {
 		t.Fatalf("re-marshal structured content: %v", err)
 	}
-	var ticket domain.Ticket
-	if err := json.Unmarshal(b, &ticket); err != nil {
-		t.Fatalf("unmarshal ticket: %v (raw: %s)", err, b)
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("unmarshal result: %v (raw: %s)", err, b)
 	}
-	return ticket
+	return out
+}
+
+// TestListToolsOverInMemoryTransport proves projects_list/tickets_list
+// reach the same backend/service as project_get/ticket_get, returning
+// compact rows for the one seeded project and ticket.
+func TestListToolsOverInMemoryTransport(t *testing.T) {
+	backend, ref := newTestBackend(t)
+	server := newServer(backend)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	go func() { _ = server.Run(ctx, serverTransport) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	projRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "projects_list", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("CallTool projects_list: %v", err)
+	}
+	if projRes.IsError {
+		t.Fatalf("projects_list returned a tool error: %+v", projRes.Content)
+	}
+	projects := decodeResult[ProjectsListOutput](t, projRes)
+	if len(projects.Projects) != 1 || projects.Projects[0].Key != "ABC" {
+		t.Errorf("projects_list = %+v, want exactly one project ABC", projects)
+	}
+
+	ticketsRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "tickets_list", Arguments: map[string]any{"project_key": "ABC"}})
+	if err != nil {
+		t.Fatalf("CallTool tickets_list: %v", err)
+	}
+	if ticketsRes.IsError {
+		t.Fatalf("tickets_list returned a tool error: %+v", ticketsRes.Content)
+	}
+	tickets := decodeResult[TicketsListOutput](t, ticketsRes)
+	if len(tickets.Tickets) != 1 || tickets.Tickets[0].Ref != ref {
+		t.Errorf("tickets_list = %+v, want exactly ticket %q", tickets, ref)
+	}
 }
 
 // TestToolsOverInMemoryTransport proves RegisterTools/InProcessBackend
@@ -128,7 +178,10 @@ func TestToolsOverInMemoryTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	want := map[string]bool{"project_get": false, "ticket_get": false, "ticket_create": false}
+	want := map[string]bool{
+		"project_get": false, "projects_list": false,
+		"ticket_get": false, "ticket_create": false, "tickets_list": false,
+	}
 	for _, tool := range tools.Tools {
 		if _, ok := want[tool.Name]; ok {
 			want[tool.Name] = true
@@ -399,6 +452,636 @@ func TestTicketCreateOverRealStreamableHTTPWithBearerToken(t *testing.T) {
 	if created.Creator == nil || *created.Creator != agentRef {
 		t.Errorf("ticket_create over /mcp with a codex bearer token: Creator = %v, want %v", created.Creator, agentRef)
 	}
+}
+
+// TestTicketUpdateOverRealStreamableHTTP proves ticket_update reaches
+// the same UpdateTicketStatus/UpdateTicketFields service calls the
+// HTTP API's PATCH/PUT routes use, returns a compact TicketWriteResult
+// (not the full ticket ticket_create/ticket_get return), and rejects
+// a stale expected_version as version_conflict rather than silently
+// applying the change.
+func TestTicketUpdateOverRealStreamableHTTP(t *testing.T) {
+	backend, ref := newTestBackend(t)
+	raw, _ := mustIssueAgentToken(t, backend, "codex")
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	getRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_get", Arguments: map[string]any{"ref": ref}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_get: %v", err)
+	}
+	seeded := decodeTicketResult(t, getRes)
+
+	status, priority := "in_progress", "high"
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_update", Arguments: map[string]any{
+		"ref": ref, "status": status, "priority": priority, "expected_version": seeded.Version,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_update: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("ticket_update returned a tool error: %+v", res.Content)
+	}
+	result := decodeResult[TicketWriteResult](t, res)
+	// Two mutating calls happen here (UpdateTicketStatus then
+	// UpdateTicketFields), each its own transaction that bumps
+	// entities.version by 1 (docs/contracts/concurrency.md) — so
+	// setting status *and* priority in one ticket_update call advances
+	// the version by 2, not 1.
+	wantVersion := seeded.Version + 2
+	if result.Ref != ref || result.Status != status || result.Priority != priority || result.Version != wantVersion {
+		t.Errorf("ticket_update result = %+v, want ref=%q status=%q priority=%q version=%d", result, ref, status, priority, wantVersion)
+	}
+
+	// A title left unset by this call must survive unchanged — proof
+	// the merge actually read the ticket's current fields rather than
+	// clobbering them with zero values.
+	afterRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_get", Arguments: map[string]any{"ref": ref}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_get after update: %v", err)
+	}
+	after := decodeTicketResult(t, afterRes)
+	if after.Title != seeded.Title {
+		t.Errorf("ticket title after update = %q, want unchanged %q", after.Title, seeded.Title)
+	}
+
+	// A stale expected_version must be rejected, not silently applied.
+	staleRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_update", Arguments: map[string]any{
+		"ref": ref, "status": "done", "expected_version": seeded.Version,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_update with a stale version: %v", err)
+	}
+	if !staleRes.IsError {
+		t.Fatalf("ticket_update with a stale expected_version: want a tool error, got success: %+v", staleRes)
+	}
+	var staleText string
+	for _, c := range staleRes.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			staleText += tc.Text
+		}
+	}
+	if !strings.Contains(staleText, string(domain.ErrVersionConflict)) {
+		t.Errorf("stale ticket_update tool error %q does not mention code %q", staleText, domain.ErrVersionConflict)
+	}
+}
+
+// TestTicketCommentOverRealStreamableHTTP proves ticket_comment reaches
+// the same AddComment service call the HTTP API's POST
+// /tickets/{ref}/comments route uses, attributes the comment to the
+// bearer-token actor, and returns a compact CommentWriteResult.
+func TestTicketCommentOverRealStreamableHTTP(t *testing.T) {
+	backend, ref := newTestBackend(t)
+	raw, agentRef := mustIssueAgentToken(t, backend, "codex")
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_comment", Arguments: map[string]any{
+		"ref": ref, "body": "Started looking into this",
+	}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_comment: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("ticket_comment returned a tool error: %+v", res.Content)
+	}
+	result := decodeResult[CommentWriteResult](t, res)
+	if result.ID == 0 || result.Version != 1 {
+		t.Errorf("ticket_comment result = %+v, want a nonzero id and version=1", result)
+	}
+
+	comments, err := backend.Svc.ListComments(ctx, mustParseTicketRef(t, ref))
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(comments) != 1 || comments[0].Body != "Started looking into this" || comments[0].Author != agentRef {
+		t.Errorf("comments after ticket_comment = %+v, want one comment by %v with the given body", comments, agentRef)
+	}
+}
+
+// TestTicketLinkOverRealStreamableHTTP proves ticket_link dispatches
+// an explicit relationship type to AddRelationship and
+// "associated_with" to AddAssociation, reaching the same
+// service-level edges the HTTP API's relationship/association routes
+// create.
+func TestTicketLinkOverRealStreamableHTTP(t *testing.T) {
+	backend, ref := newTestBackend(t)
+	raw, _ := mustIssueAgentToken(t, backend, "codex")
+	ctx := context.Background()
+
+	other, err := backend.Svc.CreateTicket(ctx, service.CreateTicketRequest{
+		ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "Blocking work",
+	}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("create second ticket: %v", err)
+	}
+
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	relRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_link", Arguments: map[string]any{
+		"ref": ref, "type": "blocked_by", "target": other.Ref,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_link (relationship): %v", err)
+	}
+	if relRes.IsError {
+		t.Fatalf("ticket_link relationship call returned a tool error: %+v", relRes.Content)
+	}
+	relResult := decodeResult[LinkWriteResult](t, relRes)
+	if relResult.Type != "blocked_by" || relResult.Target != other.Ref {
+		t.Errorf("ticket_link relationship result = %+v, want type=blocked_by target=%q", relResult, other.Ref)
+	}
+
+	assocRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_link", Arguments: map[string]any{
+		"ref": ref, "type": "associated_with", "target": other.Ref,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_link (association): %v", err)
+	}
+	if assocRes.IsError {
+		t.Fatalf("ticket_link association call returned a tool error: %+v", assocRes.Content)
+	}
+
+	parsedRef, err := domain.Parse(ref)
+	if err != nil {
+		t.Fatalf("parse ref: %v", err)
+	}
+	views, err := backend.Svc.GetTicketRelationships(ctx, parsedRef)
+	if err != nil {
+		t.Fatalf("GetTicketRelationships: %v", err)
+	}
+	foundRel := false
+	for _, v := range views {
+		if formatted, ferr := domain.Format(v.Other); ferr == nil && string(v.Type) == "blocked_by" && formatted == other.Ref {
+			foundRel = true
+		}
+	}
+	if !foundRel {
+		t.Errorf("relationships for %s = %+v, want a blocked_by edge to %s", ref, views, other.Ref)
+	}
+
+	associated, err := backend.Svc.GetAssociations(ctx, parsedRef)
+	if err != nil {
+		t.Fatalf("GetAssociations: %v", err)
+	}
+	foundAssoc := false
+	for _, a := range associated {
+		if formatted, ferr := domain.Format(a); ferr == nil && formatted == other.Ref {
+			foundAssoc = true
+		}
+	}
+	if !foundAssoc {
+		t.Errorf("associations for %s = %+v, want %s", ref, associated, other.Ref)
+	}
+}
+
+// TestFeatureToolsOverRealStreamableHTTP proves feature_get/
+// feature_create/feature_update reach the same service methods the
+// HTTP API's feature routes use — full detail from feature_get,
+// compact FeatureWriteResult from create/update, and a full-
+// representation update (unlike ticket_update, every field is
+// required, no partial merge).
+func TestFeatureToolsOverRealStreamableHTTP(t *testing.T) {
+	backend, _ := newTestBackend(t)
+	raw, _ := mustIssueAgentToken(t, backend, "codex")
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	createRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "feature_create", Arguments: map[string]any{
+		"project_key": "ABC", "title": "Payments", "priority": "high",
+	}})
+	if err != nil {
+		t.Fatalf("CallTool feature_create: %v", err)
+	}
+	if createRes.IsError {
+		t.Fatalf("feature_create returned a tool error: %+v", createRes.Content)
+	}
+	created := decodeResult[FeatureWriteResult](t, createRes)
+	if created.Ref == "" || created.Priority != "high" || created.Version != 1 {
+		t.Errorf("feature_create result = %+v, want a ref, priority=high, version=1", created)
+	}
+
+	getRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "feature_get", Arguments: map[string]any{"ref": created.Ref}})
+	if err != nil {
+		t.Fatalf("CallTool feature_get: %v", err)
+	}
+	if getRes.IsError {
+		t.Fatalf("feature_get returned a tool error: %+v", getRes.Content)
+	}
+	got := decodeResult[domain.Feature](t, getRes)
+	if got.Title != "Payments" {
+		t.Errorf("feature_get result = %+v, want title=Payments", got)
+	}
+
+	updateRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "feature_update", Arguments: map[string]any{
+		"ref": created.Ref, "title": "Payments (v2)", "description": got.Description, "priority": "medium", "expected_version": got.Version,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool feature_update: %v", err)
+	}
+	if updateRes.IsError {
+		t.Fatalf("feature_update returned a tool error: %+v", updateRes.Content)
+	}
+	updated := decodeResult[FeatureWriteResult](t, updateRes)
+	if updated.Priority != "medium" || updated.Version != got.Version+1 {
+		t.Errorf("feature_update result = %+v, want priority=medium version=%d", updated, got.Version+1)
+	}
+}
+
+// TestRecordToolsOverRealStreamableHTTP proves record_get/
+// record_create/record_update reach the same decision service methods
+// the HTTP API's decision routes use, and that ticket_link's
+// associated_with dispatch works with a decision as the target — the
+// exit-criterion workflow's "read linked context" step for a decision
+// depends on both.
+func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
+	backend, ticketRef := newTestBackend(t)
+	raw, _ := mustIssueAgentToken(t, backend, "codex")
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	createRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_create", Arguments: map[string]any{
+		"project_key": "ABC", "title": "Use SQLite", "context": "We need a store", "decision": "Use SQLite", "rationale": "Simplicity",
+	}})
+	if err != nil {
+		t.Fatalf("CallTool record_create: %v", err)
+	}
+	if createRes.IsError {
+		t.Fatalf("record_create returned a tool error: %+v", createRes.Content)
+	}
+	created := decodeResult[DecisionWriteResult](t, createRes)
+	if created.Ref == "" || created.Status != "proposed" || created.Version != 1 {
+		t.Errorf("record_create result = %+v, want a ref, status=proposed, version=1", created)
+	}
+
+	getRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_get", Arguments: map[string]any{"ref": created.Ref}})
+	if err != nil {
+		t.Fatalf("CallTool record_get: %v", err)
+	}
+	if getRes.IsError {
+		t.Fatalf("record_get returned a tool error: %+v", getRes.Content)
+	}
+	got := decodeResult[domain.Decision](t, getRes)
+	if got.Title != "Use SQLite" || got.Rationale != "Simplicity" {
+		t.Errorf("record_get result = %+v, want title=%q rationale=Simplicity", got, "Use SQLite")
+	}
+
+	updateRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_update", Arguments: map[string]any{
+		"ref": created.Ref, "title": got.Title, "context": got.Context, "decision": got.Decision, "rationale": got.Rationale,
+		"status": "accepted", "expected_version": got.Version,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool record_update: %v", err)
+	}
+	if updateRes.IsError {
+		t.Fatalf("record_update returned a tool error: %+v", updateRes.Content)
+	}
+	updated := decodeResult[DecisionWriteResult](t, updateRes)
+	if updated.Status != "accepted" || updated.Version != got.Version+1 {
+		t.Errorf("record_update result = %+v, want status=accepted version=%d", updated, got.Version+1)
+	}
+
+	linkRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_link", Arguments: map[string]any{
+		"ref": ticketRef, "type": "associated_with", "target": created.Ref,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_link with a decision target: %v", err)
+	}
+	if linkRes.IsError {
+		t.Fatalf("ticket_link with a decision target returned a tool error: %+v", linkRes.Content)
+	}
+
+	ticketParsed, err := domain.Parse(ticketRef)
+	if err != nil {
+		t.Fatalf("parse ticket ref: %v", err)
+	}
+	associated, err := backend.Svc.GetAssociations(ctx, ticketParsed)
+	if err != nil {
+		t.Fatalf("GetAssociations: %v", err)
+	}
+	found := false
+	for _, a := range associated {
+		if formatted, ferr := domain.Format(a); ferr == nil && formatted == created.Ref {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("ticket associations = %+v, want it to include decision %s", associated, created.Ref)
+	}
+}
+
+// TestIdempotencyKeyOverRealStreamableHTTP proves record_create and
+// ticket_comment's idempotency_key input actually reaches
+// InProcessBackend's fingerprint/checkIdempotency plumbing over a real
+// MCP session: replaying the same key with identical arguments returns
+// the original record instead of creating a second one, and reusing
+// the same key with different content is rejected as
+// idempotency_key_reused rather than silently overwriting or
+// duplicating.
+func TestIdempotencyKeyOverRealStreamableHTTP(t *testing.T) {
+	backend, ticketRef := newTestBackend(t)
+	raw, _ := mustIssueAgentToken(t, backend, "codex")
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	create := func(key, title string) (*mcp.CallToolResult, DecisionWriteResult) {
+		res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_create", Arguments: map[string]any{
+			"project_key": "ABC", "title": title, "context": "ctx", "decision": "dec", "rationale": "why",
+			"idempotency_key": key,
+		}})
+		if err != nil {
+			t.Fatalf("CallTool record_create: %v", err)
+		}
+		if res.IsError {
+			return res, DecisionWriteResult{}
+		}
+		return res, decodeResult[DecisionWriteResult](t, res)
+	}
+
+	first, firstOut := create("dup-key-1", "Use SQLite")
+	if first.IsError {
+		t.Fatalf("record_create with a fresh idempotency_key: want success, got tool error: %+v", first.Content)
+	}
+
+	replay, replayOut := create("dup-key-1", "Use SQLite")
+	if replay.IsError {
+		t.Fatalf("record_create replayed with the same key and content: want the cached result, got tool error: %+v", replay.Content)
+	}
+	if replayOut.Ref != firstOut.Ref {
+		t.Errorf("record_create replay ref = %q, want the original %q (a new decision was created instead of returning the cached one)", replayOut.Ref, firstOut.Ref)
+	}
+
+	reused, _ := create("dup-key-1", "Use Postgres instead")
+	if !reused.IsError {
+		t.Fatalf("record_create with a reused key but different content: want idempotency_key_reused, got success")
+	}
+	var reusedText string
+	for _, c := range reused.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			reusedText += tc.Text
+		}
+	}
+	if !strings.Contains(reusedText, string(domain.ErrIdempotencyKeyReused)) {
+		t.Errorf("reused-key record_create tool error %q does not mention code %q", reusedText, domain.ErrIdempotencyKeyReused)
+	}
+
+	addComment := func(key, body string) *mcp.CallToolResult {
+		res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_comment", Arguments: map[string]any{
+			"ref": ticketRef, "body": body, "idempotency_key": key,
+		}})
+		if err != nil {
+			t.Fatalf("CallTool ticket_comment: %v", err)
+		}
+		return res
+	}
+
+	firstComment := addComment("comment-key-1", "hello")
+	if firstComment.IsError {
+		t.Fatalf("ticket_comment with a fresh idempotency_key: want success, got tool error: %+v", firstComment.Content)
+	}
+	firstCommentOut := decodeResult[CommentWriteResult](t, firstComment)
+
+	replayComment := addComment("comment-key-1", "hello")
+	if replayComment.IsError {
+		t.Fatalf("ticket_comment replayed with the same key and content: want the cached result, got tool error: %+v", replayComment.Content)
+	}
+	replayCommentOut := decodeResult[CommentWriteResult](t, replayComment)
+	if replayCommentOut.ID != firstCommentOut.ID {
+		t.Errorf("ticket_comment replay id = %d, want the original %d (a new comment was created instead of returning the cached one)", replayCommentOut.ID, firstCommentOut.ID)
+	}
+
+	reusedComment := addComment("comment-key-1", "different body")
+	if !reusedComment.IsError {
+		t.Fatalf("ticket_comment with a reused key but different content: want idempotency_key_reused, got success")
+	}
+
+	createProject := func(key, title string) (*mcp.CallToolResult, domain.Project) {
+		res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_create", Arguments: map[string]any{
+			"key": "IDP", "title": title, "idempotency_key": key,
+		}})
+		if err != nil {
+			t.Fatalf("CallTool project_create: %v", err)
+		}
+		if res.IsError {
+			return res, domain.Project{}
+		}
+		return res, decodeResult[domain.Project](t, res)
+	}
+
+	firstProject, firstProjectOut := createProject("project-key-1", "Idempotent Project")
+	if firstProject.IsError {
+		t.Fatalf("project_create with a fresh idempotency_key: want success, got tool error: %+v", firstProject.Content)
+	}
+
+	replayProject, replayProjectOut := createProject("project-key-1", "Idempotent Project")
+	if replayProject.IsError {
+		t.Fatalf("project_create replayed with the same key and content: want the cached result, got tool error: %+v", replayProject.Content)
+	}
+	if replayProjectOut.Key != firstProjectOut.Key {
+		t.Errorf("project_create replay key = %q, want the original %q (a new project was created instead of returning the cached one)", replayProjectOut.Key, firstProjectOut.Key)
+	}
+
+	reusedProject, _ := createProject("project-key-1", "A Different Project")
+	if !reusedProject.IsError {
+		t.Fatalf("project_create with a reused key but different content: want idempotency_key_reused, got success")
+	}
+}
+
+// TestGapClosingToolsOverRealStreamableHTTP exercises the four tools
+// added after Phase 3's live dogfood step found real gaps in the
+// original tool surface: project_create, features_list,
+// ticket_relationships, and ticket_associations. None of these were in
+// the plan's original MCP tool table — they close usability gaps found
+// by actually using the tools, not regressions against a committed
+// scope.
+func TestGapClosingToolsOverRealStreamableHTTP(t *testing.T) {
+	backend, ticketRef := newTestBackend(t)
+	raw, _ := mustIssueAgentToken(t, backend, "codex")
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	// project_create
+	createRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_create", Arguments: map[string]any{
+		"key": "DEF", "title": "Second Project", "description": "Created live via project_create",
+	}})
+	if err != nil {
+		t.Fatalf("CallTool project_create: %v", err)
+	}
+	if createRes.IsError {
+		t.Fatalf("project_create returned a tool error: %+v", createRes.Content)
+	}
+	createdProject := decodeResult[domain.Project](t, createRes)
+	if createdProject.Key != "DEF" || createdProject.Title != "Second Project" {
+		t.Errorf("project_create result = %+v, want key=DEF title=%q", createdProject, "Second Project")
+	}
+
+	// features_list — ABC already has its system-created General
+	// feature (ADR 0001) from newTestBackend's CreateProject call.
+	featuresRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "features_list", Arguments: map[string]any{"project_key": "ABC"}})
+	if err != nil {
+		t.Fatalf("CallTool features_list: %v", err)
+	}
+	if featuresRes.IsError {
+		t.Fatalf("features_list returned a tool error: %+v", featuresRes.Content)
+	}
+	features := decodeResult[FeaturesListOutput](t, featuresRes)
+	if len(features.Features) < 1 {
+		t.Errorf("features_list result = %+v, want at least the project's General feature", features)
+	}
+
+	// ticket_relationships: create a second ticket, link it, then read
+	// the relationship back.
+	secondCreateRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_create", Arguments: map[string]any{
+		"project_key": "ABC", "type": "bug", "title": "A second ticket",
+	}})
+	if err != nil || secondCreateRes.IsError {
+		t.Fatalf("CallTool ticket_create (second ticket): err=%v isError=%v", err, secondCreateRes != nil && secondCreateRes.IsError)
+	}
+	secondTicket := decodeTicketResult(t, secondCreateRes)
+
+	linkRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_link", Arguments: map[string]any{
+		"ref": ticketRef, "type": "parent_of", "target": secondTicket.Ref,
+	}})
+	if err != nil || linkRes.IsError {
+		t.Fatalf("CallTool ticket_link (parent_of): err=%v isError=%v", err, linkRes != nil && linkRes.IsError)
+	}
+
+	relsRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_relationships", Arguments: map[string]any{"ref": ticketRef}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_relationships: %v", err)
+	}
+	if relsRes.IsError {
+		t.Fatalf("ticket_relationships returned a tool error: %+v", relsRes.Content)
+	}
+	rels := decodeResult[RelationshipsOutput](t, relsRes)
+	foundRel := false
+	for _, r := range rels.Relationships {
+		if r.Type == "parent_of" && r.Other == secondTicket.Ref {
+			foundRel = true
+		}
+	}
+	if !foundRel {
+		t.Errorf("ticket_relationships result = %+v, want a parent_of relationship to %s", rels, secondTicket.Ref)
+	}
+
+	// ticket_associations: associate the ticket with the project's
+	// General feature, then read the association back.
+	assocRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_link", Arguments: map[string]any{
+		"ref": ticketRef, "type": "associated_with", "target": features.Features[0].Ref,
+	}})
+	if err != nil || assocRes.IsError {
+		t.Fatalf("CallTool ticket_link (associated_with): err=%v isError=%v", err, assocRes != nil && assocRes.IsError)
+	}
+
+	assocListRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_associations", Arguments: map[string]any{"ref": ticketRef}})
+	if err != nil {
+		t.Fatalf("CallTool ticket_associations: %v", err)
+	}
+	if assocListRes.IsError {
+		t.Fatalf("ticket_associations returned a tool error: %+v", assocListRes.Content)
+	}
+	assocs := decodeResult[AssociationsOutput](t, assocListRes)
+	foundAssoc := false
+	for _, a := range assocs.Associated {
+		if a == features.Features[0].Ref {
+			foundAssoc = true
+		}
+	}
+	if !foundAssoc {
+		t.Errorf("ticket_associations result = %+v, want %s among them", assocs, features.Features[0].Ref)
+	}
+}
+
+func mustParseTicketRef(t *testing.T, ref string) domain.Reference {
+	t.Helper()
+	parsed, err := domain.Parse(ref)
+	if err != nil {
+		t.Fatalf("parse ref %q: %v", ref, err)
+	}
+	return parsed
 }
 
 // TestStdioBridgeReachesSameService is Phase 0 verification gate 7,

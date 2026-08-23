@@ -54,6 +54,26 @@ func GetAgentTokenByHash(ctx context.Context, q Querier, hash string) (AgentToke
 	return row, nil
 }
 
+// GetAgentTokenByID resolves one token row by its surrogate id, or
+// ErrNotFound — used by callers (cmd/tickets admin token revoke) that
+// need to distinguish "already revoked" from "no such token", since
+// RevokeAgentToken's own idempotent UPDATE can't tell those apart from
+// RowsAffected alone.
+func GetAgentTokenByID(ctx context.Context, q Querier, id int64) (AgentTokenRow, error) {
+	var row AgentTokenRow
+	err := q.QueryRowContext(ctx,
+		`SELECT id, actor_id, description, created_at, expires_at, revoked_at FROM agent_tokens WHERE id = ?`,
+		id,
+	).Scan(&row.ID, &row.ActorID, &row.Description, &row.CreatedAt, &row.ExpiresAt, &row.RevokedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AgentTokenRow{}, ErrNotFound
+	}
+	if err != nil {
+		return AgentTokenRow{}, fmt.Errorf("get agent token by id: %w", err)
+	}
+	return row, nil
+}
+
 // RevokeAgentToken sets revoked_at once, permanently — there is no
 // un-revoke (migration 0004's comment on agent_tokens.revoked_at). A
 // no-op, not an error, if the token is already revoked, so a repeated

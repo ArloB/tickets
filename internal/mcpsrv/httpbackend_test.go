@@ -136,6 +136,54 @@ func TestHTTPBackendMissingProjectKeyRejected(t *testing.T) {
 	}
 }
 
+// TestHTTPBackendListMethods proves ListProjects/ListTickets convert
+// apiclient's compact wire DTOs into this package's own compact
+// output types, and that ListTickets applies the same DefaultProject
+// fallback CreateTicket already has (ADR 0016) when the caller omits
+// a project key.
+func TestHTTPBackendListMethods(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path + "?" + r.URL.RawQuery
+		switch r.URL.Path {
+		case "/projects":
+			_ = json.NewEncoder(w).Encode(apiclient.ProjectsPage{
+				Projects:   []apiclient.ProjectCompact{{Key: "ABC", Title: "Example", Status: "active", Version: 1}},
+				NextCursor: "cursor-1",
+			})
+		case "/projects/ABC/tickets":
+			sev := "high"
+			_ = json.NewEncoder(w).Encode(apiclient.TicketsPage{
+				Tickets: []apiclient.TicketCompact{{Ref: "ABC-1", Title: "T", Type: "bug", Status: "backlog", Priority: "high", Severity: &sev}},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	backend := &HTTPBackend{Client: &apiclient.Client{BaseURL: srv.URL}, DefaultProject: "ABC"}
+
+	projects, err := backend.ListProjects(t.Context(), 10, "")
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(projects.Projects) != 1 || projects.Projects[0].Key != "ABC" || projects.NextCursor != "cursor-1" {
+		t.Errorf("ListProjects = %+v, want one project ABC with next_cursor=cursor-1", projects)
+	}
+
+	tickets, err := backend.ListTickets(t.Context(), "", "issue_register", 0, "")
+	if err != nil {
+		t.Fatalf("ListTickets with omitted project key: %v", err)
+	}
+	if gotPath != "/projects/ABC/tickets?view=issue_register" {
+		t.Errorf("requested path = %q, want DefaultProject filled in with view forwarded", gotPath)
+	}
+	if len(tickets.Tickets) != 1 || tickets.Tickets[0].Ref != "ABC-1" || tickets.Tickets[0].Severity == nil || *tickets.Tickets[0].Severity != "high" {
+		t.Errorf("ListTickets = %+v, want one bug ticket with severity=high", tickets)
+	}
+}
+
 // TestHTTPBackendConvertsClientErrorToServiceError proves an
 // apiclient.Error crossing HTTPBackend's boundary comes out as a
 // *service.Error — the shape tools.go's toolError type-switches on,

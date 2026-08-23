@@ -24,8 +24,83 @@ import (
 // logic" holds either way tools are registered.
 type Backend interface {
 	GetProject(ctx context.Context, key string) (domain.Project, error)
+	ListProjects(ctx context.Context, limit int, cursor string) (ProjectsListOutput, error)
+	CreateProject(ctx context.Context, in CreateProjectInput) (domain.Project, error)
 	CreateTicket(ctx context.Context, req CreateTicketInput) (domain.Ticket, error)
 	GetTicket(ctx context.Context, ref string) (domain.Ticket, error)
+	ListTickets(ctx context.Context, projectKey, view string, limit int, cursor string) (TicketsListOutput, error)
+	UpdateTicket(ctx context.Context, in UpdateTicketInput) (TicketWriteResult, error)
+	AddComment(ctx context.Context, ticketRef, body, idempotencyKey string) (CommentWriteResult, error)
+	AddRelationship(ctx context.Context, sourceRef, relType, targetRef string) error
+	AddAssociation(ctx context.Context, sourceRef, targetRef string) error
+	GetTicketRelationships(ctx context.Context, ref string) (RelationshipsOutput, error)
+	GetAssociations(ctx context.Context, ref string) (AssociationsOutput, error)
+
+	GetFeature(ctx context.Context, ref string) (domain.Feature, error)
+	ListFeatures(ctx context.Context, projectKey string, limit int, cursor string) (FeaturesListOutput, error)
+	CreateFeature(ctx context.Context, in CreateFeatureInput) (FeatureWriteResult, error)
+	UpdateFeature(ctx context.Context, in UpdateFeatureInput) (FeatureWriteResult, error)
+
+	GetDecision(ctx context.Context, ref string) (domain.Decision, error)
+	CreateDecision(ctx context.Context, in CreateDecisionInput) (DecisionWriteResult, error)
+	UpdateDecision(ctx context.Context, in UpdateDecisionInput) (DecisionWriteResult, error)
+}
+
+// CreateProjectInput mirrors CreateTicketInput's shape/reasoning.
+// IdempotencyKey is optional, same convention as CreateDecisionInput.
+type CreateProjectInput struct {
+	Key            string
+	Title          string
+	Description    string
+	IdempotencyKey string
+}
+
+// CreateDecisionInput mirrors CreateFeatureInput's shape/reasoning.
+// IdempotencyKey is optional — see AddComment's doc comment on
+// InProcessBackend for why the caller must supply and reuse it, rather
+// than the backend generating one per call.
+type CreateDecisionInput struct {
+	ProjectKey     string
+	Title          string
+	Context        string
+	Decision       string
+	Rationale      string
+	IdempotencyKey string
+}
+
+// UpdateDecisionInput mirrors UpdateFeatureInput: every field is
+// required (full-representation update, no partial merge — PATCH
+// /decisions/{ref} has the same contract as PATCH /features/{ref}).
+type UpdateDecisionInput struct {
+	Ref             string
+	Title           string
+	Context         string
+	Decision        string
+	Rationale       string
+	Status          string
+	ExpectedVersion int64
+}
+
+// CreateFeatureInput mirrors CreateTicketInput's shape/reasoning.
+type CreateFeatureInput struct {
+	ProjectKey  string
+	Title       string
+	Description string
+	Priority    string
+}
+
+// UpdateFeatureInput is feature_update's input — unlike
+// UpdateTicketInput, every field is required (no nil-means-unchanged
+// pointers): PATCH /features/{ref} is a full-representation update
+// with no partial-field route the way tickets have PATCH (status) vs.
+// PUT (fields), so there's nothing to merge and no unset-field case to
+// represent.
+type UpdateFeatureInput struct {
+	Ref             string
+	Title           string
+	Description     string
+	Priority        string
+	ExpectedVersion int64
 }
 
 // CreateTicketInput mirrors service.CreateTicketRequest but with string

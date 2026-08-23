@@ -100,11 +100,11 @@ func TestReadPathsSoftDeleteFiltering(t *testing.T) {
 			t.Fatalf("DeleteFeature: %v", err)
 		}
 
-		features, err := s.ListFeatures(ctx, "ABC")
+		result, err := s.ListFeatures(ctx, "ABC", 0, "")
 		if err != nil {
 			t.Fatalf("ListFeatures: %v", err)
 		}
-		for _, f := range features {
+		for _, f := range result.Features {
 			if f.Ref == feature.Ref {
 				t.Fatalf("ListFeatures still includes deleted feature %q", feature.Ref)
 			}

@@ -57,13 +57,13 @@ func TestListFeaturesOrdersByPriorityThenPosition(t *testing.T) {
 		t.Fatalf("create critical: %v", err)
 	}
 
-	features, err := s.ListFeatures(ctx, "ABC")
+	result, err := s.ListFeatures(ctx, "ABC", 0, "")
 	if err != nil {
 		t.Fatalf("ListFeatures: %v", err)
 	}
 	// critical (rank 0), then General (medium, rank 2), then low (rank 3).
 	var gotOrder []string
-	for _, f := range features {
+	for _, f := range result.Features {
 		gotOrder = append(gotOrder, f.Ref)
 	}
 	wantOrder := []string{critical.Ref, "ABC-F1", low.Ref}
@@ -75,6 +75,70 @@ func TestListFeaturesOrdersByPriorityThenPosition(t *testing.T) {
 			t.Errorf("ListFeatures order = %v, want %v", gotOrder, wantOrder)
 			break
 		}
+	}
+}
+
+// TestListFeaturesPaginates is ListFeatures' own pagination proof
+// (store/features_test.go covers the raw query; this covers the
+// service-level cursor encode/decode round trip a real caller uses).
+func TestListFeaturesPaginates(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "ABC")
+	// The auto-created General feature (ABC-F1) plus two more = 3 total.
+	if _, err := s.CreateFeature(ctx, CreateFeatureRequest{ProjectKey: "ABC", Title: "Second"}, testActor, testCorrelationID); err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	if _, err := s.CreateFeature(ctx, CreateFeatureRequest{ProjectKey: "ABC", Title: "Third"}, testActor, testCorrelationID); err != nil {
+		t.Fatalf("create third: %v", err)
+	}
+
+	page1, err := s.ListFeatures(ctx, "ABC", 2, "")
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if len(page1.Features) != 2 || page1.NextCursor == "" {
+		t.Fatalf("page1 = %+v, want 2 features and a non-empty cursor", page1)
+	}
+
+	page2, err := s.ListFeatures(ctx, "ABC", 2, page1.NextCursor)
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if len(page2.Features) != 1 || page2.NextCursor != "" {
+		t.Fatalf("page2 = %+v, want 1 feature and no next cursor (last page)", page2)
+	}
+}
+
+// TestListFeaturesRejectsCursorFromWrongView proves a cursor from a
+// different view (the ticket priority queue's 4-part shape) is
+// rejected as validation_failed rather than silently misread — the
+// two cursors are deliberately different lengths (§ store.
+// ListFeaturesForProjectPage's doc comment) specifically so this
+// fails loudly instead of returning a plausible-looking wrong page.
+func TestListFeaturesRejectsCursorFromWrongView(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "ABC")
+	if _, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "T1"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("create first ticket: %v", err)
+	}
+	if _, err := s.CreateTicket(ctx, CreateTicketRequest{ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "T2"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("create second ticket: %v", err)
+	}
+
+	ticketPage, err := s.ListTickets(ctx, "ABC", TicketListViewPriorityQueue, 1, "")
+	if err != nil {
+		t.Fatalf("ListTickets: %v", err)
+	}
+	if ticketPage.NextCursor == "" {
+		t.Fatalf("expected a non-empty priority-queue cursor to reuse against ListFeatures")
+	}
+
+	_, err = s.ListFeatures(ctx, "ABC", 10, ticketPage.NextCursor)
+	var svcErr *Error
+	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrValidationFailed || svcErr.Field != "cursor" {
+		t.Fatalf("ListFeatures with a ticket priority-queue cursor = %v, want validation_failed on field cursor", err)
 	}
 }
 

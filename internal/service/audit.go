@@ -28,6 +28,8 @@ const (
 	eventFeatureRestored     = "feature_restored"
 	eventAssociationAdded    = "association_added"
 	eventAssociationRemoved  = "association_removed"
+	eventDecisionCreated     = "decision_created"
+	eventDecisionUpdated     = "decision_updated"
 )
 
 // auditChanges marshals a small before/after or field-summary map into

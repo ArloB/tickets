@@ -19,12 +19,12 @@ type associationEndpoint struct {
 	Ref      string
 }
 
-// resolveAssociationEndpoint resolves a ticket or feature reference
-// for an association edge. domain.ValidAssociationKind also allows
-// decision/plan/document, but Phase 1 has no tables for those kinds
-// yet (they're Phase 5 work) — a syntactically valid reference to one
-// is a validation error here, not a 500, since the caller supplied
-// well-formed input the server just can't act on yet.
+// resolveAssociationEndpoint resolves a ticket, feature, or decision
+// reference for an association edge. domain.ValidAssociationKind also
+// allows plan/document, but those still have no tables (Phase 5 work)
+// — a syntactically valid reference to one is a validation error here,
+// not a 500, since the caller supplied well-formed input the server
+// just can't act on yet.
 func resolveAssociationEndpoint(ctx context.Context, q store.Querier, field string, ref domain.Reference) (associationEndpoint, error) {
 	switch ref.Kind {
 	case domain.KindTicket:
@@ -43,6 +43,15 @@ func resolveAssociationEndpoint(ctx context.Context, q store.Querier, field stri
 		}
 		if err != nil {
 			return associationEndpoint{}, fmt.Errorf("service: look up %s feature: %w", field, err)
+		}
+		return associationEndpoint{EntityID: row.ID, UUID: row.Entity.UUID, Ref: row.Entity.Ref}, nil
+	case domain.KindDecision:
+		row, err := store.GetDecisionByRef(ctx, q, ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return associationEndpoint{}, newNotFoundError("%s decision not found", field)
+		}
+		if err != nil {
+			return associationEndpoint{}, fmt.Errorf("service: look up %s decision: %w", field, err)
 		}
 		return associationEndpoint{EntityID: row.ID, UUID: row.Entity.UUID, Ref: row.Entity.Ref}, nil
 	default:

@@ -31,7 +31,7 @@ func TestAddAndListComments(t *testing.T) {
 		t.Fatalf("parse ref: %v", err)
 	}
 
-	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "First comment"}, testActor, testCorrelationID)
+	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "First comment"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestEditCommentArchivesPriorBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ref: %v", err)
 	}
-	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "v1"}, testActor, testCorrelationID)
+	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "v1"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestEditCommentVersionConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ref: %v", err)
 	}
-	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "v1"}, testActor, testCorrelationID)
+	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "v1"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestDeleteCommentTombstoneStaysVisible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ref: %v", err)
 	}
-	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "to be deleted"}, testActor, testCorrelationID)
+	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "to be deleted"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestDeleteCommentTwiceIsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ref: %v", err)
 	}
-	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "body"}, testActor, testCorrelationID)
+	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "body"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestEditDeletedCommentIsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ref: %v", err)
 	}
-	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "body"}, testActor, testCorrelationID)
+	c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "body"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}

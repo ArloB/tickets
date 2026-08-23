@@ -98,26 +98,67 @@ func (s *Service) GetFeature(ctx context.Context, ref domain.Reference) (domain.
 	return row.Entity, nil
 }
 
-// ListFeatures returns every non-deleted feature in a project, ordered
-// by priority then position. Unpaginated (store.ListFeaturesForProject's
-// doc explains why).
-func (s *Service) ListFeatures(ctx context.Context, projectKey string) ([]domain.Feature, error) {
+// decodeFeatureCursor decodes the 3-part (priority_rank, position, id)
+// cursor store.ListFeaturesForProjectPage's ORDER BY uses — see that
+// function's doc comment for why 3 components, not the ticket priority
+// queue's 4.
+func decodeFeatureCursor(cursor string) (rank, position, id int64, err error) {
+	parts, err := store.DecodeCursor(cursor, 3)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if rank, err = parseCursorInt(parts[0]); err != nil {
+		return 0, 0, 0, err
+	}
+	if position, err = parseCursorInt(parts[1]); err != nil {
+		return 0, 0, 0, err
+	}
+	if id, err = parseCursorInt(parts[2]); err != nil {
+		return 0, 0, 0, err
+	}
+	return rank, position, id, nil
+}
+
+// FeaturesListResult is ListFeatures' output.
+type FeaturesListResult struct {
+	Features   []domain.Feature
+	NextCursor string
+}
+
+// ListFeatures returns a cursor-paginated page of a project's
+// non-deleted features, ordered by priority then position (Phase 3
+// Step 5 — Phase 1 shipped this unpaginated, matching
+// store.ListFeaturesForProject, which still exists for internal
+// callers that want "all of them" without a cursor at all).
+func (s *Service) ListFeatures(ctx context.Context, projectKey string, limit int, cursor string) (FeaturesListResult, error) {
 	proj, err := store.GetProjectByKey(ctx, s.store.DB(), projectKey)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, newNotFoundError("project %q not found", projectKey)
+		return FeaturesListResult{}, newNotFoundError("project %q not found", projectKey)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("service: look up project: %w", err)
+		return FeaturesListResult{}, fmt.Errorf("service: look up project: %w", err)
 	}
-	rows, err := store.ListFeaturesForProject(ctx, s.store.DB(), proj.ID)
+	if limit <= 0 {
+		limit = defaultPageLimit
+	}
+	if limit > maxPageLimit {
+		limit = maxPageLimit
+	}
+
+	rank, position, id, derr := decodeFeatureCursor(cursor)
+	if derr != nil {
+		return FeaturesListResult{}, newValidationError("cursor", "invalid cursor")
+	}
+	page, err := store.ListFeaturesForProjectPage(ctx, s.store.DB(), proj.ID, limit, rank, position, id)
 	if err != nil {
-		return nil, fmt.Errorf("service: list features: %w", err)
+		return FeaturesListResult{}, fmt.Errorf("service: list features: %w", err)
 	}
-	out := make([]domain.Feature, len(rows))
-	for i, row := range rows {
+
+	out := make([]domain.Feature, len(page.Features))
+	for i, row := range page.Features {
 		out[i] = row.Entity
 	}
-	return out, nil
+	return FeaturesListResult{Features: out, NextCursor: page.NextCursor}, nil
 }
 
 // UpdateFeatureRequest is UpdateFeature's input.

@@ -75,7 +75,7 @@ func TestTicketLifecycleAuditTrail(t *testing.T) {
 	}
 
 	// comment, then edit it
-	comment, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "First pass"}, testActor, testCorrelationID)
+	comment, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "First pass"}, testActor, testCorrelationID, "", "")
 	if err != nil {
 		t.Fatalf("AddComment: %v", err)
 	}

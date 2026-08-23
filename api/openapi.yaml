@@ -429,9 +429,19 @@ paths:
           $ref: '#/components/responses/Error'
     get:
       operationId: listFeatures
-      summary: List every non-deleted feature in a project, ordered by priority then position
+      summary: List a project's non-deleted features, cursor-paginated, ordered by priority then position
       parameters:
         - $ref: '#/components/parameters/ProjectKey'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
       responses:
         '200':
           description: OK
@@ -439,6 +449,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FeaturesPage'
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
 
@@ -577,6 +589,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/TicketRef'
         - $ref: '#/components/parameters/CSRFToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -911,6 +924,185 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /decisions/{ref}/associations:
+    post:
+      operationId: addDecisionAssociation
+      summary: Add a loose associated_with link from this decision to a ticket or feature
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddAssociationRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDecisionAssociations
+      summary: List every entity associated with this decision
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssociationsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /decisions/{ref}/associations/{target}:
+    delete:
+      operationId: removeDecisionAssociation
+      summary: Remove an association, as supplied from either end
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - $ref: '#/components/parameters/TargetRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /projects/{key}/decisions:
+    post:
+      operationId: createDecision
+      summary: >
+        Create a decision in a project (product spec §5.8). Phase 3's
+        minimal slice: title/context/decision/rationale/status only,
+        no versioning or supersession — see the Decision schema.
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDecisionRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDecisions
+      summary: List a project's non-deleted decisions, cursor-paginated, ordered by creation time
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionsPage'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /decisions/{ref}:
+    get:
+      operationId: getDecision
+      summary: Get a decision by its public reference (e.g. ABC-D1)
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateDecision
+      summary: >
+        Replace a decision's title/context/decision/rationale/status
+        (optimistic concurrency) — a full-representation update, the
+        same contract as PATCH /features/{ref}.
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDecisionRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Version conflict — see error.current_version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
   /auth/login:
     post:
       operationId: login
@@ -1106,6 +1298,13 @@ components:
       schema:
         type: string
         example: ABC-F1
+    DecisionRef:
+      name: ref
+      in: path
+      required: true
+      schema:
+        type: string
+        example: ABC-D1
     IfMatch:
       name: If-Match
       in: header
@@ -1200,6 +1399,9 @@ components:
     Severity:
       type: string
       enum: [critical, high, medium, low]
+    DecisionStatus:
+      type: string
+      enum: [proposed, accepted, rejected, superseded]
 
     CreateProjectRequest:
       type: object
@@ -1411,6 +1613,72 @@ components:
         features:
           type: array
           items: { $ref: '#/components/schemas/FeatureCompact' }
+        next_cursor:
+          type: string
+          description: Opaque pagination cursor. Absent on the last page.
+
+    CreateDecisionRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        context: { type: string }
+        decision: { type: string }
+        rationale: { type: string }
+
+    UpdateDecisionRequest:
+      type: object
+      required: [title, status]
+      properties:
+        title: { type: string }
+        context: { type: string }
+        decision: { type: string }
+        rationale: { type: string }
+        status: { $ref: '#/components/schemas/DecisionStatus' }
+
+    Decision:
+      type: object
+      required: [ref, project, title, context, decision, rationale, status, version, created_at, updated_at]
+      additionalProperties: false
+      description: >
+        Phase 3's minimal decisions slice (product spec §5.8) — no
+        versioning/diff/supersession fields yet; those are Phase 5's
+        extension of this same record.
+      properties:
+        ref: { type: string, example: ABC-D1 }
+        project: { type: string }
+        title: { type: string }
+        context: { type: string }
+        decision: { type: string }
+        rationale: { type: string }
+        status: { $ref: '#/components/schemas/DecisionStatus' }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    DecisionCompact:
+      type: object
+      required: [ref, title, status, version, updated_at]
+      additionalProperties: false
+      description: >
+        GET /projects/{key}/decisions' list-item shape. No context/
+        decision/rationale — same compact/detail split as FeatureCompact.
+      properties:
+        ref: { type: string, example: ABC-D1 }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/DecisionStatus' }
+        version: { type: integer }
+        updated_at: { type: string, format: date-time }
+
+    DecisionsPage:
+      type: object
+      properties:
+        decisions:
+          type: array
+          items: { $ref: '#/components/schemas/DecisionCompact' }
+        next_cursor:
+          type: string
+          description: Opaque pagination cursor. Absent on the last page.
 
     ReorderRequest:
       type: object

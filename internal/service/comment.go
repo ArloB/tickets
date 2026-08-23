@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ArloB/tickets/internal/domain"
@@ -13,17 +14,23 @@ import (
 
 // AddCommentRequest is AddComment's input. Ref names the ticket the
 // comment attaches to — feature/project comments aren't wired up yet:
-// nothing in Phase 1's verification gates exercises them, and adding
-// that surface speculatively would be untested code, the same
-// reasoning CreateFeature's doc gives for skipping idempotency.
+// nothing exercises them, and adding that surface speculatively would
+// be untested code.
 type AddCommentRequest struct {
 	Ref  domain.Reference
 	Body string
 }
 
 // AddComment adds a comment to a ticket and scans its body for
-// references in the same transaction (ADR 0015).
-func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor domain.ActorRef, correlationID string) (domain.Comment, error) {
+// references in the same transaction (ADR 0015). idemKey/fingerprint
+// are Phase 3's addition: Phase 1's doc originally skipped this,
+// reasoning that nothing yet called AddComment over the network and
+// needed retry-safety — Phase 3's CLI/MCP callers are exactly that
+// caller, so the cached ref_key here is the comment's own id
+// (formatted as a decimal string, since comments have no public
+// reference the way tickets/projects do) rather than a domain
+// reference.
+func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (domain.Comment, error) {
 	body := strings.TrimSpace(req.Body)
 	if body == "" {
 		return domain.Comment{}, newValidationError("body", "body is required")
@@ -31,6 +38,17 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 
 	var commentID int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		if cached, found, err := checkIdempotency(ctx, tx, idemKey, actorID, fingerprint); err != nil {
+			return err
+		} else if found {
+			id, perr := strconv.ParseInt(cached, 10, 64)
+			if perr != nil {
+				return fmt.Errorf("service: parse cached comment id %q: %w", cached, perr)
+			}
+			commentID = id
+			return nil // no writes happened on this path; committing is a no-op
+		}
+
 		ticket, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
 			return newNotFoundError("ticket not found")
@@ -53,6 +71,9 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 		changes := auditChanges(map[string]any{"comment_id": commentID})
 		if err := store.InsertAuditEvent(ctx, tx, ticket.ID, actorID, eventCommentAdded, corrID, &cid, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
+		}
+		if err := recordIdempotency(ctx, tx, idemKey, actorID, fingerprint, strconv.FormatInt(commentID, 10), now); err != nil {
+			return err
 		}
 		return nil
 	})

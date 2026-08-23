@@ -7,6 +7,47 @@ import (
 	"testing"
 )
 
+// TestIdempotentCommentReplayOverHTTP is comments' counterpart to
+// TestIdempotentCreateReplayOverHTTP (server_test.go): Phase 3 wires
+// Idempotency-Key into AddComment for the first time (Phase 1's
+// comment.go originally skipped it — nothing called it over the
+// network yet), so this proves a retried POST with the same key and
+// body returns the same comment rather than creating a duplicate.
+func TestIdempotentCommentReplayOverHTTP(t *testing.T) {
+	ts := newTestServer(t)
+	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+
+	body := mustJSON(t, map[string]string{"body": "First pass"})
+	headers := map[string]string{"Idempotency-Key": "comment-retry-1"}
+
+	first, firstBody := ts.do(http.MethodPost, "/tickets/ABC-1/comments", headers, body)
+	second, secondBody := ts.do(http.MethodPost, "/tickets/ABC-1/comments", headers, body)
+	if first.StatusCode != http.StatusCreated || second.StatusCode != http.StatusCreated {
+		t.Fatalf("replay statuses = %d, %d, want both 201", first.StatusCode, second.StatusCode)
+	}
+	var c1, c2 map[string]any
+	_ = json.Unmarshal(firstBody, &c1)
+	_ = json.Unmarshal(secondBody, &c2)
+	if c1["id"] != c2["id"] {
+		t.Errorf("idempotent replay created two comments: %v vs %v", c1["id"], c2["id"])
+	}
+
+	listResp, listBody := ts.do(http.MethodGet, "/tickets/ABC-1/comments", nil, nil)
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("list comments status = %d, body=%s", listResp.StatusCode, listBody)
+	}
+	var page struct {
+		Comments []map[string]any `json:"comments"`
+	}
+	if err := json.Unmarshal(listBody, &page); err != nil {
+		t.Fatalf("unmarshal comments page: %v", err)
+	}
+	if len(page.Comments) != 1 {
+		t.Errorf("comments after replay = %d, want exactly 1", len(page.Comments))
+	}
+}
+
 // TestCommentLifecycleOverHTTP exercises Step 11's full route set —
 // create/list/get/edit/delete/history — each validated against
 // api/openapi.yaml. This is also the first place comment-author

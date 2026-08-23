@@ -50,6 +50,45 @@ type Ticket struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// ProjectCompact is one row of GET /projects — deliberately not
+// Project: a list response must never carry Description (product spec
+// §7.2/§11's "list and search omit full bodies"), so this is a
+// distinct, narrower wire shape, matching internal/httpapi/wire.go's
+// projectCompact field-for-field.
+type ProjectCompact struct {
+	Key       string    `json:"key"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"`
+	Version   int64     `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ProjectsPage is GET /projects' response envelope.
+type ProjectsPage struct {
+	Projects   []ProjectCompact `json:"projects"`
+	NextCursor string           `json:"next_cursor,omitempty"`
+}
+
+// TicketCompact is one row of GET /projects/{key}/tickets — see
+// ProjectCompact's doc comment for why this isn't just Ticket.
+// Matches internal/httpapi/wire.go's ticketCompact field-for-field.
+type TicketCompact struct {
+	Ref       string    `json:"ref"`
+	Title     string    `json:"title"`
+	Type      string    `json:"type"`
+	Status    string    `json:"status"`
+	Priority  string    `json:"priority"`
+	Severity  *string   `json:"severity,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Version   int64     `json:"version"`
+}
+
+// TicketsPage is GET /projects/{key}/tickets' response envelope.
+type TicketsPage struct {
+	Tickets    []TicketCompact `json:"tickets"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
 // CreateTicketRequest is POST /projects/{key}/tickets' request body.
 // Description/Priority have no omitempty: CreateTicket's caller always
 // sends both, even empty, matching the server's CreateTicketRequest

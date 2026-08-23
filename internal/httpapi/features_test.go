@@ -7,6 +7,47 @@ import (
 	"testing"
 )
 
+// TestListFeaturesPaginatesOverHTTP is Phase 3 Step 5's own exit
+// check: ?limit=/?cursor= on GET /projects/{key}/features behave the
+// same way the equivalent ticket-list query params already do.
+func TestListFeaturesPaginatesOverHTTP(t *testing.T) {
+	ts := newTestServer(t)
+	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
+	// General (ABC-F1) plus two more = 3 features total.
+	ts.do(http.MethodPost, "/projects/ABC/features", nil, mustJSON(t, map[string]string{"title": "Second"}))
+	ts.do(http.MethodPost, "/projects/ABC/features", nil, mustJSON(t, map[string]string{"title": "Third"}))
+
+	page1Resp, page1Body := ts.do(http.MethodGet, "/projects/ABC/features?limit=2", nil, nil)
+	if page1Resp.StatusCode != http.StatusOK {
+		t.Fatalf("page1 status = %d, body=%s", page1Resp.StatusCode, page1Body)
+	}
+	var page1 struct {
+		Features   []map[string]any `json:"features"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(page1Body, &page1); err != nil {
+		t.Fatalf("unmarshal page1: %v", err)
+	}
+	if len(page1.Features) != 2 || page1.NextCursor == "" {
+		t.Fatalf("page1 = %+v, want 2 features and a non-empty next_cursor", page1)
+	}
+
+	page2Resp, page2Body := ts.do(http.MethodGet, "/projects/ABC/features?limit=2&cursor="+page1.NextCursor, nil, nil)
+	if page2Resp.StatusCode != http.StatusOK {
+		t.Fatalf("page2 status = %d, body=%s", page2Resp.StatusCode, page2Body)
+	}
+	var page2 struct {
+		Features   []map[string]any `json:"features"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(page2Body, &page2); err != nil {
+		t.Fatalf("unmarshal page2: %v", err)
+	}
+	if len(page2.Features) != 1 || page2.NextCursor != "" {
+		t.Fatalf("page2 = %+v, want 1 feature and no next_cursor (last page)", page2)
+	}
+}
+
 // TestFeatureLifecycleOverHTTP is Step 10's route-wiring exit check:
 // every feature route (create/list/get/update/reorder/delete/restore)
 // exercised end to end, each response validated against

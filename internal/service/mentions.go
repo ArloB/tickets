@@ -71,6 +71,12 @@ func resolveMentionTarget(ctx context.Context, tx *sql.Tx, ref domain.Reference)
 			return 0, err
 		}
 		return row.ID, nil
+	case domain.KindDecision:
+		row, err := store.GetDecisionByRef(ctx, tx, ref)
+		if err != nil {
+			return 0, err
+		}
+		return row.ID, nil
 	default:
 		return 0, store.ErrNotFound
 	}
@@ -78,8 +84,8 @@ func resolveMentionTarget(ctx context.Context, tx *sql.Tx, ref domain.Reference)
 
 // mentionTargetRef resolves a mention edge's bare target entity id
 // back to a public reference, dispatching on the target's kind — a
-// mention target is always a ticket or feature in Phase 1, the only
-// two kinds resolveMentionTarget can ever have stored.
+// mention target is a ticket, feature, or (Phase 3) decision, the only
+// kinds resolveMentionTarget can ever have stored.
 func mentionTargetRef(ctx context.Context, q store.Querier, entityID int64) (domain.Reference, error) {
 	kind, err := store.GetEntityKindByID(ctx, q, entityID)
 	if err != nil {
@@ -90,6 +96,8 @@ func mentionTargetRef(ctx context.Context, q store.Querier, entityID int64) (dom
 		return store.GetTicketRefByEntityID(ctx, q, entityID)
 	case domain.KindFeature:
 		return store.GetFeatureRefByEntityID(ctx, q, entityID)
+	case domain.KindDecision:
+		return store.GetDecisionRefByEntityID(ctx, q, entityID)
 	default:
 		return domain.Reference{}, fmt.Errorf("service: unexpected mention target kind %q", kind)
 	}

@@ -97,6 +97,14 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodPost, "/api/v1/features/{ref}/associations", routeEditor, s.addAssociation},
 		{http.MethodGet, "/api/v1/features/{ref}/associations", routeViewer, s.listAssociations},
 		{http.MethodDelete, "/api/v1/features/{ref}/associations/{target}", routeEditor, s.removeAssociation},
+		{http.MethodPost, "/api/v1/decisions/{ref}/associations", routeEditor, s.addAssociation},
+		{http.MethodGet, "/api/v1/decisions/{ref}/associations", routeViewer, s.listAssociations},
+		{http.MethodDelete, "/api/v1/decisions/{ref}/associations/{target}", routeEditor, s.removeAssociation},
+
+		{http.MethodPost, "/api/v1/projects/{key}/decisions", routeEditor, s.createDecision},
+		{http.MethodGet, "/api/v1/projects/{key}/decisions", routeViewer, s.listDecisions},
+		{http.MethodGet, "/api/v1/decisions/{ref}", routeViewer, s.getDecision},
+		{http.MethodPatch, "/api/v1/decisions/{ref}", routeEditor, s.updateDecision},
 
 		{http.MethodPost, "/api/v1/agents", routeAdmin, s.createAgent},
 		{http.MethodGet, "/api/v1/agents", routeAdmin, s.listAgents},

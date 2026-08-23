@@ -235,7 +235,67 @@ func toFeatureCompact(f domain.Feature) featureCompact {
 }
 
 type featuresPage struct {
-	Features []featureCompact `json:"features"`
+	Features   []featureCompact `json:"features"`
+	NextCursor string           `json:"next_cursor,omitempty"`
+}
+
+// decisionDetail is every decision-returning endpoint's response
+// shape — the Phase 3 minimal slice (title/context/decision/
+// rationale/status only, product spec §5.8). No versioning/diff
+// fields: those are Phase 5's extension of this same record.
+type decisionDetail struct {
+	Ref       string    `json:"ref"`
+	Project   string    `json:"project"`
+	Title     string    `json:"title"`
+	Context   string    `json:"context"`
+	Decision  string    `json:"decision"`
+	Rationale string    `json:"rationale"`
+	Status    string    `json:"status"`
+	Version   int64     `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func toDecisionDetail(d domain.Decision) decisionDetail {
+	return decisionDetail{
+		Ref:       d.Ref,
+		Project:   d.ProjectKey,
+		Title:     d.Title,
+		Context:   d.Context,
+		Decision:  d.Decision,
+		Rationale: d.Rationale,
+		Status:    string(d.Status),
+		Version:   d.Version,
+		CreatedAt: d.CreatedAt,
+		UpdatedAt: d.UpdatedAt,
+	}
+}
+
+// decisionCompact is GET /projects/{key}/decisions' list-item shape —
+// the same compact/detail split featureCompact/ticketCompact use. No
+// context/decision/rationale: a decision list is meant to be skimmed,
+// not read in full.
+type decisionCompact struct {
+	Ref       string    `json:"ref"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"`
+	Version   int64     `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func toDecisionCompact(d domain.Decision) decisionCompact {
+	return decisionCompact{
+		Ref:       d.Ref,
+		Title:     d.Title,
+		Status:    string(d.Status),
+		Version:   d.Version,
+		UpdatedAt: d.UpdatedAt,
+	}
+}
+
+type decisionsPage struct {
+	Decisions  []decisionCompact `json:"decisions"`
+	NextCursor string            `json:"next_cursor,omitempty"`
 }
 
 // commentDetail is every comment-returning endpoint's response shape.
