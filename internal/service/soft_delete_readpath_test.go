@@ -73,7 +73,7 @@ func TestReadPathsSoftDeleteFiltering(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetProjectByKey: %v", err)
 		}
-		page, err := store.PriorityQueue(ctx, s.store.DB(), proj.ID, 100, 0, 0, "", 0)
+		page, err := store.PriorityQueue(ctx, s.store.DB(), proj.ID, store.TicketFilters{}, 100, 0, 0, "", 0)
 		if err != nil {
 			t.Fatalf("PriorityQueue: %v", err)
 		}

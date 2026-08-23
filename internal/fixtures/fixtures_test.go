@@ -153,7 +153,7 @@ func TestGenerateProducesQueryableData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProjectByKey(%s): %v", sum.SampleProjectKey, err)
 	}
-	page, err := store.PriorityQueue(ctx, st.DB(), proj.ID, Small.TicketsPerProject+1, 0, 0, "", 0)
+	page, err := store.PriorityQueue(ctx, st.DB(), proj.ID, store.TicketFilters{}, Small.TicketsPerProject+1, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("PriorityQueue: %v", err)
 	}

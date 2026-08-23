@@ -82,7 +82,7 @@ func TestPriorityQueueOrdersByRankNotText(t *testing.T) {
 		{priority: "high"},
 	})
 
-	page, err := PriorityQueue(context.Background(), db, projID, 10, 0, 0, "", 0)
+	page, err := PriorityQueue(context.Background(), db, projID, TicketFilters{}, 10, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("PriorityQueue: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestPriorityQueueOrdersWithinGroupByPositionThenAge(t *testing.T) {
 		t.Fatalf("set position B: %v", err)
 	}
 
-	page, err := PriorityQueue(ctx, db, projID, 10, 0, 0, "", 0)
+	page, err := PriorityQueue(ctx, db, projID, TicketFilters{}, 10, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("PriorityQueue: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestPriorityQueuePagination(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	page1, err := PriorityQueue(ctx, db, projID, 2, 0, 0, "", 0)
+	page1, err := PriorityQueue(ctx, db, projID, TicketFilters{}, 2, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("PriorityQueue page 1: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestPriorityQueuePagination(t *testing.T) {
 		t.Fatalf("parse afterID: %v", err)
 	}
 
-	page2, err := PriorityQueue(ctx, db, projID, 2, afterRank, afterPosition, parts[2], afterID)
+	page2, err := PriorityQueue(ctx, db, projID, TicketFilters{}, 2, afterRank, afterPosition, parts[2], afterID)
 	if err != nil {
 		t.Fatalf("PriorityQueue page 2: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestIssueRegisterOrdersBySeverityThenPriority(t *testing.T) {
 		{priority: "critical", ticketType: "task"}, // not an issue type; must be excluded regardless of priority
 	})
 
-	page, err := IssueRegister(context.Background(), db, projID, 10, 0, 0, 0, "", 0)
+	page, err := IssueRegister(context.Background(), db, projID, TicketFilters{}, 10, 0, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("IssueRegister: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestIssueRegisterOrdersWithinGroupByPositionThenAge(t *testing.T) {
 		t.Fatalf("set position B: %v", err)
 	}
 
-	page, err := IssueRegister(ctx, db, projID, 10, 0, 0, 0, "", 0)
+	page, err := IssueRegister(ctx, db, projID, TicketFilters{}, 10, 0, 0, 0, "", 0)
 	if err != nil {
 		t.Fatalf("IssueRegister: %v", err)
 	}

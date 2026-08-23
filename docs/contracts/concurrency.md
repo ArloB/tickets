@@ -54,6 +54,20 @@ deliberate decision made while building Step 4b, not an oversight:
   caller has no way to know each dependent's version in advance) and
   still get their version bumped, unconditionally. See ADR 0013.
 
+**Phase 4 addendum — a fifth exception.** External links
+(`external_links`, product spec §5.11's "named external links" half —
+see `internal/service/link.go`) have no version column and are not
+version-guarded, the same shape as `ticket_relationships`/
+`entity_associations` above: add and delete only, no in-place edit. A
+link's title/URL cannot be changed once created — delete and re-add to
+change either. This was a deliberate choice over giving links their
+own independent version column (the way comments have): a link is
+meant to be a lightweight annotation, not a first-class versioned
+record like a decision, and a third independent version-token type
+would directly complicate a client's conflict-handling logic, which
+already has to keep a ticket's version and a comment's version as two
+separate values per the exception above.
+
 ## Idempotency keys
 
 - Any mutating request may carry `Idempotency-Key: <opaque client string>`.

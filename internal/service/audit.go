@@ -30,6 +30,8 @@ const (
 	eventAssociationRemoved  = "association_removed"
 	eventDecisionCreated     = "decision_created"
 	eventDecisionUpdated     = "decision_updated"
+	eventExternalLinkAdded   = "external_link_added"
+	eventExternalLinkRemoved = "external_link_removed"
 )
 
 // auditChanges marshals a small before/after or field-summary map into

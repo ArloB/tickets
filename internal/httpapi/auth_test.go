@@ -3,10 +3,12 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/ArloB/tickets/internal/auth"
@@ -332,11 +334,14 @@ func TestMeAnonymousAndAuthenticated(t *testing.T) {
 	}
 	var anon meResponseForTest
 	_ = json.Unmarshal(body, &anon)
-	if anon.Permission != "viewer" || anon.Actor != "" {
-		t.Errorf("anonymous /auth/me = %+v, want permission=viewer actor=\"\"", anon)
+	if anon.Permission != "viewer" || anon.Actor != "" || anon.CSRFToken != "" {
+		t.Errorf("anonymous /auth/me = %+v, want permission=viewer actor=\"\" csrf_token=\"\"", anon)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("/auth/me Cache-Control = %q, want no-store", cc)
 	}
 
-	sessionID, _ := ts.login("alice", "correct-password")
+	sessionID, csrfToken := ts.login("alice", "correct-password")
 	resp, body = ts.doNoAuth(http.MethodGet, "/auth/me", map[string]string{"Cookie": sessionCookieName + "=" + sessionID}, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("authenticated GET /auth/me: status = %d, body=%s", resp.StatusCode, body)
@@ -346,12 +351,138 @@ func TestMeAnonymousAndAuthenticated(t *testing.T) {
 	if authed.Permission != "editor" || authed.Actor != "human:alice" || !authed.IsAdmin {
 		t.Errorf("authenticated /auth/me = %+v, want permission=editor actor=human:alice is_admin=true", authed)
 	}
+	if authed.CSRFToken != csrfToken {
+		t.Errorf("authenticated /auth/me csrf_token = %q, want %q (the token login returned, so a page reload can recover it)", authed.CSRFToken, csrfToken)
+	}
+}
+
+// TestMeCSRFTokenAbsentForBearer confirms /auth/me never echoes a CSRF
+// token for a bearer-authenticated caller — CSRF only protects against
+// a browser silently attaching cookies, and a bearer token in an
+// Authorization header was never at risk of that, so there is nothing
+// for the token to protect there (mirrors requireEditor's own
+// bearer exemption, auth_middleware.go).
+func TestMeCSRFTokenAbsentForBearer(t *testing.T) {
+	ts, svc, _ := newAuthTestServer(t, false)
+	mustCreateAdmin(t, svc, "alice", "correct-password")
+	sessionID, csrfToken := ts.login("alice", "correct-password")
+	authHeaders := map[string]string{"Cookie": sessionCookieName + "=" + sessionID, "X-CSRF-Token": csrfToken}
+
+	createResp, createBody := ts.doNoAuth(http.MethodPost, "/agents", authHeaders,
+		mustJSON(t, map[string]string{"name": "codex"}))
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create agent: status = %d, body=%s", createResp.StatusCode, createBody)
+	}
+	tokenResp, tokenBody := ts.doNoAuth(http.MethodPost, "/agents/codex/tokens", authHeaders, mustJSON(t, map[string]string{"description": "ci"}))
+	if tokenResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create agent token: status = %d, body=%s", tokenResp.StatusCode, tokenBody)
+	}
+	var created struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(tokenBody, &created)
+
+	resp, body := ts.doNoAuth(http.MethodGet, "/auth/me", map[string]string{"Authorization": "Bearer " + created.Token}, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("bearer GET /auth/me: status = %d, body=%s", resp.StatusCode, body)
+	}
+	var bearer meResponseForTest
+	_ = json.Unmarshal(body, &bearer)
+	if bearer.CSRFToken != "" {
+		t.Errorf("bearer /auth/me csrf_token = %q, want empty", bearer.CSRFToken)
+	}
 }
 
 type meResponseForTest struct {
 	Actor      string `json:"actor"`
 	Permission string `json:"permission"`
 	IsAdmin    bool   `json:"is_admin"`
+	CSRFToken  string `json:"csrf_token"`
+}
+
+// TestSetupCreatesFirstAdminThenRefusesSecond exercises POST
+// /api/v1/setup end to end: unauthenticated first-run creation
+// succeeds, a subsequent call (simulating a second browser tab, or a
+// retry) fails with already_exists rather than creating a second
+// admin, and the newly created account can immediately log in.
+func TestSetupCreatesFirstAdminThenRefusesSecond(t *testing.T) {
+	ts, _, _ := newAuthTestServer(t, false)
+
+	resp, body := ts.doNoAuth(http.MethodPost, "/setup", nil, mustJSON(t, map[string]string{
+		"username": "alice", "password": "correct-password",
+	}))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first setup: status = %d, body=%s", resp.StatusCode, body)
+	}
+	var created struct {
+		Actor string `json:"actor"`
+	}
+	_ = json.Unmarshal(body, &created)
+	if created.Actor != "human:alice" {
+		t.Errorf("setup response actor = %q, want human:alice", created.Actor)
+	}
+
+	sessionID, csrfToken := ts.login("alice", "correct-password")
+	if sessionID == "" || csrfToken == "" {
+		t.Fatalf("login with the account setup just created: got empty session/csrf")
+	}
+
+	second, secondBody := ts.doNoAuth(http.MethodPost, "/setup", nil, mustJSON(t, map[string]string{
+		"username": "mallory", "password": "another-password",
+	}))
+	if second.StatusCode != http.StatusConflict {
+		t.Fatalf("second setup: status = %d, body=%s, want 409 already_exists", second.StatusCode, secondBody)
+	}
+
+	// The rejected second call must not have created "mallory" as a
+	// side effect before failing — confirmed by a real login attempt
+	// through the HTTP endpoint, not by inspecting the store directly,
+	// since an unauthenticated caller has no other way to observe this.
+	malloryLogin, _ := ts.doNoAuth(http.MethodPost, "/auth/login", nil, mustJSON(t, map[string]string{
+		"username": "mallory", "password": "another-password",
+	}))
+	if malloryLogin.StatusCode != http.StatusUnauthorized {
+		t.Errorf("login as mallory after rejected second setup: status = %d, want 401 (mallory should not exist)", malloryLogin.StatusCode)
+	}
+}
+
+// TestSetupConcurrentRequestsCreateOnlyOneAdmin exercises the race
+// service.CreateAdminAccount's doc comment calls out: two concurrent
+// POST /api/v1/setup calls (unlike a single local `tickets setup`
+// invocation) really can race, and the transaction-scoped recheck must
+// still let only one succeed.
+func TestSetupConcurrentRequestsCreateOnlyOneAdmin(t *testing.T) {
+	ts, _, _ := newAuthTestServer(t, false)
+
+	const n = 8
+	statuses := make([]int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			resp, _ := ts.doNoAuth(http.MethodPost, "/setup", nil, mustJSON(t, map[string]string{
+				"username": fmt.Sprintf("racer-%d", i), "password": "correct-password",
+			}))
+			statuses[i] = resp.StatusCode
+		}(i)
+	}
+	wg.Wait()
+
+	created, conflicted := 0, 0
+	for _, s := range statuses {
+		switch s {
+		case http.StatusCreated:
+			created++
+		case http.StatusConflict:
+			conflicted++
+		default:
+			t.Errorf("concurrent setup call returned status %d, want 201 or 409", s)
+		}
+	}
+	if created != 1 {
+		t.Errorf("concurrent setup calls: %d succeeded, want exactly 1 (got %d 409s)", created, conflicted)
+	}
 }
 
 func TestAdminEndpointsFullLifecycle(t *testing.T) {

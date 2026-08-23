@@ -78,3 +78,25 @@ externally.
   in without a per-project token dimension" — plan.md §7.4, left open
   when this ADR was written) is resolved separately as ADR 0016 — a
   client-side `--project` default, not a token/authorization concept.
+- **Two small Phase 4 additions, both unauthenticated like login and
+  for the same reason (obtaining credentials can't itself require
+  credentials):**
+  - `POST /api/v1/setup` creates the first admin account over HTTP, so
+    product spec §6.5's "first-run setup" web view doesn't need
+    `tickets setup` on a terminal. It is a thin wrapper around
+    `service.CreateAdminAccount`, which already refused a second call
+    once any human account exists; that existence check was
+    strengthened to re-run inside the write transaction (not just
+    before it) specifically because this endpoint makes the check
+    reachable by two genuinely concurrent requests in a way a single
+    local CLI invocation never could — SQLite's `_txlock=immediate`
+    (`internal/store/store.go`) serializes the two transactions, so the
+    second one's in-transaction recheck reliably sees the first's
+    committed row and fails clean with `already_exists` rather than
+    racing it.
+  - `GET /auth/me` now echoes `csrf_token` for a session-authenticated
+    caller (never bearer or anonymous), sent with `Cache-Control:
+    no-store`. Without it, a browser tab that reloads mid-session — a
+    live session cookie, no in-memory CSRF token left — had no way to
+    recover the token `requireEditor` needs on the next mutating
+    request short of forcing a fresh login.

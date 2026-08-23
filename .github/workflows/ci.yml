@@ -51,5 +51,11 @@ jobs:
       - name: openapi lint
         run: task openapi
 
+      - name: web lint
+        run: task web:lint
+
+      - name: web test
+        run: task web:test
+
       - name: build
         run: task build

@@ -71,6 +71,63 @@ func ListMentionTargetsFromSource(ctx context.Context, q Querier, sourceEntityID
 	return out, nil
 }
 
+// MentionSourceRow is one reverse-mention edge: an entity (and,
+// optionally, one specific comment on it) that currently mentions some
+// target. SourceCommentID is 0 for "the source entity's own body", a
+// real comments.id otherwise — the same sentinel derived_mentions
+// itself uses, so a caller can tell "mentioned in ABC-124's
+// description" from "mentioned in a comment on ABC-124" and link to
+// the right place.
+type MentionSourceRow struct {
+	SourceEntityID  int64
+	SourceCommentID int64
+}
+
+// ListMentionSourcesToTarget is ListMentionTargetsFromSource's reverse
+// direction: every (source entity, source comment) that currently
+// mentions targetEntityID — targetEntityID's backlinks (product spec
+// §6.1: "View backlinks generated from Markdown references").
+// idx_derived_mentions_target covers the WHERE clause below.
+//
+// Filters out two things the forward query never has to consider:
+// sources whose *entity* is soft-deleted (same reasoning as
+// ListMentionTargetsFromSource's target filter), and — new here,
+// since only a reverse query can originate from a comment at all —
+// sources whose *comment* is soft-deleted. A tombstoned comment
+// (§5.10: soft-deleted with a visible tombstone) keeps its row, so a
+// naive join would still surface its mention as a live backlink; the
+// tombstone is visible in the comment's own history, not as a
+// still-active reference to whatever it once mentioned.
+func ListMentionSourcesToTarget(ctx context.Context, q Querier, targetEntityID int64) ([]MentionSourceRow, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT dm.source_entity_id, dm.source_comment_id
+		 FROM derived_mentions dm
+		 JOIN entities e ON e.id = dm.source_entity_id
+		 LEFT JOIN comments c ON c.id = dm.source_comment_id
+		 WHERE dm.target_entity_id = ? AND e.deleted_at IS NULL
+		   AND (dm.source_comment_id = 0 OR c.deleted_at IS NULL)
+		 ORDER BY dm.source_entity_id ASC, dm.source_comment_id ASC`,
+		targetEntityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list mention sources: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []MentionSourceRow
+	for rows.Next() {
+		var row MentionSourceRow
+		if err := rows.Scan(&row.SourceEntityID, &row.SourceCommentID); err != nil {
+			return nil, fmt.Errorf("scan mention source: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GetEntityKindByID resolves an entity's kind from its internal
 // surrogate id, or ErrNotFound if it's missing or soft-deleted. Used
 // to dispatch a mention target (or any other bare entity id) to the

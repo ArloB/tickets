@@ -130,6 +130,44 @@ func (s *Service) GetCommentMentions(ctx context.Context, commentID int64) ([]do
 	return s.resolveMentionRefs(ctx, row.EntityID, commentID)
 }
 
+// Backlink is one reverse-mention edge to the entity GetBacklinks was
+// asked about: an entity (and, when the mention came from a comment
+// rather than the entity's own body, that comment's id) that
+// currently mentions it. SourceCommentID is 0 for "the source
+// entity's own body" — mirroring store.MentionSourceRow's sentinel —
+// so a caller can tell "mentioned in ABC-124's description" from
+// "mentioned in a comment on ABC-124."
+type Backlink struct {
+	SourceRef       domain.Reference
+	SourceCommentID int64
+}
+
+// GetBacklinks returns every entity/comment currently mentioning ref,
+// resolved to public references (product spec §6.1: "View backlinks
+// generated from Markdown references"). Read-only — derived mentions
+// are already computed automatically on every body/comment write
+// (rescanMentions above); this only exposes the already-computed
+// reverse edge for reading, no new write surface.
+func (s *Service) GetBacklinks(ctx context.Context, ref domain.Reference) ([]Backlink, error) {
+	endpoint, err := resolveAssociationEndpoint(ctx, s.store.DB(), "ref", ref)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := store.ListMentionSourcesToTarget(ctx, s.store.DB(), endpoint.EntityID)
+	if err != nil {
+		return nil, fmt.Errorf("service: list mention sources: %w", err)
+	}
+	out := make([]Backlink, len(rows))
+	for i, row := range rows {
+		srcRef, err := mentionTargetRef(ctx, s.store.DB(), row.SourceEntityID)
+		if err != nil {
+			return nil, fmt.Errorf("service: resolve mention source: %w", err)
+		}
+		out[i] = Backlink{SourceRef: srcRef, SourceCommentID: row.SourceCommentID}
+	}
+	return out, nil
+}
+
 func (s *Service) resolveMentionRefs(ctx context.Context, sourceEntityID, sourceCommentID int64) ([]domain.Reference, error) {
 	targetIDs, err := store.ListMentionTargetsFromSource(ctx, s.store.DB(), sourceEntityID, sourceCommentID)
 	if err != nil {

@@ -130,7 +130,13 @@ paths:
       summary: >
         List a project's tickets (product spec §5.6). Priority-queue
         order by default; ?view=issue_register switches to the
-        severity-ordered bug/security-only view (§5.5).
+        severity-ordered bug/security-only view (§5.5). The backlog
+        view (§6.1) is this same default ordering with filters layered
+        on — there is no separate ?view= value for it. Every filter
+        parameter is optional and AND-composed with the others
+        (docs/contracts/list-filters.md); none encode into ?cursor=, so
+        a caller paginating a filtered listing must resupply the same
+        filters on every page.
       parameters:
         - $ref: '#/components/parameters/ProjectKey'
         - name: view
@@ -153,6 +159,34 @@ paths:
           description: Comma-separated list of fields to narrow each list item to (docs/contracts/representations.md).
           schema:
             type: string
+        - $ref: '#/components/parameters/FilterStatus'
+        - name: type
+          in: query
+          description: Narrow to one ticket type. AND-composed; absent = any.
+          schema:
+            type: string
+            enum: [task, bug, security, chore]
+        - name: severity
+          in: query
+          description: Narrow to one severity. AND-composed; absent = any.
+          schema:
+            type: string
+            enum: [critical, high, medium, low]
+        - $ref: '#/components/parameters/FilterPriority'
+        - name: feature_ref
+          in: query
+          description: Narrow to tickets in one feature, e.g. "ABC-F1". AND-composed; absent = any.
+          schema:
+            type: string
+        - name: assignee
+          in: query
+          description: >
+            Narrow to one assignee, as an actor reference wire form
+            (e.g. "human:alice"). AND-composed; absent = any.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/FilterCreator'
+        - $ref: '#/components/parameters/FilterUpdatedSince'
       responses:
         '200':
           description: OK
@@ -429,7 +463,11 @@ paths:
           $ref: '#/components/responses/Error'
     get:
       operationId: listFeatures
-      summary: List a project's non-deleted features, cursor-paginated, ordered by priority then position
+      summary: >
+        List a project's non-deleted features, cursor-paginated,
+        ordered by priority then position. Every filter parameter is
+        optional and AND-composed with the others
+        (docs/contracts/list-filters.md); none encode into ?cursor=.
       parameters:
         - $ref: '#/components/parameters/ProjectKey'
         - name: limit
@@ -442,6 +480,10 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: '#/components/parameters/FilterStatus'
+        - $ref: '#/components/parameters/FilterPriority'
+        - $ref: '#/components/parameters/FilterCreator'
+        - $ref: '#/components/parameters/FilterUpdatedSince'
       responses:
         '200':
           description: OK
@@ -993,6 +1035,246 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /tickets/{ref}/links:
+    post:
+      operationId: addTicketLink
+      summary: Add a named external link to a ticket (product spec §5.11)
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddLinkRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLink'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listTicketLinks
+      summary: List a ticket's external links
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/links/{id}:
+    delete:
+      operationId: removeTicketLink
+      summary: Remove a ticket's external link
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/LinkID'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}/links:
+    post:
+      operationId: addFeatureLink
+      summary: Add a named external link to a feature (product spec §5.11)
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddLinkRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLink'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listFeatureLinks
+      summary: List a feature's external links
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}/links/{id}:
+    delete:
+      operationId: removeFeatureLink
+      summary: Remove a feature's external link
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/LinkID'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /decisions/{ref}/links:
+    post:
+      operationId: addDecisionLink
+      summary: Add a named external link to a decision (product spec §5.11)
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddLinkRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLink'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDecisionLinks
+      summary: List a decision's external links
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /decisions/{ref}/links/{id}:
+    delete:
+      operationId: removeDecisionLink
+      summary: Remove a decision's external link
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - $ref: '#/components/parameters/LinkID'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/backlinks:
+    get:
+      operationId: listTicketBacklinks
+      summary: >
+        List entities/comments that mention this ticket (product spec
+        §6.1). Read-only — derived mentions are computed automatically
+        whenever a body or comment is written.
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacklinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}/backlinks:
+    get:
+      operationId: listFeatureBacklinks
+      summary: List entities/comments that mention this feature (product spec §6.1)
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacklinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /decisions/{ref}/backlinks:
+    get:
+      operationId: listDecisionBacklinks
+      summary: List entities/comments that mention this decision (product spec §6.1)
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacklinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /projects/{key}/decisions:
     post:
       operationId: createDecision
@@ -1098,6 +1380,40 @@ paths:
           $ref: '#/components/responses/Error'
         '409':
           description: Version conflict — see error.current_version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /setup:
+    post:
+      operationId: setup
+      summary: >
+        Create the first admin account over HTTP (product spec §6.5's
+        first-run setup web view). Unauthenticated, like login — succeeds
+        at most once per installation; a second call fails with
+        already_exists once any human account exists (see
+        service.CreateAdminAccount, which this thinly wraps and which
+        owns every safety property here, including race-safety against
+        concurrent calls to this same endpoint).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: A human account already exists; first-run setup only runs once.
           content:
             application/json:
               schema:
@@ -1340,6 +1656,39 @@ components:
       required: true
       schema:
         type: string
+    FilterStatus:
+      name: status
+      in: query
+      description: >
+        Narrow to one workflow status (docs/contracts/list-filters.md).
+        AND-composed with every other filter present; absent = any.
+      schema:
+        type: string
+        enum: [backlog, ready, in_progress, blocked, review, done, cancelled]
+    FilterPriority:
+      name: priority
+      in: query
+      description: Narrow to one priority. AND-composed; absent = any.
+      schema:
+        type: string
+        enum: [critical, high, medium, low]
+    FilterCreator:
+      name: creator
+      in: query
+      description: >
+        Narrow to one creator, as an actor reference wire form (e.g.
+        "human:alice"). AND-composed; absent = any.
+      schema:
+        type: string
+    FilterUpdatedSince:
+      name: updated_since
+      in: query
+      description: >
+        Narrow to records updated at or after this RFC3339 timestamp.
+        AND-composed; absent = any.
+      schema:
+        type: string
+        format: date-time
     CommentID:
       name: id
       in: path
@@ -1359,6 +1708,12 @@ components:
       description: A ticket or feature reference (e.g. ABC-123 or ABC-F1).
       schema:
         type: string
+    LinkID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
 
   securitySchemes:
     cookieAuth:
@@ -1785,6 +2140,58 @@ components:
           type: array
           items: { type: string }
 
+    AddLinkRequest:
+      type: object
+      required: [title, url]
+      properties:
+        title: { type: string }
+        url:
+          type: string
+          description: >
+            Must use http, https, or mailto — an allow-listed scheme,
+            checked server-side (internal/domain.ValidateLinkURL),
+            since a stored javascript:/data: URL rendered as a
+            clickable link would be a stored-XSS vector.
+          example: https://example.com/design-doc
+
+    ExternalLink:
+      type: object
+      required: [id, title, url]
+      additionalProperties: false
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        url: { type: string }
+
+    ExternalLinksPage:
+      type: object
+      properties:
+        links:
+          type: array
+          items: { $ref: '#/components/schemas/ExternalLink' }
+
+    Backlink:
+      type: object
+      required: [ref]
+      additionalProperties: false
+      properties:
+        ref:
+          type: string
+          description: The reference of the entity that mentions this record.
+          example: ABC-124
+        comment_id:
+          type: integer
+          description: >
+            Present only when the mention came from a comment on ref
+            rather than ref's own Markdown body.
+
+    BacklinksPage:
+      type: object
+      properties:
+        backlinks:
+          type: array
+          items: { $ref: '#/components/schemas/Backlink' }
+
     DeleteResponse:
       type: object
       required: [version]
@@ -1838,6 +2245,28 @@ components:
           enum: [viewer, editor]
         is_admin:
           type: boolean
+        csrf_token:
+          type: string
+          description: >
+            Present only for a session-authenticated caller (never for
+            bearer or anonymous), so a page reload with a still-valid
+            session cookie can recover the token requireEditor's
+            X-CSRF-Token check needs without forcing a fresh login.
+            This response is sent with Cache-Control: no-store.
+
+    SetupRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+
+    SetupResponse:
+      type: object
+      required: [actor]
+      additionalProperties: false
+      properties:
+        actor: { type: string, example: 'human:alice' }
 
     CreateAgentRequest:
       type: object

@@ -131,6 +131,62 @@ type FeaturesListResult struct {
 // store.ListFeaturesForProject, which still exists for internal
 // callers that want "all of them" without a cursor at all).
 func (s *Service) ListFeatures(ctx context.Context, projectKey string, limit int, cursor string) (FeaturesListResult, error) {
+	return s.ListFeaturesFiltered(ctx, projectKey, limit, cursor, FeatureListFilters{})
+}
+
+// FeatureListFilters holds optional, AND-composed filters for
+// ListFeaturesFiltered — TicketListFilters' counterpart for features,
+// minus the ticket-only dimensions a feature has no equivalent of
+// (product spec §5.4). The zero value applies no filtering. Like
+// TicketListFilters, these do not encode into the pagination cursor —
+// see TicketListFilters' doc comment for the shared "resupply on every
+// page" contract (docs/contracts/list-filters.md).
+type FeatureListFilters struct {
+	Status       domain.WorkflowStatus
+	Priority     domain.Priority
+	Creator      string // actor ref wire form; "" = any
+	UpdatedSince string // RFC3339 timestamp; "" = any
+}
+
+// resolveFeatureFilters mirrors resolveTicketFilters (ticket_list.go)
+// for the smaller feature filter surface.
+func (s *Service) resolveFeatureFilters(ctx context.Context, f FeatureListFilters) (store.FeatureFilters, *Error) {
+	var out store.FeatureFilters
+
+	if f.Status != "" {
+		if !f.Status.Valid() {
+			return store.FeatureFilters{}, newValidationError("status", "invalid status %q", f.Status)
+		}
+		out.Status = string(f.Status)
+	}
+	if f.Priority != "" {
+		if !f.Priority.Valid() {
+			return store.FeatureFilters{}, newValidationError("priority", "invalid priority %q", f.Priority)
+		}
+		out.Priority = string(f.Priority)
+	}
+	if f.Creator != "" {
+		id, aerr := s.resolveActorFilterID(ctx, "creator", f.Creator)
+		if aerr != nil {
+			return store.FeatureFilters{}, aerr
+		}
+		out.CreatorID = id
+	}
+	if f.UpdatedSince != "" {
+		formatted, terr := formatUpdatedSinceFilter(f.UpdatedSince)
+		if terr != nil {
+			return store.FeatureFilters{}, terr
+		}
+		out.UpdatedSince = formatted
+	}
+	return out, nil
+}
+
+// ListFeaturesFiltered is ListFeatures plus FeatureListFilters — the
+// web UI's backlog/board views call this directly
+// (internal/httpapi/features.go); ListFeatures is unchanged and
+// remains the entry point for callers that never filter.
+func (s *Service) ListFeaturesFiltered(ctx context.Context, projectKey string, limit int, cursor string, filters FeatureListFilters) (FeaturesListResult, error) {
 	proj, err := store.GetProjectByKey(ctx, s.store.DB(), projectKey)
 	if errors.Is(err, store.ErrNotFound) {
 		return FeaturesListResult{}, newNotFoundError("project %q not found", projectKey)
@@ -145,11 +201,16 @@ func (s *Service) ListFeatures(ctx context.Context, projectKey string, limit int
 		limit = maxPageLimit
 	}
 
+	storeFilters, ferr := s.resolveFeatureFilters(ctx, filters)
+	if ferr != nil {
+		return FeaturesListResult{}, ferr
+	}
+
 	rank, position, id, derr := decodeFeatureCursor(cursor)
 	if derr != nil {
 		return FeaturesListResult{}, newValidationError("cursor", "invalid cursor")
 	}
-	page, err := store.ListFeaturesForProjectPage(ctx, s.store.DB(), proj.ID, limit, rank, position, id)
+	page, err := store.ListFeaturesForProjectPage(ctx, s.store.DB(), proj.ID, storeFilters, limit, rank, position, id)
 	if err != nil {
 		return FeaturesListResult{}, fmt.Errorf("service: list features: %w", err)
 	}

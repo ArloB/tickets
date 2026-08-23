@@ -116,16 +116,42 @@ func TestRootHandlerComposition(t *testing.T) {
 		t.Errorf("ticket_get over /mcp returned ref %q, want %q", got.Ref, ticket.Ref)
 	}
 
-	// --- confirm /mcp does NOT also answer at the root ---
-	// (a regression here would mean the mux's precedence rules changed
-	// and the "/" catch-all started swallowing the more specific "/mcp"
-	// pattern, or vice versa)
+	// --- an unmatched non-API path reaches the embedded web UI's SPA
+	// fallback, not a 404 --- (Phase 4: httpapi's "/" now serves
+	// web.Dist's build with a single-page-app fallback, so a
+	// client-side route the Go server has never heard of, like a
+	// deep-linked /projects/ABC, reaches the app shell instead of
+	// erroring with 404). This test suite runs against whatever
+	// web/dist/ happens to contain locally — .gitkeep only on a bare
+	// `go test` checkout (200 is then impossible; a real build hasn't
+	// been produced), a full build once `task web:build`/`npm run
+	// build` has run (200). Both are the SPA-fallback code path
+	// actually running; internal/httpapi's own newStaticHandler tests
+	// (static_test.go), which inject a fake dist so they don't depend
+	// on build state, are what actually verify serveIndex's content
+	// and headers — this test only needs to prove the routing
+	// precedence: reaching the fallback at all, never a 404.
 	resp, err = http.Get(ts.URL + "/nonexistent-path")
 	if err != nil {
 		t.Fatalf("GET /nonexistent-path: %v", err)
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		t.Errorf("/nonexistent-path status = 404, want the SPA-fallback code path to run (200 with a build present, 500 without) — a 404 here would mean routing precedence regressed back to pre-Phase-4 behavior")
+	}
+	_ = resp.Body.Close()
+
+	// --- confirm /mcp does NOT also answer at the root, and that an
+	// unmatched /api/v1/* path is still a real 404 from httpapi's API
+	// subtree, never silently swallowed by the "/mcp" pattern or by
+	// the SPA fallback --- (a regression here would mean the mux's
+	// precedence rules changed and either "/" or "/mcp" started
+	// shadowing the more specific "/api/v1/" pattern, or vice versa)
+	resp, err = http.Get(ts.URL + "/api/v1/nonexistent-path")
+	if err != nil {
+		t.Fatalf("GET /api/v1/nonexistent-path: %v", err)
+	}
 	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("/nonexistent-path status = %d, want 404 (from httpapi's mux, not swallowed by /mcp)", resp.StatusCode)
+		t.Errorf("/api/v1/nonexistent-path status = %d, want 404 (from httpapi's protected mux, not swallowed by /mcp or the SPA fallback)", resp.StatusCode)
 	}
 	_ = resp.Body.Close()
 }

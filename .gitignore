@@ -18,10 +18,14 @@
 *.db-shm
 *.db-journal
 
-# Web UI
+# Web UI. dist/ is real Vite build output once `task web:build`/`npm
+# run build` has run locally — only .gitkeep is tracked, so a local
+# build never shows up as a dirty tracked file in `git status` (ADR
+# 0010's placeholder scheme moved from a committed index.html to this
+# once Phase 4 started producing real builds).
 /web/node_modules/
 /web/dist/*
-!/web/dist/index.html
+!/web/dist/.gitkeep
 
 # Local scratch / OS
 .DS_Store

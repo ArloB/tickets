@@ -13,14 +13,26 @@ import (
 )
 
 // CreateAdminAccount creates the very first human account, with the
-// operational admin flag set (product spec §4.2). Used only by
-// `tickets setup`; refuses if any human account already exists, so
-// first-run setup only ever runs once per installation.
+// operational admin flag set (product spec §4.2). Used by `tickets
+// setup` and by the unauthenticated POST /api/v1/setup HTTP endpoint;
+// refuses if any human account already exists, so first-run setup
+// only ever runs once per installation.
 //
 // This is a bootstrap operation with no calling actor to attribute it
 // to — it doesn't go through withTx, unlike every other mutating
 // service method, because there is by definition no authenticated
 // caller yet.
+//
+// The existence check runs twice: once up front (cheap, avoids paying
+// for an Argon2id hash when setup has obviously already run) and once
+// again inside the write transaction immediately before the insert.
+// The second check is the one that actually matters — SQLite
+// serializes write transactions, so re-checking with the transaction
+// handle after BeginTx closes the TOCTOU window the first check alone
+// would leave open. That window is unreachable from a single local
+// `tickets setup` invocation but is very reachable from two concurrent
+// requests to the HTTP endpoint, which is exactly the scenario an
+// unauthenticated admin-creation route must not race.
 func (s *Service) CreateAdminAccount(ctx context.Context, username, password string) (domain.ActorRef, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
@@ -53,6 +65,14 @@ func (s *Service) CreateAdminAccount(ctx context.Context, username, password str
 			_ = tx.Rollback()
 		}
 	}()
+
+	count, err = store.CountHumanAccounts(ctx, tx)
+	if err != nil {
+		return domain.ActorRef{}, fmt.Errorf("service: count human accounts: %w", err)
+	}
+	if count > 0 {
+		return domain.ActorRef{}, newAlreadyExistsError("", "a human account already exists; first-run setup only runs once")
+	}
 
 	now := store.Now()
 	actorID, err := store.CreateActor(ctx, tx, domain.ActorHuman, username, "", nil, now)

@@ -120,7 +120,7 @@ func BenchmarkPriorityQueueFirstPage(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := store.PriorityQueue(ctx, st.DB(), proj.ID, 20, 0, 0, "", 0); err != nil {
+		if _, err := store.PriorityQueue(ctx, st.DB(), proj.ID, store.TicketFilters{}, 20, 0, 0, "", 0); err != nil {
 			b.Fatalf("PriorityQueue: %v", err)
 		}
 	}
@@ -138,7 +138,7 @@ func BenchmarkIssueRegisterFirstPage(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := store.IssueRegister(ctx, st.DB(), proj.ID, 20, 0, 0, 0, "", 0); err != nil {
+		if _, err := store.IssueRegister(ctx, st.DB(), proj.ID, store.TicketFilters{}, 20, 0, 0, 0, "", 0); err != nil {
 			b.Fatalf("IssueRegister: %v", err)
 		}
 	}

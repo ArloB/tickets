@@ -101,6 +101,20 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodGet, "/api/v1/decisions/{ref}/associations", routeViewer, s.listAssociations},
 		{http.MethodDelete, "/api/v1/decisions/{ref}/associations/{target}", routeEditor, s.removeAssociation},
 
+		{http.MethodPost, "/api/v1/tickets/{ref}/links", routeEditor, s.addLink},
+		{http.MethodGet, "/api/v1/tickets/{ref}/links", routeViewer, s.listLinks},
+		{http.MethodDelete, "/api/v1/tickets/{ref}/links/{id}", routeEditor, s.removeLink},
+		{http.MethodPost, "/api/v1/features/{ref}/links", routeEditor, s.addLink},
+		{http.MethodGet, "/api/v1/features/{ref}/links", routeViewer, s.listLinks},
+		{http.MethodDelete, "/api/v1/features/{ref}/links/{id}", routeEditor, s.removeLink},
+		{http.MethodPost, "/api/v1/decisions/{ref}/links", routeEditor, s.addLink},
+		{http.MethodGet, "/api/v1/decisions/{ref}/links", routeViewer, s.listLinks},
+		{http.MethodDelete, "/api/v1/decisions/{ref}/links/{id}", routeEditor, s.removeLink},
+
+		{http.MethodGet, "/api/v1/tickets/{ref}/backlinks", routeViewer, s.listBacklinks},
+		{http.MethodGet, "/api/v1/features/{ref}/backlinks", routeViewer, s.listBacklinks},
+		{http.MethodGet, "/api/v1/decisions/{ref}/backlinks", routeViewer, s.listBacklinks},
+
 		{http.MethodPost, "/api/v1/projects/{key}/decisions", routeEditor, s.createDecision},
 		{http.MethodGet, "/api/v1/projects/{key}/decisions", routeViewer, s.listDecisions},
 		{http.MethodGet, "/api/v1/decisions/{ref}", routeViewer, s.getDecision},
@@ -114,15 +128,43 @@ func (s *Server) routeTable() []routeEntry {
 	}
 }
 
-// NewHandler builds the /api/v1 router plus /healthz and /readyz.
-// Three routes are reachable with no credentials at all: /healthz,
-// /readyz (pure liveness/readiness, product spec §9 — an orchestrator
-// probing these shouldn't need an account), and POST
-// /api/v1/auth/login (requiring credentials to obtain credentials
-// would be circular). Every other route goes through authenticate,
-// which resolves a Principal from a session cookie or bearer token, or
-// grants anonymous Viewer access when anonymousRead allows it, or
-// rejects outright otherwise (product spec §4.2). routeTable's
+// unauthenticatedRoutes is the exact set of routes reachable with no
+// credentials at all: pure liveness/readiness probes (product spec
+// §9 — an orchestrator probing these shouldn't need an account), and
+// the two routes whose entire purpose is *obtaining* credentials —
+// login and first-run admin setup — where requiring credentials to
+// get credentials would be circular. static/SPA asset serving is
+// intentionally unauthenticated too (the sign-in page itself is a
+// static asset; see staticHandler). Kept as a named list, not just
+// scattered mux.HandleFunc calls, so the route-set regression test in
+// route_table_test.go can assert against it directly instead of
+// re-deriving it from NewHandler's body.
+var unauthenticatedRoutes = []struct{ method, pattern string }{
+	{http.MethodGet, "/healthz"},
+	{http.MethodGet, "/readyz"},
+	{http.MethodPost, "/api/v1/auth/login"},
+	{http.MethodPost, "/api/v1/setup"},
+}
+
+// NewHandler builds the full server mux: unauthenticatedRoutes, the
+// "/api/v1/" subtree (every route in routeTable, wrapped in
+// authenticate and, per its permission field, requireEditor or
+// requireAdmin), and the embedded web UI mounted at "/".
+//
+// "/api/v1/" is registered as its own subtree pattern rather than
+// authenticate(protected) being mounted at the bare "/" (as it was
+// before the web UI existed) — that split matters for two reasons.
+// First, a logged-out browser requesting "/" for the sign-in page must
+// not 401 before it ever sees HTML: only requests actually under
+// /api/v1/ need a resolved Principal at all. Second, an unmatched path
+// like "/api/v1/typo" must keep 404ing from the protected mux, not
+// silently fall through to the SPA handler and come back as
+// "200 index.html" — scoping the subtree precisely is what keeps that
+// separation from eroding as routes are added on either side.
+//
+// authenticate resolves a Principal from a session cookie or bearer
+// token, or grants anonymous Viewer access when anonymousRead allows
+// it, or rejects outright otherwise (product spec §4.2). routeTable's
 // permission field drives which of requireEditor/requireAdmin (if any)
 // wraps each handler before it's registered.
 func NewHandler(svc *service.Service, anonymousRead bool) http.Handler {
@@ -144,7 +186,9 @@ func NewHandler(svc *service.Service, anonymousRead bool) http.Handler {
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
-	mux.Handle("/", s.authenticate(protected))
+	mux.HandleFunc("POST /api/v1/setup", s.setup)
+	mux.Handle("/api/v1/", s.authenticate(protected))
+	mux.Handle("/", s.staticHandler())
 
-	return mux
+	return securityHeaders(mux)
 }

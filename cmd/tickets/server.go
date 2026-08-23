@@ -20,14 +20,16 @@ import (
 	"github.com/ArloB/tickets/internal/store"
 )
 
-// newRootHandler builds exactly what runServer serves: /api/v1 (via
-// internal/httpapi) at the root and an unauthenticated MCP Streamable
-// HTTP endpoint at /mcp, both backed by the same *service.Service.
-// Extracted so server_test.go exercises the identical composition that
-// ships — a test against a differently-shaped mux (e.g. MCP mounted at
-// the root instead of /mcp) would prove nothing about what actually
-// runs. The web UI is Phase 4 work — web.Dist exists but isn't served
-// yet.
+// newRootHandler builds exactly what runServer serves: /api/v1 and the
+// embedded web UI (via internal/httpapi) at the root, and an
+// unauthenticated MCP Streamable HTTP endpoint at /mcp, both backed by
+// the same *service.Service. Extracted so server_test.go exercises the
+// identical composition that ships — a test against a differently-
+// shaped mux (e.g. MCP mounted at the root instead of /mcp) would
+// prove nothing about what actually runs. /mcp is registered as an
+// exact pattern, so it does not shadow deeper paths like
+// "/mcp/anything" — those fall through to httpapi's "/" static/SPA
+// handler like any other unmatched path.
 func newRootHandler(svc *service.Service, anonymousRead bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", httpapi.NewHandler(svc, anonymousRead))

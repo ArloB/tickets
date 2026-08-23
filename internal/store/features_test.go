@@ -79,7 +79,7 @@ func TestListFeaturesForProjectPagePaginatesAcrossBoundary(t *testing.T) {
 
 	projID, featureIDs := testProjectWithFeatures(t, db, "ABC", []int64{1000, 2000, 3000})
 
-	page1, err := ListFeaturesForProjectPage(context.Background(), db, projID, 2, 0, 0, 0)
+	page1, err := ListFeaturesForProjectPage(context.Background(), db, projID, FeatureFilters{}, 2, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestListFeaturesForProjectPagePaginatesAcrossBoundary(t *testing.T) {
 	}
 
 	rank, position, id := decodeFeatureCursorForTest(t, page1.NextCursor)
-	page2, err := ListFeaturesForProjectPage(context.Background(), db, projID, 2, rank, position, id)
+	page2, err := ListFeaturesForProjectPage(context.Background(), db, projID, FeatureFilters{}, 2, rank, position, id)
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}

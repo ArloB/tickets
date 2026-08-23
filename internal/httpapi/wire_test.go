@@ -75,10 +75,16 @@ func TestToTicketDetailFieldExposure(t *testing.T) {
 // 0002_core_domain.sql), so there is no formatted reference or UUID
 // for a surrogate to hide behind; id is the actual public identity.
 // Wired up over HTTP as of Step 11.
+//
+// ExternalLink: the same shape as Comment, Phase 4 — external_links
+// (migration 0006_external_links.sql) is also a dedicated
+// INTEGER PRIMARY KEY table outside the entities registry, and its id
+// is exactly what DELETE .../links/{id} names to remove one link.
 var schemasWhereIDIsThePublicIdentity = map[string]bool{
 	"AgentTokenSummary": true,
 	"AgentTokenCreated": true,
 	"Comment":           true,
+	"ExternalLink":      true,
 }
 
 // TestNoSchemaExposesABareIntegerID is ADR 0002's assigned Phase 1

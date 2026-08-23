@@ -60,7 +60,12 @@ func (s *Server) createFeature(w http.ResponseWriter, r *http.Request) {
 
 // listFeatures supports ?limit=/?cursor=, mirroring listTickets
 // (tickets.go) — Phase 3 Step 5 added real pagination here; Phase 1
-// shipped this endpoint returning every feature at once.
+// shipped this endpoint returning every feature at once. Phase 4 added
+// ?status=/?priority=/?creator=/?updated_since= (docs/contracts/
+// list-filters.md); each is optional and AND-composed with the others,
+// and — like ?cursor= itself — must be resupplied on every page of a
+// filtered listing (TicketListFilters' doc comment, ticket_list.go,
+// explains why the cursor doesn't encode them).
 func (s *Server) listFeatures(w http.ResponseWriter, r *http.Request) {
 	projectKey := r.PathValue("key")
 	q := r.URL.Query()
@@ -75,7 +80,13 @@ func (s *Server) listFeatures(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
-	result, err := s.svc.ListFeatures(r.Context(), projectKey, limit, q.Get("cursor"))
+	filters := service.FeatureListFilters{
+		Status:       domain.WorkflowStatus(q.Get("status")),
+		Priority:     domain.Priority(q.Get("priority")),
+		Creator:      q.Get("creator"),
+		UpdatedSince: q.Get("updated_since"),
+	}
+	result, err := s.svc.ListFeaturesFiltered(r.Context(), projectKey, limit, q.Get("cursor"), filters)
 	if err != nil {
 		writeError(w, r, err)
 		return

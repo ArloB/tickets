@@ -18,8 +18,9 @@ why, for anyone joining after Phase 0.
 - **Layout:** `cmd/tickets` (single entry point, subcommand dispatch
   only) · `internal/{config,domain,store,service,httpapi,mcpsrv}` (one
   package per architectural boundary — see each package's `doc.go`) ·
-  `api/openapi.yaml` (checked-in contract) · `web/` (embedded UI,
-  placeholder `dist/` until Phase 4) · `docs/{adr,contracts,spikes}`.
+  `api/openapi.yaml` (checked-in contract) · `web/` (embedded UI —
+  Vite/React/TS scaffold as of Phase 4, see this ADR's Phase 4
+  addendum below) · `docs/{adr,contracts,spikes}`.
 - **Task runner:** `go-task` (`Taskfile.yml`), not `make` — neither
   `make` nor `task` was preinstalled on Windows, and `go-task` is
   cross-platform by design and installable identically via
@@ -52,3 +53,47 @@ why, for anyone joining after Phase 0.
   interop path, since WSL's apt Node is v12 and its `npm`/`npx`
   otherwise silently cross into Windows via `/mnt/c`, which cannot
   resolve WSL's UNC home-directory path.
+
+**Phase 4 addendum — the placeholder scheme changed shape, and a real
+toolchain joined it.**
+
+- `npm create vite@latest -- --template react-ts` scaffolded `web/`:
+  React 19, Vite 8, TypeScript 6, oxlint (not ESLint — the
+  scaffolder's current default; fast, zero-config), Vitest for unit
+  tests. `web/src/api/` is the hand-written TS API client
+  (`internal/apiclient`'s own doc comment gives the same reasoning for
+  staying hand-written rather than OpenAPI-codegenerated).
+- **The committed `web/dist/` placeholder moved from `index.html` to
+  `.gitkeep`.** Once `task web:build`/`npm run build` actually
+  produces content, a tracked `index.html` would show as a modified
+  file in `git status` after every local build forever — `.gitkeep`
+  (which `go:embed all:dist`'s `all:` prefix still picks up, being a
+  dotfile) sidesteps that while keeping the same "bare `go build`/
+  `go test` still compiles and passes" guarantee this ADR originally
+  promised. `internal/httpapi`'s static handler returns a clear 500
+  ("run `task web:build`...") when `index.html` is missing, rather
+  than a confusing 404 — see `internal/httpapi/static.go`.
+- **Go tests never depend on a real npm build having run.**
+  `internal/httpapi`'s static-handler tests inject a small in-memory
+  `fstest.MapFS` (`newStaticHandler`, not the package-level
+  `staticHandler` that wraps the real `web.Dist`) rather than reading
+  whatever happens to be in `web/dist/` locally — the same "Go-only
+  contributor" guarantee this ADR's Consequences section already
+  claimed for `go build`, now verified for `go test` too, after an
+  earlier version of these tests briefly broke it by depending on
+  build state.
+- **`task build` now depends on `web:build`**, so `task ci`/`task
+  build` always embed a real UI, never the empty placeholder — this is
+  a real new requirement (Node/npm must be installed to run `task
+  build`/`task ci`), but not a *new* one in practice: `task openapi`
+  already required Node/`npx` since Phase 0, and both Windows and WSL
+  setups already have it on `PATH` per this ADR's Consequences above.
+  A bare `go build ./cmd/tickets` (no Task, no Node) still works,
+  embedding whatever's already sitting in `web/dist/`.
+- **Dev workflow:** `task web:dev` runs the Vite dev server, proxying
+  `/api/v1` and `/healthz` to a separately-running `tickets server`
+  (default `http://127.0.0.1:8080`, override via `TICKETS_DEV_API_URL`)
+  — a same-origin proxy, not cross-origin `fetch`, because the session
+  cookie is `SameSite=Lax` (ADR 0004) and a cross-origin dev request
+  would silently drop it. `task web:install`/`web:lint`/`web:test`
+  round out the individual steps `task ci` composes.

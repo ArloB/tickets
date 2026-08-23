@@ -33,11 +33,58 @@ tasks:
       - go test -race ./...
 
   build:
-    desc: Build the tickets binary for the host platform.
+    desc: >
+      Build the tickets binary for the host platform, with the real web
+      UI embedded — depends on web:build so `task build`/`task ci`
+      never ship the empty-dist placeholder by accident. A bare
+      `go build ./cmd/tickets` (no Task, no Node) still works on
+      whatever's already in web/dist/ — see ADR 0010.
     vars:
       OUT: '{{if eq OS "windows"}}bin/tickets.exe{{else}}bin/tickets{{end}}'
+    deps: [web:build]
     cmds:
       - go build -o {{.OUT}} ./cmd/tickets
+
+  web:install:
+    desc: Install the web UI's npm dependencies.
+    dir: web
+    run: once
+    cmds:
+      - npm install
+
+  web:lint:
+    desc: Lint the web UI with oxlint.
+    dir: web
+    deps: [web:install]
+    cmds:
+      - npm run lint
+
+  web:test:
+    desc: Run the web UI's Vitest unit/component tests.
+    dir: web
+    deps: [web:install]
+    cmds:
+      - npm run test -- --run
+
+  web:build:
+    desc: >
+      Type-check and produce the web UI's production build (web/dist),
+      the asset internal/httpapi embeds and serves.
+    dir: web
+    deps: [web:install]
+    cmds:
+      - npm run build
+
+  web:dev:
+    desc: >
+      Run the Vite dev server against a separately running `tickets
+      server` (default http://127.0.0.1:8080; override with
+      TICKETS_DEV_API_URL). /api/v1 and /healthz are proxied so the
+      session cookie stays same-origin (vite.config.ts).
+    dir: web
+    deps: [web:install]
+    cmds:
+      - npm run dev
 
   ci:
     desc: Full local CI gate for the host platform (Windows leg).
@@ -46,6 +93,8 @@ tasks:
       - task: lint
       - task: test
       - task: openapi
+      - task: web:lint
+      - task: web:test
       - task: build
 
   ci:linux:
@@ -53,7 +102,7 @@ tasks:
       Run the CI gate inside the WSL clone at {{.WSL_REPO}}, including the
       race detector. Pulls first so it never tests stale code.
     cmds:
-      - wsl -e bash -lc "cd {{.WSL_REPO}} && git pull --ff-only && task fmt lint test:race openapi build"
+      - wsl -e bash -lc "cd {{.WSL_REPO}} && git pull --ff-only && task fmt lint test:race openapi web:lint web:test build"
 
   bench:
     desc: >

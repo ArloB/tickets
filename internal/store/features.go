@@ -6,10 +6,48 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/google/uuid"
 )
+
+// FeatureFilters holds optional, AND-composed narrowing predicates for
+// ListFeaturesForProjectPage — TicketFilters' counterpart for
+// features, minus the ticket-only dimensions (type, severity,
+// assignee, feature) a feature has no equivalent of (product spec
+// §5.4 gives a feature no assignee or type). The zero value applies no
+// filtering.
+type FeatureFilters struct {
+	Status       string // domain.WorkflowStatus wire value; "" = any
+	Priority     string // domain.Priority wire value; "" = any
+	CreatorID    int64  // internal actor id; 0 = any
+	UpdatedSince string // TimeLayout-formatted, UTC; "" = any
+}
+
+// clauseAndArgs mirrors TicketFilters.clauseAndArgs (tickets_list.go)
+// — see its doc comment for the splicing contract.
+func (f FeatureFilters) clauseAndArgs() (string, []any) {
+	var b strings.Builder
+	var args []any
+	if f.Status != "" {
+		b.WriteString(" AND f.status = ?")
+		args = append(args, f.Status)
+	}
+	if f.Priority != "" {
+		b.WriteString(" AND f.priority = ?")
+		args = append(args, f.Priority)
+	}
+	if f.CreatorID != 0 {
+		b.WriteString(" AND e.created_by = ?")
+		args = append(args, f.CreatorID)
+	}
+	if f.UpdatedSince != "" {
+		b.WriteString(" AND e.updated_at >= ?")
+		args = append(args, f.UpdatedSince)
+	}
+	return b.String(), args
+}
 
 // FeatureRow is the internal (store-only) view of a feature.
 // ProjectEntityID/PriorityRank/Position are internal-only, the same
@@ -210,19 +248,24 @@ func scanFeatureRowsPage(rowsIter interface {
 // an already-taken length here would let a ticket priority-queue
 // cursor be replayed against this endpoint without ever failing
 // validation — wrong data, not a crash, and much harder to notice.
-func ListFeaturesForProjectPage(ctx context.Context, q Querier, projectEntityID int64, limit int, afterRank, afterPosition, afterID int64) (FeaturesPage, error) {
-	rows, err := q.QueryContext(ctx,
-		`SELECT`+featureSelectColumns+`
+//
+// filters narrows further (docs/contracts/list-filters.md); pass the
+// zero value for no filtering.
+func ListFeaturesForProjectPage(ctx context.Context, q Querier, projectEntityID int64, filters FeatureFilters, limit int, afterRank, afterPosition, afterID int64) (FeaturesPage, error) {
+	filterClause, filterArgs := filters.clauseAndArgs()
+	query := `SELECT` + featureSelectColumns + `
 		 FROM features f
 		 JOIN entities e ON e.id = f.id
 		 JOIN projects p ON p.id = f.project_id
 		 LEFT JOIN actors ca ON ca.id = e.created_by
-		 WHERE f.project_id = ? AND e.deleted_at IS NULL
+		 WHERE f.project_id = ? AND e.deleted_at IS NULL` + filterClause + `
 		   AND (f.priority_rank, f.position, e.id) > (?, ?, ?)
 		 ORDER BY f.priority_rank ASC, f.position ASC, e.id ASC
-		 LIMIT ?`,
-		projectEntityID, afterRank, afterPosition, afterID, limit+1,
-	)
+		 LIMIT ?`
+	args := append([]any{projectEntityID}, filterArgs...)
+	args = append(args, afterRank, afterPosition, afterID, limit+1)
+
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return FeaturesPage{}, fmt.Errorf("list features for project %d (paginated): %w", projectEntityID, err)
 	}

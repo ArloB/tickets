@@ -61,7 +61,15 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 // listTickets is GET /projects/{key}/tickets (product spec §5.6):
 // priority-queue order by default, issue-register order via
 // ?view=issue_register (§5.5). ?fields= narrows each list item to the
-// named ticketCompact fields.
+// named ticketCompact fields. Phase 4 added ?status=/?type=/?severity=
+// /?priority=/?feature_ref=/?assignee=/?creator=/?updated_since=
+// (docs/contracts/list-filters.md): each is optional and AND-composed
+// with the others and with whichever ?view= selected the base
+// ordering, and — like ?cursor= — must be resupplied on every page of
+// a filtered listing (service.TicketListFilters' doc comment explains
+// why the cursor doesn't encode them). The backlog view (product spec
+// §6.1) is the default priority-queue ordering with filters layered
+// on; there is no separate third ?view= value for it.
 func (s *Server) listTickets(w http.ResponseWriter, r *http.Request) {
 	projectKey := r.PathValue("key")
 	q := r.URL.Query()
@@ -76,7 +84,17 @@ func (s *Server) listTickets(w http.ResponseWriter, r *http.Request) {
 		limit = n
 	}
 
-	result, err := s.svc.ListTickets(r.Context(), projectKey, service.TicketListView(q.Get("view")), limit, q.Get("cursor"))
+	filters := service.TicketListFilters{
+		Status:       domain.WorkflowStatus(q.Get("status")),
+		Type:         domain.TicketType(q.Get("type")),
+		Severity:     domain.Severity(q.Get("severity")),
+		Priority:     domain.Priority(q.Get("priority")),
+		FeatureRef:   q.Get("feature_ref"),
+		Assignee:     q.Get("assignee"),
+		Creator:      q.Get("creator"),
+		UpdatedSince: q.Get("updated_since"),
+	}
+	result, err := s.svc.ListTicketsFiltered(r.Context(), projectKey, service.TicketListView(q.Get("view")), limit, q.Get("cursor"), filters)
 	if err != nil {
 		writeError(w, r, err)
 		return
