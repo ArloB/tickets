@@ -1,12 +1,70 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { listProjects } from '../api/projects'
+import { Link, useNavigate } from 'react-router-dom'
+import { createProject, listProjects } from '../api/projects'
 import { ApiError } from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import type { ProjectCompact } from '../api/types'
 
+function NewProjectForm({ onCreated }: { onCreated: (p: ProjectCompact) => void }) {
+  const [key, setKey] = useState('')
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const navigate = useNavigate()
+
+  async function submit() {
+    setBusy(true)
+    setError(null)
+    try {
+      const created = await createProject({ key, title, description })
+      onCreated({
+        key: created.key,
+        title: created.title,
+        status: created.status,
+        version: created.version,
+        updated_at: created.updated_at,
+      })
+      navigate(`/projects/${created.key}`)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+    >
+      <label>
+        Key
+        <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="ABC" required />
+      </label>
+      <label>
+        Title
+        <input value={title} onChange={(e) => setTitle(e.target.value)} required />
+      </label>
+      <label>
+        Description
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
+      </label>
+      {error && <p role="alert">{error}</p>}
+      <button type="submit" disabled={busy}>
+        {busy ? 'Creating…' : 'Create project'}
+      </button>
+    </form>
+  )
+}
+
 export default function ProjectList() {
+  const { me } = useAuth()
   const [projects, setProjects] = useState<ProjectCompact[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     listProjects()
@@ -32,6 +90,13 @@ export default function ProjectList() {
           ))}
         </ul>
       )}
+
+      {me?.permission === 'editor' &&
+        (creating ? (
+          <NewProjectForm onCreated={(p) => setProjects([...projects, p])} />
+        ) : (
+          <button onClick={() => setCreating(true)}>New project</button>
+        ))}
     </main>
   )
 }

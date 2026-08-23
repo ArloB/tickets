@@ -33,13 +33,18 @@ describe('useConflictForm', () => {
     )
 
     act(() => result.current.setField('title', 'New title'))
+    let submitResult: Versioned<FormFields> | null = null
     await act(async () => {
-      await result.current.submit()
+      submitResult = await result.current.submit()
     })
 
     expect(save).toHaveBeenCalledWith({ title: 'New title', priority: 'medium' }, 1)
     expect(result.current.conflict).toBeNull()
     expect(result.current.draft.title).toBe('New title')
+    // The return value is what callers must use to react to a
+    // successful save (e.g. leaving edit mode) — never re-reading
+    // `draft` afterward, which may not have re-rendered yet.
+    expect(submitResult).toEqual({ fields: { title: 'New title', priority: 'medium' }, version: 2 })
   })
 
   it('auto-applies a field the user never touched, and flags a real conflict for one both sides changed', async () => {
@@ -56,10 +61,14 @@ describe('useConflictForm', () => {
 
     // User only touches title; priority stays at the base value.
     act(() => result.current.setField('title', 'My title'))
+    let submitResult: Versioned<FormFields> | null = { fields: baseFields, version: -1 }
     await act(async () => {
-      await result.current.submit()
+      submitResult = await result.current.submit()
     })
 
+    // A pending conflict is not a success — callers must not treat it
+    // as one (e.g. must not leave edit mode).
+    expect(submitResult).toBeNull()
     expect(result.current.conflict).not.toBeNull()
     expect(result.current.conflict?.serverVersion).toBe(2)
     expect(result.current.conflict?.autoApplied).toEqual([])
@@ -88,14 +97,21 @@ describe('useConflictForm', () => {
       useConflictForm({ base: baseFields, baseVersion: 1, fetchLive, save }),
     )
 
+    let submitResult: Versioned<FormFields> | null = null
     await act(async () => {
-      await result.current.submit()
+      submitResult = await result.current.submit()
     })
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
     expect(save).toHaveBeenNthCalledWith(2, { title: 'Original title', priority: 'high' }, 2)
     expect(result.current.conflict).toBeNull()
     expect(result.current.draft.priority).toBe('high')
+    // The auto-retry's result is what submit() returns, not the first
+    // (conflicting) attempt's.
+    expect(submitResult).toEqual({
+      fields: { title: 'Original title', priority: 'high' },
+      version: 3,
+    })
   })
 
   it('resubmits automatically when the merge leaves no field needing a decision', async () => {

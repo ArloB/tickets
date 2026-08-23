@@ -3,10 +3,16 @@ import { Link, useParams } from 'react-router-dom'
 import { getTicket } from '../api/tickets'
 import { listBacklinks } from '../api/backlinks'
 import { listLinks } from '../api/links'
+import { listAssociations } from '../api/associations'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
 import { TicketFieldsForm } from '../components/TicketFieldsForm'
+import { TicketActions } from '../components/TicketActions'
+import { CommentsSection } from '../components/CommentsSection'
+import { RelationshipsSection } from '../components/RelationshipsSection'
+import { AssociationsSection } from '../components/AssociationsSection'
+import { LinksSection } from '../components/LinksSection'
 import { useAuth } from '../auth/AuthContext'
 import type { Backlink, ExternalLink, TicketDetail as TicketDetailDto } from '../api/types'
 
@@ -15,6 +21,7 @@ export default function TicketDetail() {
   const { me } = useAuth()
   const [ticket, setTicket] = useState<TicketDetailDto | null>(null)
   const [links, setLinks] = useState<ExternalLink[] | null>(null)
+  const [associated, setAssociated] = useState<string[] | null>(null)
   const [backlinks, setBacklinks] = useState<Backlink[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
@@ -22,13 +29,20 @@ export default function TicketDetail() {
   useEffect(() => {
     setTicket(null)
     setLinks(null)
+    setAssociated(null)
     setBacklinks(null)
     setError(null)
     setEditing(false)
-    Promise.all([getTicket(ref, ['comments', 'relationships']), listLinks(ref), listBacklinks(ref)])
-      .then(([t, l, b]) => {
+    Promise.all([
+      getTicket(ref, ['comments', 'relationships']),
+      listLinks(ref),
+      listAssociations(ref),
+      listBacklinks(ref),
+    ])
+      .then(([t, l, a, b]) => {
         setTicket(t)
         setLinks(l.links)
+        setAssociated(a.associated)
         setBacklinks(b.backlinks)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
@@ -36,6 +50,8 @@ export default function TicketDetail() {
 
   if (error) return <p role="alert">{error}</p>
   if (!ticket) return <p>Loading ticket…</p>
+
+  const canEdit = me?.permission === 'editor'
 
   if (editing) {
     return (
@@ -76,37 +92,33 @@ export default function TicketDetail() {
       <p>
         Assignee: {ticket.assignee ?? 'unassigned'} · Creator: {ticket.creator ?? 'unknown'}
       </p>
-      {me?.permission === 'editor' && <button onClick={() => setEditing(true)}>Edit</button>}
+      {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
+      {canEdit && <TicketActions ticket={ticket} onUpdated={setTicket} />}
 
       <h2>Description</h2>
       <Markdown>{ticket.description}</Markdown>
 
       <h2>Relationships</h2>
-      {!ticket.relationships || ticket.relationships.length === 0 ? (
-        <p>None.</p>
-      ) : (
-        <ul>
-          {ticket.relationships.map((r) => (
-            <li key={`${r.type}-${r.other}`}>
-              {r.type} <Link to={detailRoute(r.other)}>{r.other}</Link>
-            </li>
-          ))}
-        </ul>
+      <RelationshipsSection
+        ticketRef={ticket.ref}
+        relationships={ticket.relationships ?? []}
+        onChange={(relationships) => setTicket({ ...ticket, relationships })}
+        canEdit={canEdit}
+      />
+
+      <h2>Associations</h2>
+      {associated && (
+        <AssociationsSection
+          entityRef={ticket.ref}
+          associated={associated}
+          onChange={setAssociated}
+          canEdit={canEdit}
+        />
       )}
 
       <h2>Links</h2>
-      {!links || links.length === 0 ? (
-        <p>None.</p>
-      ) : (
-        <ul>
-          {links.map((l) => (
-            <li key={l.id}>
-              <a href={l.url} target="_blank" rel="noreferrer">
-                {l.title}
-              </a>
-            </li>
-          ))}
-        </ul>
+      {links && (
+        <LinksSection entityRef={ticket.ref} links={links} onChange={setLinks} canEdit={canEdit} />
       )}
 
       <h2>Backlinks</h2>
@@ -124,21 +136,12 @@ export default function TicketDetail() {
       )}
 
       <h2>Comments</h2>
-      {!ticket.comments || ticket.comments.length === 0 ? (
-        <p>None.</p>
-      ) : (
-        <ul>
-          {ticket.comments.map((c) => (
-            <li key={c.id}>
-              <p>
-                <strong>{c.author}</strong> — {c.created_at}
-                {c.deleted_at ? ' (deleted)' : ''}
-              </p>
-              <Markdown>{c.body}</Markdown>
-            </li>
-          ))}
-        </ul>
-      )}
+      <CommentsSection
+        ticketRef={ticket.ref}
+        comments={ticket.comments ?? []}
+        onChange={(comments) => setTicket({ ...ticket, comments })}
+        canEdit={canEdit}
+      />
     </main>
   )
 }

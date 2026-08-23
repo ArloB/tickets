@@ -10,6 +10,10 @@ export async function listComments(ticketRef: string): Promise<CommentsPage> {
   return apiFetch<CommentsPage>(`/tickets/${encodeURIComponent(ticketRef)}/comments`)
 }
 
+export async function getComment(commentId: number): Promise<CommentDetail> {
+  return apiFetch<CommentDetail>(`/comments/${commentId}`)
+}
+
 export async function addComment(ticketRef: string, body: string): Promise<CommentDetail> {
   return apiFetch<CommentDetail>(`/tickets/${encodeURIComponent(ticketRef)}/comments`, {
     method: 'POST',

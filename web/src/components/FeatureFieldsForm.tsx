@@ -15,6 +15,10 @@ function toFields(f: FeatureDetail): FeatureFields {
   return { title: f.title, description: f.description, priority: f.priority }
 }
 
+function fromFields(fields: FeatureFields): Pick<FeatureDetail, 'title' | 'description' | 'priority'> {
+  return { title: fields.title, description: fields.description, priority: fields.priority as Priority }
+}
+
 /** PATCH /features/{ref} — a full-representation update despite the
  * verb (no partial-update semantics on this endpoint). No status
  * field: features have no independent status transition in this API. */
@@ -41,7 +45,6 @@ export function FeatureFieldsForm({
           { title: fields.title, description: fields.description, priority: fields.priority as Priority },
           expectedVersion,
         )
-        onSaved(updated)
         return { fields: toFields(updated), version: updated.version }
       },
     })
@@ -52,7 +55,11 @@ export function FeatureFieldsForm({
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        void submit()
+        void submit().then((result) => {
+          if (result) {
+            onSaved({ ...feature, ...fromFields(result.fields), version: result.version })
+          }
+        })
       }}
     >
       <label>

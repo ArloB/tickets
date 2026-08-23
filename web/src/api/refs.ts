@@ -25,9 +25,7 @@ export function entityPathSegment(ref: string): string {
 }
 
 /** Client-side route for a bare reference — used to link relationship/
- * association/backlink targets to the right detail view. Decisions
- * have no detail route yet (added later in Milestone 3); until then
- * a decision ref falls back to its project overview. */
+ * association/backlink targets to the right detail view. */
 export function detailRoute(ref: string): string {
   const kind = entityKindOfRef(ref)
   if (kind === 'feature') return `/features/${ref}`

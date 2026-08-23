@@ -9,3 +9,13 @@ export async function listProjects(cursor?: string): Promise<ProjectsPage> {
 export async function getProject(key: string): Promise<ProjectDetail> {
   return apiFetch<ProjectDetail>(`/projects/${encodeURIComponent(key)}`)
 }
+
+export interface CreateProjectInput {
+  key: string
+  title: string
+  description: string
+}
+
+export async function createProject(input: CreateProjectInput): Promise<ProjectDetail> {
+  return apiFetch<ProjectDetail>('/projects', { method: 'POST', body: input })
+}

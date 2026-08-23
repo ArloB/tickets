@@ -25,6 +25,16 @@ function toFields(t: TicketDetail): TicketFields {
   }
 }
 
+function fromFields(fields: TicketFields): Pick<TicketDetail, 'type' | 'title' | 'description' | 'priority' | 'severity'> {
+  return {
+    type: fields.type as TicketType,
+    title: fields.title,
+    description: fields.description,
+    priority: fields.priority as Priority,
+    severity: fields.severity === '' ? undefined : (fields.severity as Severity),
+  }
+}
+
 /** PUT /tickets/{ref} full-representation update, wired through
  * useConflictForm — the first (and reference) instance of the Phase 4
  * exit criterion's conflict-resolution UI, built once and reused by
@@ -58,7 +68,6 @@ export function TicketFieldsForm({
           },
           expectedVersion,
         )
-        onSaved(updated)
         return { fields: toFields(updated), version: updated.version }
       },
     })
@@ -70,7 +79,16 @@ export function TicketFieldsForm({
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        void submit()
+        void submit().then((result) => {
+          // Only fire once the hook has fully settled (including any
+          // no-decision-needed retry) — never from inside `save`
+          // itself, since the caller's onSaved (TicketDetail) unmounts
+          // this form, and useConflictForm still has state updates
+          // pending after a successful save.
+          if (result) {
+            onSaved({ ...ticket, ...fromFields(result.fields), version: result.version })
+          }
+        })
       }}
     >
       <label>

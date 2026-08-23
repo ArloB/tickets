@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { listTickets, type TicketListFilters, type TicketListView } from '../api/tickets'
+import { createTicket, listTickets, type TicketListFilters, type TicketListView } from '../api/tickets'
 import { ApiError } from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import type { Priority, Severity, TicketCompact, TicketType, WorkflowStatus } from '../api/types'
 
 const statuses: WorkflowStatus[] = [
@@ -17,16 +18,121 @@ const types: TicketType[] = ['task', 'bug', 'security', 'chore']
 const severities: Severity[] = ['critical', 'high', 'medium', 'low']
 const priorities: Priority[] = ['critical', 'high', 'medium', 'low']
 
-/** Read-only backlog list for Milestone 2 — reuses the priority_queue
- * ordering with filters layered on top, per the Phase 4 plan's note
- * that there's no separate third ?view= value for a plain backlog.
- * Bulk selection is Milestone 4. */
+function NewTicketForm({
+  projectKey,
+  onCreated,
+}: {
+  projectKey: string
+  onCreated: (t: TicketCompact) => void
+}) {
+  const [type, setType] = useState<TicketType>('task')
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [priority, setPriority] = useState<Priority>('medium')
+  const [severity, setSeverity] = useState<Severity | ''>('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const severityApplicable = type === 'bug' || type === 'security'
+
+  async function submit() {
+    setBusy(true)
+    setError(null)
+    try {
+      const created = await createTicket(projectKey, {
+        type,
+        title,
+        description,
+        priority,
+        severity: severityApplicable && severity !== '' ? severity : null,
+      })
+      onCreated({
+        ref: created.ref,
+        title: created.title,
+        type: created.type,
+        status: created.status,
+        priority: created.priority,
+        severity: created.severity,
+        version: created.version,
+        updated_at: created.updated_at,
+      })
+      setTitle('')
+      setDescription('')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        void submit()
+      }}
+    >
+      <label>
+        Type
+        <select value={type} onChange={(e) => setType(e.target.value as TicketType)}>
+          {types.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Title
+        <input value={title} onChange={(e) => setTitle(e.target.value)} required />
+      </label>
+      <label>
+        Description
+        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
+      </label>
+      <label>
+        Priority
+        <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
+          {priorities.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+      </label>
+      {severityApplicable && (
+        <label>
+          Severity
+          <select value={severity} onChange={(e) => setSeverity(e.target.value as Severity | '')}>
+            <option value="">None</option>
+            {severities.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {error && <p role="alert">{error}</p>}
+      <button type="submit" disabled={busy}>
+        {busy ? 'Creating…' : 'Create ticket'}
+      </button>
+    </form>
+  )
+}
+
+/** Backlog list — reuses the priority_queue ordering with filters
+ * layered on top, per the Phase 4 plan's note that there's no
+ * separate third ?view= value for a plain backlog. Bulk selection is
+ * Milestone 4. */
 export default function Backlog() {
   const { key = '' } = useParams()
+  const { me } = useAuth()
   const [params, setParams] = useSearchParams()
   const [tickets, setTickets] = useState<TicketCompact[] | null>(null)
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   const view = (params.get('view') as TicketListView | null) ?? 'priority_queue'
   const filters: TicketListFilters = {
@@ -186,6 +292,19 @@ export default function Backlog() {
         </table>
       )}
       {nextCursor && <button onClick={loadMore}>Load more</button>}
+
+      {me?.permission === 'editor' &&
+        (creating ? (
+          <NewTicketForm
+            projectKey={key}
+            onCreated={(t) => {
+              setTickets([...(tickets ?? []), t])
+              setCreating(false)
+            }}
+          />
+        ) : (
+          <button onClick={() => setCreating(true)}>New ticket</button>
+        ))}
     </main>
   )
 }

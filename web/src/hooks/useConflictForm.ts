@@ -83,14 +83,14 @@ export function useConflictForm<T extends FormFields>({
     setDraft((prev) => ({ ...prev, [key]: value }))
   }
 
-  async function doSave(values: T, version: number): Promise<'ok' | 'conflict' | 'error'> {
+  async function doSave(values: T, version: number): Promise<Versioned<T> | 'conflict' | 'error'> {
     try {
       const result = await save(values, version)
       setBaseline(result.fields)
       setBaselineVersion(result.version)
       setDraft(result.fields)
       setConflict(null)
-      return 'ok'
+      return result
     } catch (err) {
       if (err instanceof ApiError && err.code === 'version_conflict') {
         return 'conflict'
@@ -100,10 +100,19 @@ export function useConflictForm<T extends FormFields>({
     }
   }
 
-  async function submit() {
+  /** Returns the saved {fields, version} on success (whether on the
+   * first try or after an automatic no-decision-needed merge retry),
+   * or null if a conflict needs the user's input or the save failed —
+   * callers must check this return value rather than re-reading
+   * `draft` afterward, since React state updates triggered inside
+   * `submit` are not visible in the caller's own closure until its
+   * next render. */
+  async function submit(): Promise<Versioned<T> | null> {
     setSaving(true)
     setError(null)
     const outcome = await doSave(draft, baselineVersion)
+    let result: Versioned<T> | null = outcome === 'conflict' || outcome === 'error' ? null : outcome
+
     if (outcome === 'conflict') {
       const live = await fetchLive()
       const server = live.fields
@@ -135,10 +144,12 @@ export function useConflictForm<T extends FormFields>({
       } else {
         // Nothing needs a human decision — resubmit against the now-
         // current version rather than leaving the user's click inert.
-        await doSave(merged as T, serverVersion)
+        const retryOutcome = await doSave(merged as T, serverVersion)
+        result = retryOutcome === 'conflict' || retryOutcome === 'error' ? null : retryOutcome
       }
     }
     setSaving(false)
+    return result
   }
 
   /** Records the user's choice for one conflicting field and clears it
