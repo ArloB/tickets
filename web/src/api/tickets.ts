@@ -1,10 +1,6 @@
-import { apiFetch } from './client'
+import { apiFetch, ifMatchHeader } from './client'
 import type {
-  BacklinksPage,
-  CommentsPage,
-  LinksPage,
   Priority,
-  RelationshipsPage,
   Severity,
   TicketDetail,
   TicketsPage,
@@ -58,18 +54,83 @@ export async function getTicket(
   return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}${params}`)
 }
 
-export async function listTicketComments(ref: string): Promise<CommentsPage> {
-  return apiFetch<CommentsPage>(`/tickets/${encodeURIComponent(ref)}/comments`)
+export interface CreateTicketInput {
+  type: TicketType
+  title: string
+  description: string
+  priority: Priority
+  severity?: Severity | null
 }
 
-export async function listTicketRelationships(ref: string): Promise<RelationshipsPage> {
-  return apiFetch<RelationshipsPage>(`/tickets/${encodeURIComponent(ref)}/relationships`)
+export async function createTicket(
+  projectKey: string,
+  input: CreateTicketInput,
+): Promise<TicketDetail> {
+  return apiFetch<TicketDetail>(`/projects/${encodeURIComponent(projectKey)}/tickets`, {
+    method: 'POST',
+    body: input,
+  })
 }
 
-export async function listTicketLinks(ref: string): Promise<LinksPage> {
-  return apiFetch<LinksPage>(`/tickets/${encodeURIComponent(ref)}/links`)
+export interface UpdateTicketFieldsInput {
+  type: TicketType
+  title: string
+  description: string
+  priority: Priority
+  severity?: Severity | null
 }
 
-export async function listTicketBacklinks(ref: string): Promise<BacklinksPage> {
-  return apiFetch<BacklinksPage>(`/tickets/${encodeURIComponent(ref)}/backlinks`)
+/** PUT /tickets/{ref} — full-representation update of every mutable
+ * field except status; omitting a field clobbers it
+ * (internal/httpapi/tickets.go's updateTicketFields doc comment). The
+ * caller must resend every field from its base snapshot, not just the
+ * ones the user touched. */
+export async function updateTicketFields(
+  ref: string,
+  input: UpdateTicketFieldsInput,
+  expectedVersion: number,
+): Promise<TicketDetail> {
+  return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}`, {
+    method: 'PUT',
+    body: input,
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+/** PATCH /tickets/{ref} — status only, a separate flow from PUT above
+ * with its own If-Match/version-conflict handling. */
+export async function updateTicketStatus(
+  ref: string,
+  status: WorkflowStatus,
+  expectedVersion: number,
+): Promise<TicketDetail> {
+  return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}`, {
+    method: 'PATCH',
+    body: { status },
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+export async function assignTicket(
+  ref: string,
+  assignee: string | null,
+  expectedVersion: number,
+): Promise<TicketDetail> {
+  return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}/assign`, {
+    method: 'POST',
+    body: { assignee },
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+export async function moveTicketFeature(
+  ref: string,
+  featureRef: string,
+  expectedVersion: number,
+): Promise<TicketDetail> {
+  return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}/move`, {
+    method: 'POST',
+    body: { feature: featureRef },
+    headers: ifMatchHeader(expectedVersion),
+  })
 }

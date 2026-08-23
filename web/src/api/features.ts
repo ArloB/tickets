@@ -1,12 +1,5 @@
-import { apiFetch } from './client'
-import type {
-  BacklinksPage,
-  FeatureDetail,
-  FeaturesPage,
-  LinksPage,
-  Priority,
-  WorkflowStatus,
-} from './types'
+import { apiFetch, ifMatchHeader } from './client'
+import type { FeatureDetail, FeaturesPage, Priority, WorkflowStatus } from './types'
 
 export interface FeatureListFilters {
   status?: WorkflowStatus
@@ -36,10 +29,41 @@ export async function getFeature(ref: string): Promise<FeatureDetail> {
   return apiFetch<FeatureDetail>(`/features/${encodeURIComponent(ref)}`)
 }
 
-export async function listFeatureLinks(ref: string): Promise<LinksPage> {
-  return apiFetch<LinksPage>(`/features/${encodeURIComponent(ref)}/links`)
+export interface CreateFeatureInput {
+  title: string
+  description: string
+  priority: Priority
 }
 
-export async function listFeatureBacklinks(ref: string): Promise<BacklinksPage> {
-  return apiFetch<BacklinksPage>(`/features/${encodeURIComponent(ref)}/backlinks`)
+export async function createFeature(
+  projectKey: string,
+  input: CreateFeatureInput,
+): Promise<FeatureDetail> {
+  return apiFetch<FeatureDetail>(`/projects/${encodeURIComponent(projectKey)}/features`, {
+    method: 'POST',
+    body: input,
+  })
+}
+
+export interface UpdateFeatureInput {
+  title: string
+  description: string
+  priority: Priority
+}
+
+/** PATCH /features/{ref} is a full-representation update despite the
+ * verb (internal/httpapi/features.go's updateFeatureRequest has no
+ * partial-update semantics) — resend every field. There is no
+ * feature-status endpoint; features have no independent status
+ * transition in this API. */
+export async function updateFeature(
+  ref: string,
+  input: UpdateFeatureInput,
+  expectedVersion: number,
+): Promise<FeatureDetail> {
+  return apiFetch<FeatureDetail>(`/features/${encodeURIComponent(ref)}`, {
+    method: 'PATCH',
+    body: input,
+    headers: ifMatchHeader(expectedVersion),
+  })
 }

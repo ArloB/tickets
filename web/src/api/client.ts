@@ -52,6 +52,13 @@ export function setCsrfToken(token: string | null): void {
 
 const mutatingMethods = new Set(['POST', 'PATCH', 'PUT', 'DELETE'])
 
+/** `If-Match: "<version>"` — a double-quoted decimal integer per
+ * docs/contracts/concurrency.md (internal/httpapi/concurrency.go's
+ * parseIfMatch rejects anything else, including an unquoted number). */
+export function ifMatchHeader(version: number): Record<string, string> {
+  return { 'If-Match': `"${version}"` }
+}
+
 /** apiFetch issues one request against /api/v1, attaching the session
  * cookie (`credentials: 'include'`) and, for mutating methods, the
  * in-memory CSRF token (internal/httpapi's requireEditor). Throws

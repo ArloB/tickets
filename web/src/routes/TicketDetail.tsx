@@ -1,31 +1,31 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import {
-  getTicket,
-  listTicketBacklinks,
-  listTicketLinks,
-} from '../api/tickets'
+import { getTicket } from '../api/tickets'
+import { listBacklinks } from '../api/backlinks'
+import { listLinks } from '../api/links'
+import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
+import { TicketFieldsForm } from '../components/TicketFieldsForm'
+import { useAuth } from '../auth/AuthContext'
 import type { Backlink, ExternalLink, TicketDetail as TicketDetailDto } from '../api/types'
 
 export default function TicketDetail() {
   const { ref = '' } = useParams()
+  const { me } = useAuth()
   const [ticket, setTicket] = useState<TicketDetailDto | null>(null)
   const [links, setLinks] = useState<ExternalLink[] | null>(null)
   const [backlinks, setBacklinks] = useState<Backlink[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     setTicket(null)
     setLinks(null)
     setBacklinks(null)
     setError(null)
-    Promise.all([
-      getTicket(ref, ['comments', 'relationships']),
-      listTicketLinks(ref),
-      listTicketBacklinks(ref),
-    ])
+    setEditing(false)
+    Promise.all([getTicket(ref, ['comments', 'relationships']), listLinks(ref), listBacklinks(ref)])
       .then(([t, l, b]) => {
         setTicket(t)
         setLinks(l.links)
@@ -36,6 +36,24 @@ export default function TicketDetail() {
 
   if (error) return <p role="alert">{error}</p>
   if (!ticket) return <p>Loading ticket…</p>
+
+  if (editing) {
+    return (
+      <main>
+        <h1>
+          Edit {ticket.title} <span>({ticket.ref})</span>
+        </h1>
+        <TicketFieldsForm
+          ticket={ticket}
+          onSaved={(updated) => {
+            setTicket({ ...ticket, ...updated })
+            setEditing(false)
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      </main>
+    )
+  }
 
   return (
     <main>
@@ -58,6 +76,7 @@ export default function TicketDetail() {
       <p>
         Assignee: {ticket.assignee ?? 'unassigned'} · Creator: {ticket.creator ?? 'unknown'}
       </p>
+      {me?.permission === 'editor' && <button onClick={() => setEditing(true)}>Edit</button>}
 
       <h2>Description</h2>
       <Markdown>{ticket.description}</Markdown>
@@ -69,7 +88,7 @@ export default function TicketDetail() {
         <ul>
           {ticket.relationships.map((r) => (
             <li key={`${r.type}-${r.other}`}>
-              {r.type} <Link to={refPath(r.other)}>{r.other}</Link>
+              {r.type} <Link to={detailRoute(r.other)}>{r.other}</Link>
             </li>
           ))}
         </ul>
@@ -97,7 +116,7 @@ export default function TicketDetail() {
         <ul>
           {backlinks.map((b) => (
             <li key={`${b.ref}-${b.comment_id ?? 'body'}`}>
-              <Link to={refPath(b.ref)}>{b.ref}</Link>
+              <Link to={detailRoute(b.ref)}>{b.ref}</Link>
               {b.comment_id !== undefined ? ` (comment #${b.comment_id})` : ' (description)'}
             </li>
           ))}
@@ -122,14 +141,4 @@ export default function TicketDetail() {
       )}
     </main>
   )
-}
-
-/** Relationship/backlink targets are bare refs (e.g. "ABC-123",
- * "ABC-F1") — route by kind so a link goes to the right detail view.
- * Decisions aren't a Milestone 2 route yet, so a decision ref falls
- * back to its project overview rather than a dead link. */
-function refPath(ref: string): string {
-  if (/-F\d+$/.test(ref)) return `/features/${ref}`
-  if (/-D\d+$/.test(ref)) return `/projects/${ref.split('-')[0]}`
-  return `/tickets/${ref}`
 }
