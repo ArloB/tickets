@@ -69,3 +69,38 @@ td {
   padding: 0.4rem 0.75rem;
   border-bottom: 1px solid light-dark(#eee, #333);
 }
+
+.board {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  align-items: start;
+}
+
+.board-column {
+  flex: 0 0 16rem;
+  background: light-dark(#f7f7f7, #1a1a1a);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.board-column ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.board-card {
+  background: light-dark(#fff, #262626);
+  border: 1px solid light-dark(#ddd, #333);
+  border-radius: 0.375rem;
+  padding: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.board-card p {
+  margin: 0.25rem 0;
+}

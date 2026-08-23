@@ -29,6 +29,7 @@ export async function listTickets(
   view: TicketListView,
   filters: TicketListFilters = {},
   cursor?: string,
+  limit?: number,
 ): Promise<TicketsPage> {
   const params = new URLSearchParams({ view })
   if (filters.status) params.set('status', filters.status)
@@ -40,6 +41,7 @@ export async function listTickets(
   if (filters.creator) params.set('creator', filters.creator)
   if (filters.updatedSince) params.set('updated_since', filters.updatedSince)
   if (cursor) params.set('cursor', cursor)
+  if (limit) params.set('limit', String(limit))
   return apiFetch<TicketsPage>(`/projects/${encodeURIComponent(projectKey)}/tickets?${params}`)
 }
 
@@ -131,6 +133,26 @@ export async function moveTicketFeature(
   return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}/move`, {
     method: 'POST',
     body: { feature: featureRef },
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+/** POST /tickets/{ref}/reorder — move within a priority group.
+ * `afterRef` must name a ticket in the *same* priority band
+ * (api/openapi.yaml's ReorderRequest doc comment) — null/undefined
+ * moves to the head of the group. A group renumber (when the gap
+ * between neighbors is exhausted) bumps no sibling versions and emits
+ * no audit event (ADR 0011), so callers never need to invalidate
+ * other cached rows' versions after a successful reorder — only the
+ * moved ticket's own response matters. */
+export async function reorderTicket(
+  ref: string,
+  afterRef: string | null,
+  expectedVersion: number,
+): Promise<TicketDetail> {
+  return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}/reorder`, {
+    method: 'POST',
+    body: { after_ref: afterRef },
     headers: ifMatchHeader(expectedVersion),
   })
 }

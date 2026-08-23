@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { createTicket, listTickets, type TicketListFilters, type TicketListView } from '../api/tickets'
+import {
+  createTicket,
+  listTickets,
+  reorderTicket,
+  updateTicketStatus,
+  type TicketListFilters,
+  type TicketListView,
+} from '../api/tickets'
 import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import type { Priority, Severity, TicketCompact, TicketType, WorkflowStatus } from '../api/types'
@@ -121,10 +128,100 @@ function NewTicketForm({
   )
 }
 
+interface BulkResult {
+  ref: string
+  ok: boolean
+  message?: string
+}
+
+function BulkActions({
+  selected,
+  tickets,
+  onUpdated,
+  onClearSelection,
+}: {
+  selected: Set<string>
+  tickets: TicketCompact[]
+  onUpdated: (updated: TicketCompact) => void
+  onClearSelection: (refs: string[]) => void
+}) {
+  const [bulkStatus, setBulkStatus] = useState<WorkflowStatus>('backlog')
+  const [running, setRunning] = useState(false)
+  const [results, setResults] = useState<BulkResult[] | null>(null)
+
+  async function apply() {
+    setRunning(true)
+    setResults(null)
+    const targets = tickets.filter((t) => selected.has(t.ref))
+    const outcomes: BulkResult[] = []
+    const succeededRefs: string[] = []
+    // No bulk endpoint exists — N sequential requests, each with its
+    // own If-Match from that row's cached version. Partial failure is
+    // the normal case here (some rows conflict, most don't), so every
+    // row gets its own result rather than one all-or-nothing banner.
+    for (const t of targets) {
+      try {
+        const updated = await updateTicketStatus(t.ref, bulkStatus, t.version)
+        onUpdated({
+          ref: updated.ref,
+          title: updated.title,
+          type: updated.type,
+          status: updated.status,
+          priority: updated.priority,
+          severity: updated.severity,
+          version: updated.version,
+          updated_at: updated.updated_at,
+        })
+        outcomes.push({ ref: t.ref, ok: true })
+        succeededRefs.push(t.ref)
+      } catch (err) {
+        outcomes.push({
+          ref: t.ref,
+          ok: false,
+          message: err instanceof ApiError ? err.message : String(err),
+        })
+      }
+    }
+    setResults(outcomes)
+    onClearSelection(succeededRefs)
+    setRunning(false)
+  }
+
+  return (
+    <div>
+      <p>{selected.size} selected</p>
+      <label>
+        Set status to
+        <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value as WorkflowStatus)}>
+          {statuses.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="button" disabled={running || selected.size === 0} onClick={() => void apply()}>
+        {running ? 'Applying…' : 'Apply to selected'}
+      </button>
+      {results && (
+        <ul>
+          {results.map((r) => (
+            <li key={r.ref}>
+              {r.ref}: {r.ok ? 'done' : `failed — ${r.message}`}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /** Backlog list — reuses the priority_queue ordering with filters
  * layered on top, per the Phase 4 plan's note that there's no
- * separate third ?view= value for a plain backlog. Bulk selection is
- * Milestone 4. */
+ * separate third ?view= value for a plain backlog. Reorder (drag
+ * substitute: Up/Down buttons, keyboard-operable) is only offered in
+ * priority_queue view, since position is meaningless for
+ * issue_register's severity ordering. */
 export default function Backlog() {
   const { key = '' } = useParams()
   const { me } = useAuth()
@@ -133,6 +230,8 @@ export default function Backlog() {
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [reorderError, setReorderError] = useState<string | null>(null)
 
   const view = (params.get('view') as TicketListView | null) ?? 'priority_queue'
   const filters: TicketListFilters = {
@@ -145,6 +244,8 @@ export default function Backlog() {
     creator: params.get('creator') ?? undefined,
     updatedSince: params.get('updated_since') ?? undefined,
   }
+  const canEdit = me?.permission === 'editor'
+  const canReorder = canEdit && view === 'priority_queue'
 
   // Re-fetches (replacing the list, not appending) whenever the filter/
   // view URL params change — "Load more" below is the only path that
@@ -152,6 +253,7 @@ export default function Backlog() {
   useEffect(() => {
     setTickets(null)
     setError(null)
+    setSelected(new Set())
     listTickets(key, view, filters)
       .then((page) => {
         setTickets(page.tickets)
@@ -181,6 +283,70 @@ export default function Backlog() {
         setNextCursor(page.next_cursor)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
+  }
+
+  function toggleSelected(ref: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(ref)) next.delete(ref)
+      else next.add(ref)
+      return next
+    })
+  }
+
+  // Patches the row in place without re-sorting or refetching — safe
+  // only because priority_queue order doesn't depend on status, so a
+  // status-only bulk change can't move a row out of its slot. Revisit
+  // this if a status-ordered view is ever added.
+  function applyBulkUpdate(updated: TicketCompact) {
+    setTickets((prev) => (prev ? prev.map((t) => (t.ref === updated.ref ? updated : t)) : prev))
+  }
+
+  function clearSelection(refs: string[]) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      for (const ref of refs) next.delete(ref)
+      return next
+    })
+  }
+
+  // Swaps ticket at `index` with its neighbor at `index + direction`
+  // (direction: -1 for up, +1 for down). Reorder is only valid within
+  // the same priority band (api/openapi.yaml's ReorderRequest doc
+  // comment) — crossing bands here would need a priority change
+  // first, so that neighbor is simply not offered.
+  //
+  // afterRef is derived from adjacency in the *currently loaded,
+  // possibly filtered* list, which doesn't necessarily match the
+  // server's true band adjacency (a filter can hide the real
+  // predecessor). So after a successful reorder we don't trust an
+  // optimistic local swap — we refetch page one of the current
+  // view/filters and let the server's order win. This does lose any
+  // extra pages pulled in via "Load more," which is an acceptable
+  // cost for a rare action.
+  async function move(index: number, direction: -1 | 1) {
+    if (!tickets) return
+    const neighborIndex = index + direction
+    if (neighborIndex < 0 || neighborIndex >= tickets.length) return
+    const ticket = tickets[index]
+    const neighbor = tickets[neighborIndex]
+    if (ticket.priority !== neighbor.priority) return
+
+    setReorderError(null)
+    const afterRef =
+      direction === 1
+        ? neighbor.ref
+        : (tickets[neighborIndex - 1]?.priority === ticket.priority
+            ? tickets[neighborIndex - 1].ref
+            : null)
+    try {
+      await reorderTicket(ticket.ref, afterRef, ticket.version)
+      const page = await listTickets(key, view, filters)
+      setTickets(page.tickets)
+      setNextCursor(page.next_cursor)
+    } catch (err) {
+      setReorderError(err instanceof ApiError ? err.message : String(err))
+    }
   }
 
   return (
@@ -261,23 +427,36 @@ export default function Backlog() {
       </form>
 
       {error && <p role="alert">{error}</p>}
+      {reorderError && <p role="alert">{reorderError}</p>}
       {!error && !tickets && <p>Loading tickets…</p>}
       {tickets && tickets.length === 0 && <p>No tickets match these filters.</p>}
       {tickets && tickets.length > 0 && (
         <table>
           <thead>
             <tr>
+              {canEdit && <th></th>}
               <th>Ref</th>
               <th>Title</th>
               <th>Type</th>
               <th>Status</th>
               <th>Priority</th>
               <th>Severity</th>
+              {canReorder && <th>Reorder</th>}
             </tr>
           </thead>
           <tbody>
-            {tickets.map((t) => (
+            {tickets.map((t, i) => (
               <tr key={t.ref}>
+                {canEdit && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(t.ref)}
+                      onChange={() => toggleSelected(t.ref)}
+                      aria-label={`Select ${t.ref}`}
+                    />
+                  </td>
+                )}
                 <td>
                   <Link to={`/tickets/${t.ref}`}>{t.ref}</Link>
                 </td>
@@ -286,12 +465,41 @@ export default function Backlog() {
                 <td>{t.status}</td>
                 <td>{t.priority}</td>
                 <td>{t.severity ?? ''}</td>
+                {canReorder && (
+                  <td>
+                    <button
+                      type="button"
+                      onClick={() => void move(i, -1)}
+                      disabled={i === 0 || tickets[i - 1].priority !== t.priority}
+                      aria-label={`Move ${t.ref} up`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void move(i, 1)}
+                      disabled={i === tickets.length - 1 || tickets[i + 1].priority !== t.priority}
+                      aria-label={`Move ${t.ref} down`}
+                    >
+                      ↓
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       )}
       {nextCursor && <button onClick={loadMore}>Load more</button>}
+
+      {canEdit && selected.size > 0 && tickets && (
+        <BulkActions
+          selected={selected}
+          tickets={tickets}
+          onUpdated={applyBulkUpdate}
+          onClearSelection={clearSelection}
+        />
+      )}
 
       {me?.permission === 'editor' &&
         (creating ? (

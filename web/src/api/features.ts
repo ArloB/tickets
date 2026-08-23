@@ -12,6 +12,7 @@ export async function listFeatures(
   projectKey: string,
   filters: FeatureListFilters = {},
   cursor?: string,
+  limit?: number,
 ): Promise<FeaturesPage> {
   const params = new URLSearchParams()
   if (filters.status) params.set('status', filters.status)
@@ -19,6 +20,7 @@ export async function listFeatures(
   if (filters.creator) params.set('creator', filters.creator)
   if (filters.updatedSince) params.set('updated_since', filters.updatedSince)
   if (cursor) params.set('cursor', cursor)
+  if (limit) params.set('limit', String(limit))
   const query = params.toString()
   return apiFetch<FeaturesPage>(
     `/projects/${encodeURIComponent(projectKey)}/features${query ? `?${query}` : ''}`,
@@ -53,9 +55,7 @@ export interface UpdateFeatureInput {
 
 /** PATCH /features/{ref} is a full-representation update despite the
  * verb (internal/httpapi/features.go's updateFeatureRequest has no
- * partial-update semantics) — resend every field. There is no
- * feature-status endpoint; features have no independent status
- * transition in this API. */
+ * partial-update semantics) — resend every field. */
 export async function updateFeature(
   ref: string,
   input: UpdateFeatureInput,
@@ -64,6 +64,22 @@ export async function updateFeature(
   return apiFetch<FeatureDetail>(`/features/${encodeURIComponent(ref)}`, {
     method: 'PATCH',
     body: input,
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+/** POST /features/{ref}/status — single-field status mutation, its
+ * own endpoint (Phase 4 addition) rather than a field on
+ * UpdateFeatureInput, mirroring updateTicketStatus's split from
+ * updateTicketFields. */
+export async function updateFeatureStatus(
+  ref: string,
+  status: WorkflowStatus,
+  expectedVersion: number,
+): Promise<FeatureDetail> {
+  return apiFetch<FeatureDetail>(`/features/${encodeURIComponent(ref)}/status`, {
+    method: 'POST',
+    body: { status },
     headers: ifMatchHeader(expectedVersion),
   })
 }

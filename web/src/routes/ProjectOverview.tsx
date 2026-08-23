@@ -110,6 +110,8 @@ export default function ProjectOverview() {
       <Markdown>{project.description}</Markdown>
       <p>
         <Link to={`/projects/${key}/backlog`}>View backlog</Link> ·{' '}
+        <Link to={`/projects/${key}/board`}>Ticket board</Link> ·{' '}
+        <Link to={`/projects/${key}/features/board`}>Feature board</Link> ·{' '}
         <Link to={`/projects/${key}/decisions`}>View decisions</Link>
       </p>
       <h2>Features</h2>
