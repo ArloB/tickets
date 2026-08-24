@@ -375,6 +375,104 @@ type decisionsPage struct {
 	NextCursor string            `json:"next_cursor,omitempty"`
 }
 
+// contentItemDetail is every plan/document-returning endpoint's
+// response shape (product spec §5.9). Representation is always
+// "markdown" in Phase 5 Step 3 — the file/path/url-specific fields join
+// this DTO when Steps 4-5 implement those representations.
+type contentItemDetail struct {
+	Ref            string    `json:"ref"`
+	Project        string    `json:"project"`
+	Kind           string    `json:"kind"`
+	Title          string    `json:"title"`
+	Representation string    `json:"representation"`
+	Body           string    `json:"body"`
+	Version        int64     `json:"version"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+func toContentItemDetail(c domain.ContentItem) contentItemDetail {
+	return contentItemDetail{
+		Ref:            c.Ref,
+		Project:        c.ProjectKey,
+		Kind:           string(c.Kind),
+		Title:          c.Title,
+		Representation: c.Representation,
+		Body:           c.Body,
+		Version:        c.Version,
+		CreatedAt:      c.CreatedAt,
+		UpdatedAt:      c.UpdatedAt,
+	}
+}
+
+// contentItemCompact is GET /projects/{key}/plans|documents' list-item
+// shape — the same compact/detail split decisionCompact uses. No body:
+// a content item list is meant to be skimmed, not read in full.
+type contentItemCompact struct {
+	Ref       string    `json:"ref"`
+	Title     string    `json:"title"`
+	Kind      string    `json:"kind"`
+	Version   int64     `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func toContentItemCompact(c domain.ContentItem) contentItemCompact {
+	return contentItemCompact{
+		Ref:       c.Ref,
+		Title:     c.Title,
+		Kind:      string(c.Kind),
+		Version:   c.Version,
+		UpdatedAt: c.UpdatedAt,
+	}
+}
+
+type contentItemsPage struct {
+	Items      []contentItemCompact `json:"items"`
+	NextCursor string               `json:"next_cursor,omitempty"`
+}
+
+// contentItemVersionEntry is one entry in a plan/document's edit
+// history (§5.9: "each edit saves a full snapshot") — mirrors
+// decisionVersionEntry.
+type contentItemVersionEntry struct {
+	Version        int64     `json:"version"`
+	Representation string    `json:"representation"`
+	Title          string    `json:"title"`
+	Body           string    `json:"body"`
+	EditedBy       string    `json:"edited_by"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+func toContentItemVersionEntry(v domain.ContentItemVersion) contentItemVersionEntry {
+	return contentItemVersionEntry{
+		Version: v.Version, Representation: v.Representation, Title: v.Title, Body: v.Body,
+		EditedBy: v.EditedBy.String(), CreatedAt: v.CreatedAt,
+	}
+}
+
+type contentItemVersionsPage struct {
+	Versions []contentItemVersionEntry `json:"versions"`
+}
+
+// contentItemDiff is GET /plans|documents/{ref}/diff's response shape:
+// a line diff of title and body between two named versions — mirrors
+// decisionDiff, narrowed to the two fields a content item has.
+type contentItemDiff struct {
+	FromVersion int64      `json:"from_version"`
+	ToVersion   int64      `json:"to_version"`
+	Title       []diffLine `json:"title"`
+	Body        []diffLine `json:"body"`
+}
+
+func toContentItemDiff(d service.ContentItemDiff) contentItemDiff {
+	return contentItemDiff{
+		FromVersion: d.FromVersion,
+		ToVersion:   d.ToVersion,
+		Title:       toDiffLines(d.Title),
+		Body:        toDiffLines(d.Body),
+	}
+}
+
 // commentDetail is every comment-returning endpoint's response shape.
 // Unlike ticketDetail/featureDetail, this mirrors domain.Comment's
 // fields directly rather than hiding some of them — DeletedAt is

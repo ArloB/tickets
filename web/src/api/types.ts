@@ -197,6 +197,64 @@ export interface DecisionDiff {
   status_to: DecisionStatus
 }
 
+// -- Content item (plan / document) --
+
+export type ContentItemKind = 'plan' | 'document'
+export type ContentItemRepresentation = 'markdown' | 'file' | 'path' | 'url'
+
+export interface ContentItemCompact {
+  ref: string
+  title: string
+  kind: ContentItemKind
+  version: number
+  updated_at: string
+}
+
+/** A plan or document (§5.9). representation is always "markdown" in
+ * Phase 5 Step 3 — file/path/url join in later steps. */
+export interface ContentItemDetail {
+  ref: string
+  project: string
+  kind: ContentItemKind
+  title: string
+  representation: ContentItemRepresentation
+  body: string
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ContentItemsPage {
+  items: ContentItemCompact[]
+  next_cursor?: string
+}
+
+/** One archived prior state of a plan or document (§5.9: "each edit
+ * saves a full snapshot"). The live state is not included here — see
+ * it via ContentItemDetail. */
+export interface ContentItemVersion {
+  version: number
+  representation: ContentItemRepresentation
+  title: string
+  body: string
+  edited_by: string
+  created_at: string
+}
+
+export interface ContentItemVersionsPage {
+  versions: ContentItemVersion[]
+}
+
+/** A line-level diff of title and body between two named versions
+ * (§5.9). Either version number may name the live version or any
+ * archived one. */
+export interface ContentItemDiff {
+  from_version: number
+  to_version: number
+  title: DiffLine[]
+  body: DiffLine[]
+}
+
 // -- Activity --
 
 export type EntityKind = 'project' | 'ticket' | 'feature' | 'decision' | 'plan' | 'document'

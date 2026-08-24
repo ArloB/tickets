@@ -91,9 +91,14 @@ writing:
 > send "") to clear an existing supersession link, the same as any
 > other omitted field there — it isn't a partial-update exception.
 >
-> record_\* is scoped to decisions (title/context/decision/rationale/
-> consequences/status/superseded_by) — plans and documents join once a
-> later phase builds them. ticket_comment is the only comment tool;
+> record_\* covers decisions, plans, and documents. record_create's kind
+> is "decision" (default), "plan", or "document". Decisions use
+> title/context/decision/rationale/consequences/status/superseded_by;
+> plans and documents use title/body (Markdown) instead — the other
+> kind's fields are simply omitted from that call. record_get/
+> record_update infer which kind a reference names from the reference
+> itself (ABC-D1 is a decision, ABC-P1 a plan, ABC-DOC1 a document), so
+> neither needs a kind argument. ticket_comment is the only comment tool;
 > comments exist on tickets only.
 >
 > ticket_comment and record_create accept an optional idempotency_key:
@@ -116,7 +121,7 @@ writing:
 | `ticket_relationships` | Read back a ticket's explicit relationships (both ends), from that ticket's perspective. |
 | `ticket_associations` | Read back a ticket or feature's `associated_with` links. |
 | `feature_get` / `features_list` / `feature_create` / `feature_update` | Feature CRUD, plus a compact paginated list. |
-| `record_get` / `record_create` / `record_update` | Decision CRUD, scoped to decisions only (see instructions text). |
+| `record_get` / `record_create` / `record_update` | Decision/plan/document CRUD via a `kind` discriminator (see instructions text). |
 
 `project_create`, `features_list`, `ticket_relationships`, and
 `ticket_associations` were added after Phase 3's live dogfood step

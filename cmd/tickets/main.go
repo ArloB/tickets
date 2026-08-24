@@ -38,6 +38,10 @@ func main() {
 		err = runComment(os.Args[2:])
 	case "decision":
 		err = runDecision(os.Args[2:])
+	case "plan":
+		err = runPlan(os.Args[2:])
+	case "document":
+		err = runDocument(os.Args[2:])
 	case "activity":
 		err = runActivity(os.Args[2:])
 	case "-h", "--help", "help":
@@ -87,5 +91,7 @@ commands:
   ticket   client commands against a running Tickets server (list, get, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
   comment  client commands against a running Tickets server (add, list, edit, delete)
   decision client commands against a running Tickets server (list, get, create, update, versions, diff)
+  plan     client commands against a running Tickets server (list, get, create, update, versions, diff)
+  document client commands against a running Tickets server (list, get, create, update, versions, diff)
   activity client commands against a running Tickets server (list)`)
 }

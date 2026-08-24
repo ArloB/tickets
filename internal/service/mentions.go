@@ -25,13 +25,12 @@ const sourceOwnBody = 0
 // and-reinsert has to be atomic with the edit, or a reader could
 // briefly observe stale or missing edges.
 //
-// A well-formed reference to a kind Phase 1 can't resolve yet
-// (decision/plan/document have no tables until Phase 5) or to a
-// specific ticket/feature that doesn't exist is silently skipped, not
-// an error — "well-formed but unresolvable references are simply not
-// stored as edges" (the Phase 1 plan's Step 4). A self-mention is
-// also skipped; the primary key doesn't reject target_entity_id ==
-// source_entity_id on its own, so this is a real guard.
+// A well-formed reference to a specific record that doesn't exist is
+// silently skipped, not an error — "well-formed but unresolvable
+// references are simply not stored as edges" (the Phase 1 plan's Step
+// 4). A self-mention is also skipped; the primary key doesn't reject
+// target_entity_id == source_entity_id on its own, so this is a real
+// guard.
 func rescanMentions(ctx context.Context, tx *sql.Tx, sourceEntityID, sourceCommentID int64, scopeProjectKey, body, now string) error {
 	if err := store.DeleteMentionsFromSource(ctx, tx, sourceEntityID, sourceCommentID); err != nil {
 		return fmt.Errorf("service: clear mentions: %w", err)
@@ -55,8 +54,9 @@ func rescanMentions(ctx context.Context, tx *sql.Tx, sourceEntityID, sourceComme
 }
 
 // resolveMentionTarget resolves a scanned reference to its internal
-// entity id, or store.ErrNotFound if it's a kind Phase 1 has no table
-// for, or a specific record that doesn't exist.
+// entity id, or store.ErrNotFound for an unresolvable kind (KindProject
+// has no reference token to scan in the first place) or a specific
+// record that doesn't exist.
 func resolveMentionTarget(ctx context.Context, tx *sql.Tx, ref domain.Reference) (int64, error) {
 	switch ref.Kind {
 	case domain.KindTicket:
@@ -77,6 +77,12 @@ func resolveMentionTarget(ctx context.Context, tx *sql.Tx, ref domain.Reference)
 			return 0, err
 		}
 		return row.ID, nil
+	case domain.KindPlan, domain.KindDocument:
+		row, err := store.GetContentItemByRef(ctx, tx, ref)
+		if err != nil {
+			return 0, err
+		}
+		return row.ID, nil
 	default:
 		return 0, store.ErrNotFound
 	}
@@ -84,8 +90,8 @@ func resolveMentionTarget(ctx context.Context, tx *sql.Tx, ref domain.Reference)
 
 // mentionTargetRef resolves a mention edge's bare target entity id
 // back to a public reference, dispatching on the target's kind — a
-// mention target is a ticket, feature, or (Phase 3) decision, the only
-// kinds resolveMentionTarget can ever have stored.
+// mention target is a ticket, feature, decision, plan, or document, the
+// only kinds resolveMentionTarget can ever have stored.
 func mentionTargetRef(ctx context.Context, q store.Querier, entityID int64) (domain.Reference, error) {
 	kind, err := store.GetEntityKindByID(ctx, q, entityID)
 	if err != nil {
@@ -98,6 +104,8 @@ func mentionTargetRef(ctx context.Context, q store.Querier, entityID int64) (dom
 		return store.GetFeatureRefByEntityID(ctx, q, entityID)
 	case domain.KindDecision:
 		return store.GetDecisionRefByEntityID(ctx, q, entityID)
+	case domain.KindPlan, domain.KindDocument:
+		return store.GetContentItemRefByEntityID(ctx, q, entityID)
 	default:
 		return domain.Reference{}, fmt.Errorf("service: unexpected mention target kind %q", kind)
 	}

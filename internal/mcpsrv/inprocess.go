@@ -347,6 +347,60 @@ func (b *InProcessBackend) UpdateDecision(ctx context.Context, in UpdateDecision
 	return toDecisionWriteResult(d), nil
 }
 
+func (b *InProcessBackend) GetContentItem(ctx context.Context, ref string) (domain.ContentItem, error) {
+	parsed, err := domain.Parse(ref)
+	if err != nil {
+		return domain.ContentItem{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: err.Error()}
+	}
+	if parsed.Kind != domain.KindPlan && parsed.Kind != domain.KindDocument {
+		return domain.ContentItem{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
+	}
+	return b.Svc.GetContentItem(ctx, parsed)
+}
+
+func (b *InProcessBackend) CreateContentItem(ctx context.Context, in CreateContentItemInput) (ContentItemWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return ContentItemWriteResult{}, err
+	}
+	req := service.CreateContentItemRequest{
+		ProjectKey: in.ProjectKey, Kind: domain.EntityKind(in.Kind), Title: in.Title, Body: in.Body,
+	}
+	var fingerprint string
+	if in.IdempotencyKey != "" {
+		fingerprint, err = mcpFingerprint("record_create", req)
+		if err != nil {
+			return ContentItemWriteResult{}, err
+		}
+	}
+	c, err := b.Svc.CreateContentItem(ctx, req, actor, service.NewCorrelationID(), in.IdempotencyKey, fingerprint)
+	if err != nil {
+		return ContentItemWriteResult{}, err
+	}
+	return toContentItemWriteResult(c), nil
+}
+
+func (b *InProcessBackend) UpdateContentItem(ctx context.Context, in UpdateContentItemInput) (ContentItemWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return ContentItemWriteResult{}, err
+	}
+	ref, perr := domain.Parse(in.Ref)
+	if perr != nil {
+		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	if ref.Kind != domain.KindPlan && ref.Kind != domain.KindDocument {
+		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
+	}
+	c, err := b.Svc.UpdateContentItem(ctx, service.UpdateContentItemRequest{
+		Ref: ref, Title: in.Title, Body: in.Body, ExpectedVersion: in.ExpectedVersion,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return ContentItemWriteResult{}, err
+	}
+	return toContentItemWriteResult(c), nil
+}
+
 func (b *InProcessBackend) CreateTicket(ctx context.Context, in CreateTicketInput) (domain.Ticket, error) {
 	actor, err := mcpActor(ctx)
 	if err != nil {

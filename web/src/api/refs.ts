@@ -3,11 +3,16 @@
 // interchangeably, docs/contracts/references.md's {KEY}-F{seq}/
 // {KEY}-D{seq}/{KEY}-{seq} shapes) and by route-building components.
 
-export type EntityKind = 'ticket' | 'feature' | 'decision'
+export type EntityKind = 'ticket' | 'feature' | 'decision' | 'plan' | 'document'
 
 export function entityKindOfRef(ref: string): EntityKind {
+  // DOC is tried before F/D so "ABC-DOC9" doesn't spuriously match the
+  // "D" branch below, mirroring internal/domain/reference.go's
+  // longest-first kind-code alternation.
+  if (/-DOC\d+$/.test(ref)) return 'document'
   if (/-F\d+$/.test(ref)) return 'feature'
   if (/-D\d+$/.test(ref)) return 'decision'
+  if (/-P\d+$/.test(ref)) return 'plan'
   return 'ticket'
 }
 
@@ -15,6 +20,8 @@ const pathSegment: Record<EntityKind, string> = {
   ticket: 'tickets',
   feature: 'features',
   decision: 'decisions',
+  plan: 'plans',
+  document: 'documents',
 }
 
 /** e.g. "tickets" for "ABC-1", "features" for "ABC-F1" — the URL
@@ -30,5 +37,7 @@ export function detailRoute(ref: string): string {
   const kind = entityKindOfRef(ref)
   if (kind === 'feature') return `/features/${ref}`
   if (kind === 'decision') return `/decisions/${ref}`
+  if (kind === 'plan') return `/plans/${ref}`
+  if (kind === 'document') return `/documents/${ref}`
   return `/tickets/${ref}`
 }

@@ -48,6 +48,8 @@ var activityEventTypes = map[string]bool{
 	eventDecisionUpdated:      true,
 	eventExternalLinkAdded:    true,
 	eventExternalLinkRemoved:  true,
+	eventContentItemCreated:   true,
+	eventContentItemUpdated:   true,
 }
 
 // activityEventTypesList is activityEventTypes' keys, computed once —
@@ -222,6 +224,12 @@ func activityEntityRef(ctx context.Context, q store.Querier, entityID int64, kin
 		return domain.Format(ref)
 	case domain.KindDecision:
 		ref, err := store.GetDecisionRefByEntityIDAnyDeletion(ctx, q, entityID)
+		if err != nil {
+			return "", err
+		}
+		return domain.Format(ref)
+	case domain.KindPlan, domain.KindDocument:
+		ref, err := store.GetContentItemRefByEntityIDAnyDeletion(ctx, q, entityID)
 		if err != nil {
 			return "", err
 		}

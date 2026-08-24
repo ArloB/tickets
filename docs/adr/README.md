@@ -23,3 +23,4 @@ assumption.
 | [0014](0014-relationships.md) | Relationship storage, inverse canonicalization, cycle detection, the `duplicate_of` correction |
 | [0015](0015-derived-mentions.md) | Derived mentions: scanner scope, code-fence exclusion, delete-and-reinsert |
 | [0016](0016-multi-project-scoping-rejection.md) | Multi-project scoping: rejects scoped bearer tokens, adopts a client-side `--project` default |
+| [0017](0017-content-items.md) | Content items: shared plan/document representation model, immutable representation, MCP `record_*` kind discriminator |

@@ -44,6 +44,10 @@ type Backend interface {
 	GetDecision(ctx context.Context, ref string) (domain.Decision, error)
 	CreateDecision(ctx context.Context, in CreateDecisionInput) (DecisionWriteResult, error)
 	UpdateDecision(ctx context.Context, in UpdateDecisionInput) (DecisionWriteResult, error)
+
+	GetContentItem(ctx context.Context, ref string) (domain.ContentItem, error)
+	CreateContentItem(ctx context.Context, in CreateContentItemInput) (ContentItemWriteResult, error)
+	UpdateContentItem(ctx context.Context, in UpdateContentItemInput) (ContentItemWriteResult, error)
 }
 
 // CreateProjectInput mirrors CreateTicketInput's shape/reasoning.
@@ -83,6 +87,27 @@ type UpdateDecisionInput struct {
 	Consequences    string
 	Status          string
 	SupersededBy    string
+	ExpectedVersion int64
+}
+
+// CreateContentItemInput is record_create's content-item path (Kind
+// "plan" or "document") — mirrors CreateDecisionInput's shape, with
+// Body (Markdown) in place of the decision-specific text fields.
+type CreateContentItemInput struct {
+	ProjectKey     string
+	Kind           string
+	Title          string
+	Body           string
+	IdempotencyKey string
+}
+
+// UpdateContentItemInput is record_update's content-item path — a
+// full-representation update mirroring UpdateDecisionInput's contract
+// (every field required, no partial merge).
+type UpdateContentItemInput struct {
+	Ref             string
+	Title           string
+	Body            string
 	ExpectedVersion int64
 }
 

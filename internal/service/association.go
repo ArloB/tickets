@@ -19,12 +19,9 @@ type associationEndpoint struct {
 	Ref      string
 }
 
-// resolveAssociationEndpoint resolves a ticket, feature, or decision
-// reference for an association edge. domain.ValidAssociationKind also
-// allows plan/document, but those still have no tables (Phase 5 work)
-// — a syntactically valid reference to one is a validation error here,
-// not a 500, since the caller supplied well-formed input the server
-// just can't act on yet.
+// resolveAssociationEndpoint resolves a ticket, feature, decision,
+// plan, or document reference for an association edge —
+// domain.ValidAssociationKind's full set.
 func resolveAssociationEndpoint(ctx context.Context, q store.Querier, field string, ref domain.Reference) (associationEndpoint, error) {
 	switch ref.Kind {
 	case domain.KindTicket:
@@ -52,6 +49,15 @@ func resolveAssociationEndpoint(ctx context.Context, q store.Querier, field stri
 		}
 		if err != nil {
 			return associationEndpoint{}, fmt.Errorf("service: look up %s decision: %w", field, err)
+		}
+		return associationEndpoint{EntityID: row.ID, UUID: row.Entity.UUID, Ref: row.Entity.Ref}, nil
+	case domain.KindPlan, domain.KindDocument:
+		row, err := store.GetContentItemByRef(ctx, q, ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return associationEndpoint{}, newNotFoundError("%s content item not found", field)
+		}
+		if err != nil {
+			return associationEndpoint{}, fmt.Errorf("service: look up %s content item: %w", field, err)
 		}
 		return associationEndpoint{EntityID: row.ID, UUID: row.Entity.UUID, Ref: row.Entity.Ref}, nil
 	default:
@@ -158,8 +164,7 @@ func (s *Service) RemoveAssociation(ctx context.Context, req RemoveAssociationRe
 }
 
 // GetAssociations returns every entity associated with ref, as public
-// references — ticket and feature refs only, the only two kinds
-// resolveAssociationEndpoint can ever have stored.
+// references.
 func (s *Service) GetAssociations(ctx context.Context, ref domain.Reference) ([]domain.Reference, error) {
 	endpoint, err := resolveAssociationEndpoint(ctx, s.store.DB(), "ref", ref)
 	if err != nil {

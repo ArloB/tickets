@@ -238,38 +238,99 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "record_get",
-		Description:  "Get a decision by its public reference (e.g. ABC-D1). Scoped to decisions in Phase 3 — plans and documents (product spec §5.9) join once Phase 5 builds them.",
-		OutputSchema: outputSchemaFor[domain.Decision](),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in recordGetInput) (*mcp.CallToolResult, domain.Decision, error) {
-		d, err := backend.GetDecision(ctx, in.Ref)
-		if err != nil {
-			return nil, domain.Decision{}, toolError(err)
+		Description:  "Get a decision, plan, or document by its public reference (e.g. ABC-D1, ABC-P1, ABC-DOC1) — product spec §5.8/§5.9.",
+		OutputSchema: outputSchemaFor[RecordDetail](),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in recordGetInput) (*mcp.CallToolResult, RecordDetail, error) {
+		kind, kerr := recordRefKind(in.Ref)
+		if kerr != nil {
+			return nil, RecordDetail{}, toolError(kerr)
 		}
-		return nil, d, nil
+		switch kind {
+		case domain.KindDecision:
+			d, err := backend.GetDecision(ctx, in.Ref)
+			if err != nil {
+				return nil, RecordDetail{}, toolError(err)
+			}
+			return nil, toRecordDetailFromDecision(d), nil
+		case domain.KindPlan, domain.KindDocument:
+			c, err := backend.GetContentItem(ctx, in.Ref)
+			if err != nil {
+				return nil, RecordDetail{}, toolError(err)
+			}
+			return nil, toRecordDetailFromContentItem(c), nil
+		default:
+			return nil, RecordDetail{}, toolError(errRecordRefKind())
+		}
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "record_create",
-		Description:  "Create a decision in a project (product spec §5.8): context, decision, rationale, and consequences. Scoped to decisions in Phase 3 — see record_get.",
-		OutputSchema: outputSchemaFor[DecisionWriteResult](),
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in recordCreateInput) (*mcp.CallToolResult, DecisionWriteResult, error) {
-		out, err := backend.CreateDecision(withCallerActor(ctx, req), CreateDecisionInput(in))
-		if err != nil {
-			return nil, DecisionWriteResult{}, toolError(err)
+		Description:  "Create a decision, plan, or document in a project (product spec §5.8/§5.9). kind is \"decision\" (default), \"plan\", or \"document\". Decisions use context/decision/rationale/consequences; plans and documents use body (Markdown) instead.",
+		OutputSchema: outputSchemaFor[RecordWriteResult](),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in recordCreateInput) (*mcp.CallToolResult, RecordWriteResult, error) {
+		ctx = withCallerActor(ctx, req)
+		kind := in.Kind
+		if kind == "" {
+			kind = "decision"
 		}
-		return nil, out, nil
+		switch kind {
+		case "decision":
+			out, err := backend.CreateDecision(ctx, CreateDecisionInput{
+				ProjectKey: in.ProjectKey, Title: in.Title, Context: in.Context, Decision: in.Decision,
+				Rationale: in.Rationale, Consequences: in.Consequences, IdempotencyKey: in.IdempotencyKey,
+			})
+			if err != nil {
+				return nil, RecordWriteResult{}, toolError(err)
+			}
+			return nil, recordWriteResultFromDecision(out), nil
+		case "plan", "document":
+			out, err := backend.CreateContentItem(ctx, CreateContentItemInput{
+				ProjectKey: in.ProjectKey, Kind: kind, Title: in.Title, Body: in.Body, IdempotencyKey: in.IdempotencyKey,
+			})
+			if err != nil {
+				return nil, RecordWriteResult{}, toolError(err)
+			}
+			return nil, recordWriteResultFromContentItem(out, kind), nil
+		default:
+			return nil, RecordWriteResult{}, toolError(&service.Error{Code: domain.ErrValidationFailed, Field: "kind", Message: "kind must be \"decision\", \"plan\", or \"document\""})
+		}
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "record_update",
-		Description:  "Replace a decision's title/context/decision/rationale/consequences/status/superseded_by — a full-representation update (send every field, even ones you're not changing, or they'll be cleared). expected_version must be the version from a prior record_get/record_create/record_update call. Scoped to decisions in Phase 3 — see record_get.",
-		OutputSchema: outputSchemaFor[DecisionWriteResult](),
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in recordUpdateInput) (*mcp.CallToolResult, DecisionWriteResult, error) {
-		out, err := backend.UpdateDecision(withCallerActor(ctx, req), UpdateDecisionInput(in))
-		if err != nil {
-			return nil, DecisionWriteResult{}, toolError(err)
+		Description:  "Replace a decision/plan/document's fields — a full-representation update (send every field that applies to this record's kind, even ones you're not changing, or they'll be cleared). Decisions: title/context/decision/rationale/consequences/status/superseded_by — omitting any of context/decision/rationale/consequences/status on a decision update is rejected as an error, not treated as a clear. Plans/documents: title/body. expected_version must be the version from a prior record_get/record_create/record_update call.",
+		OutputSchema: outputSchemaFor[RecordWriteResult](),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in recordUpdateInput) (*mcp.CallToolResult, RecordWriteResult, error) {
+		kind, kerr := recordRefKind(in.Ref)
+		if kerr != nil {
+			return nil, RecordWriteResult{}, toolError(kerr)
 		}
-		return nil, out, nil
+		ctx = withCallerActor(ctx, req)
+		switch kind {
+		case domain.KindDecision:
+			decContext, decDecision, decRationale, decConsequences, decStatus, ferr := requireDecisionUpdateFields(in)
+			if ferr != nil {
+				return nil, RecordWriteResult{}, toolError(ferr)
+			}
+			out, err := backend.UpdateDecision(ctx, UpdateDecisionInput{
+				Ref: in.Ref, Title: in.Title, Context: decContext, Decision: decDecision, Rationale: decRationale,
+				Consequences: decConsequences, Status: decStatus, SupersededBy: in.SupersededBy, ExpectedVersion: in.ExpectedVersion,
+			})
+			if err != nil {
+				return nil, RecordWriteResult{}, toolError(err)
+			}
+			return nil, recordWriteResultFromDecision(out), nil
+		case domain.KindPlan, domain.KindDocument:
+			out, err := backend.UpdateContentItem(ctx, UpdateContentItemInput{
+				Ref: in.Ref, Title: in.Title, Body: in.Body, ExpectedVersion: in.ExpectedVersion,
+			})
+			if err != nil {
+				return nil, RecordWriteResult{}, toolError(err)
+			}
+			return nil, recordWriteResultFromContentItem(out, string(kind)), nil
+		default:
+			return nil, RecordWriteResult{}, toolError(errRecordRefKind())
+		}
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -393,29 +454,91 @@ type featureUpdateInput struct {
 }
 
 type recordGetInput struct {
-	Ref string `json:"ref" jsonschema:"the decision's public reference, e.g. ABC-D1"`
+	Ref string `json:"ref" jsonschema:"the record's public reference, e.g. ABC-D1, ABC-P1, or ABC-DOC1"`
 }
 
 type recordCreateInput struct {
 	ProjectKey     string `json:"project_key" jsonschema:"the project key, e.g. ABC"`
-	Title          string `json:"title" jsonschema:"the decision's title"`
-	Context        string `json:"context,omitempty" jsonschema:"Markdown: the situation prompting this decision"`
-	Decision       string `json:"decision,omitempty" jsonschema:"Markdown: what was decided"`
-	Rationale      string `json:"rationale,omitempty" jsonschema:"Markdown: why"`
-	Consequences   string `json:"consequences,omitempty" jsonschema:"Markdown: what this decision leads to"`
-	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"optional: a client-chosen key to make a retried call safe. Reusing the same key with the same content returns the original decision instead of creating a duplicate; reusing it with different content is rejected as idempotency_key_reused."`
+	Kind           string `json:"kind,omitempty" jsonschema:"\"decision\" (default), \"plan\", or \"document\""`
+	Title          string `json:"title" jsonschema:"the record's title"`
+	Context        string `json:"context,omitempty" jsonschema:"decision only. Markdown: the situation prompting this decision"`
+	Decision       string `json:"decision,omitempty" jsonschema:"decision only. Markdown: what was decided"`
+	Rationale      string `json:"rationale,omitempty" jsonschema:"decision only. Markdown: why"`
+	Consequences   string `json:"consequences,omitempty" jsonschema:"decision only. Markdown: what this decision leads to"`
+	Body           string `json:"body,omitempty" jsonschema:"plan/document only. The Markdown body"`
+	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"optional: a client-chosen key to make a retried call safe. Reusing the same key with the same content returns the original record instead of creating a duplicate; reusing it with different content is rejected as idempotency_key_reused."`
 }
 
+// recordUpdateInput's decision-only fields are *string, not string:
+// before record_update covered plans/documents too, these had no
+// omitempty tag at all, so the JSON schema itself forced an MCP client
+// to send every one of them on every decision update (the "full-
+// representation, or it's cleared" contract enforced at the schema
+// level). Sharing this one struct across three kinds means the schema
+// can no longer require them unconditionally — a plan/document update
+// legitimately omits them — so the presence check moves from the
+// schema (server.go: rejected before this handler even runs) to this
+// handler (requireDecisionUpdateFields below): a nil pointer on a
+// decision update is a validation_failed error, not "omitted, so wipe
+// the field", the same outcome the old schema-level requiredness gave,
+// just enforced one layer later. A code-review pass caught the
+// alternative (plain `,omitempty` strings) as a real regression: an
+// MCP client omitting e.g. context on a decision update would have
+// silently cleared it instead of erroring.
 type recordUpdateInput struct {
-	Ref             string `json:"ref" jsonschema:"the decision's public reference, e.g. ABC-D1"`
-	Title           string `json:"title" jsonschema:"the decision's title — full-representation update, always required"`
-	Context         string `json:"context" jsonschema:"Markdown: the situation prompting this decision — full-representation update; resend the current value if unchanged"`
-	Decision        string `json:"decision" jsonschema:"Markdown: what was decided — full-representation update; resend the current value if unchanged"`
-	Rationale       string `json:"rationale" jsonschema:"Markdown: why — full-representation update; resend the current value if unchanged"`
-	Consequences    string `json:"consequences" jsonschema:"Markdown: what this decision leads to — full-representation update; resend the current value if unchanged"`
-	Status          string `json:"status" jsonschema:"proposed, accepted, rejected, or superseded"`
-	SupersededBy    string `json:"superseded_by,omitempty" jsonschema:"reference of the decision that supersedes this one, e.g. ABC-D9 — full-representation update; resend the current value if unchanged, or omit/empty to clear it"`
-	ExpectedVersion int64  `json:"expected_version" jsonschema:"the decision's current version, from a prior record_get/record_create/record_update call"`
+	Ref             string  `json:"ref" jsonschema:"the record's public reference, e.g. ABC-D1, ABC-P1, or ABC-DOC1"`
+	Title           string  `json:"title" jsonschema:"the record's title — full-representation update, always required"`
+	Context         *string `json:"context,omitempty" jsonschema:"decision only, and required for a decision update (omitting it on a decision update is an error, not a clear). Markdown: the situation prompting this decision — full-representation update; resend the current value if unchanged"`
+	Decision        *string `json:"decision,omitempty" jsonschema:"decision only, and required for a decision update. Markdown: what was decided — full-representation update; resend the current value if unchanged"`
+	Rationale       *string `json:"rationale,omitempty" jsonschema:"decision only, and required for a decision update. Markdown: why — full-representation update; resend the current value if unchanged"`
+	Consequences    *string `json:"consequences,omitempty" jsonschema:"decision only, and required for a decision update. Markdown: what this decision leads to — full-representation update; resend the current value if unchanged"`
+	Status          *string `json:"status,omitempty" jsonschema:"decision only, and required for a decision update. proposed, accepted, rejected, or superseded"`
+	SupersededBy    string  `json:"superseded_by,omitempty" jsonschema:"decision only. Reference of the decision that supersedes this one, e.g. ABC-D9 — full-representation update; resend the current value if unchanged, or omit/empty to clear it"`
+	Body            string  `json:"body,omitempty" jsonschema:"plan/document only. The Markdown body — full-representation update; resend the current value if unchanged"`
+	ExpectedVersion int64   `json:"expected_version" jsonschema:"the record's current version, from a prior record_get/record_create/record_update call"`
+}
+
+// requireDecisionUpdateFields checks that every decision-only field
+// record_update needs is actually present (see recordUpdateInput's doc)
+// before building a decision update request — a nil field is
+// validation_failed, never silently treated as "".
+func requireDecisionUpdateFields(in recordUpdateInput) (context, decisionText, rationale, consequences, status string, err error) {
+	for _, f := range []struct {
+		name string
+		val  *string
+	}{
+		{"context", in.Context}, {"decision", in.Decision}, {"rationale", in.Rationale},
+		{"consequences", in.Consequences}, {"status", in.Status},
+	} {
+		if f.val == nil {
+			return "", "", "", "", "", &service.Error{
+				Code: domain.ErrValidationFailed, Field: f.name,
+				Message: f.name + " is required for a decision update (full-representation update — resend the current value if unchanged)",
+			}
+		}
+	}
+	return *in.Context, *in.Decision, *in.Rationale, *in.Consequences, *in.Status, nil
+}
+
+// recordRefKind parses ref and returns its kind, restricted to the
+// three kinds record_* answers — the tool handlers' single dispatch
+// point (docs/adr/0017-content-items.md: "kind-specific branching lives
+// once, in the tool handler").
+func recordRefKind(ref string) (domain.EntityKind, error) {
+	parsed, err := domain.Parse(ref)
+	if err != nil {
+		return "", &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: err.Error()}
+	}
+	switch parsed.Kind {
+	case domain.KindDecision, domain.KindPlan, domain.KindDocument:
+		return parsed.Kind, nil
+	default:
+		return "", errRecordRefKind()
+	}
+}
+
+func errRecordRefKind() error {
+	return &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a decision, plan, or document reference"}
 }
 
 type ticketCreateInput struct {

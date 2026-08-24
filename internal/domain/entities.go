@@ -107,6 +107,42 @@ type DecisionVersion struct {
 	CreatedAt    time.Time      `json:"created_at"`
 }
 
+// ContentItem is a plan or document (§5.9) — entities.kind
+// (KindPlan/KindDocument) is the sole discriminator; content_items
+// carries no redundant kind field of its own on this struct beyond
+// what's needed to render it, mirroring Decision (docs/adr/0017-
+// content-items.md). Representation is immutable after creation: Phase
+// 5 Step 3 only ever produces "markdown"; Steps 4-5 add "file", "path",
+// and "url". Body is populated only when Representation is "markdown" —
+// the other representations' fields join this struct when their steps
+// land.
+type ContentItem struct {
+	UUID           string     `json:"-"`
+	Ref            string     `json:"ref"`
+	ProjectKey     string     `json:"project"`
+	Kind           EntityKind `json:"kind"`
+	Title          string     `json:"title"`
+	Representation string     `json:"representation"`
+	Body           string     `json:"body"`
+	Version        int64      `json:"version"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+	Creator        *ActorRef  `json:"creator,omitempty"`
+}
+
+// ContentItemVersion is one archived prior state of a ContentItem
+// (§5.9: "each edit saves a full snapshot") — the content-item analogue
+// of DecisionVersion.
+type ContentItemVersion struct {
+	Version        int64     `json:"version"`
+	Representation string    `json:"representation"`
+	Title          string    `json:"title"`
+	Body           string    `json:"body"`
+	EditedBy       ActorRef  `json:"edited_by"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 // Ticket is the base unit of actionable work (§5.5). Assignee is nil
 // until Phase 1's AssignTicket is called — every existing Phase 0
 // response keeps its exact shape (omitempty), so this addition does

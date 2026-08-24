@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/service"
 )
 
@@ -101,6 +102,12 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodPost, "/api/v1/decisions/{ref}/associations", routeEditor, s.addAssociation},
 		{http.MethodGet, "/api/v1/decisions/{ref}/associations", routeViewer, s.listAssociations},
 		{http.MethodDelete, "/api/v1/decisions/{ref}/associations/{target}", routeEditor, s.removeAssociation},
+		{http.MethodPost, "/api/v1/plans/{ref}/associations", routeEditor, s.addAssociation},
+		{http.MethodGet, "/api/v1/plans/{ref}/associations", routeViewer, s.listAssociations},
+		{http.MethodDelete, "/api/v1/plans/{ref}/associations/{target}", routeEditor, s.removeAssociation},
+		{http.MethodPost, "/api/v1/documents/{ref}/associations", routeEditor, s.addAssociation},
+		{http.MethodGet, "/api/v1/documents/{ref}/associations", routeViewer, s.listAssociations},
+		{http.MethodDelete, "/api/v1/documents/{ref}/associations/{target}", routeEditor, s.removeAssociation},
 
 		{http.MethodPost, "/api/v1/tickets/{ref}/links", routeEditor, s.addLink},
 		{http.MethodGet, "/api/v1/tickets/{ref}/links", routeViewer, s.listLinks},
@@ -111,10 +118,18 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodPost, "/api/v1/decisions/{ref}/links", routeEditor, s.addLink},
 		{http.MethodGet, "/api/v1/decisions/{ref}/links", routeViewer, s.listLinks},
 		{http.MethodDelete, "/api/v1/decisions/{ref}/links/{id}", routeEditor, s.removeLink},
+		{http.MethodPost, "/api/v1/plans/{ref}/links", routeEditor, s.addLink},
+		{http.MethodGet, "/api/v1/plans/{ref}/links", routeViewer, s.listLinks},
+		{http.MethodDelete, "/api/v1/plans/{ref}/links/{id}", routeEditor, s.removeLink},
+		{http.MethodPost, "/api/v1/documents/{ref}/links", routeEditor, s.addLink},
+		{http.MethodGet, "/api/v1/documents/{ref}/links", routeViewer, s.listLinks},
+		{http.MethodDelete, "/api/v1/documents/{ref}/links/{id}", routeEditor, s.removeLink},
 
 		{http.MethodGet, "/api/v1/tickets/{ref}/backlinks", routeViewer, s.listBacklinks},
 		{http.MethodGet, "/api/v1/features/{ref}/backlinks", routeViewer, s.listBacklinks},
 		{http.MethodGet, "/api/v1/decisions/{ref}/backlinks", routeViewer, s.listBacklinks},
+		{http.MethodGet, "/api/v1/plans/{ref}/backlinks", routeViewer, s.listBacklinks},
+		{http.MethodGet, "/api/v1/documents/{ref}/backlinks", routeViewer, s.listBacklinks},
 
 		{http.MethodPost, "/api/v1/projects/{key}/decisions", routeEditor, s.createDecision},
 		{http.MethodGet, "/api/v1/projects/{key}/decisions", routeViewer, s.listDecisions},
@@ -122,6 +137,20 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodPatch, "/api/v1/decisions/{ref}", routeEditor, s.updateDecision},
 		{http.MethodGet, "/api/v1/decisions/{ref}/versions", routeViewer, s.listDecisionVersions},
 		{http.MethodGet, "/api/v1/decisions/{ref}/diff", routeViewer, s.getDecisionDiff},
+
+		{http.MethodPost, "/api/v1/projects/{key}/plans", routeEditor, s.createContentItem(domain.KindPlan)},
+		{http.MethodGet, "/api/v1/projects/{key}/plans", routeViewer, s.listContentItems(domain.KindPlan)},
+		{http.MethodGet, "/api/v1/plans/{ref}", routeViewer, s.getContentItem(domain.KindPlan)},
+		{http.MethodPatch, "/api/v1/plans/{ref}", routeEditor, s.updateContentItem(domain.KindPlan)},
+		{http.MethodGet, "/api/v1/plans/{ref}/versions", routeViewer, s.listContentItemVersions(domain.KindPlan)},
+		{http.MethodGet, "/api/v1/plans/{ref}/diff", routeViewer, s.getContentItemDiff(domain.KindPlan)},
+
+		{http.MethodPost, "/api/v1/projects/{key}/documents", routeEditor, s.createContentItem(domain.KindDocument)},
+		{http.MethodGet, "/api/v1/projects/{key}/documents", routeViewer, s.listContentItems(domain.KindDocument)},
+		{http.MethodGet, "/api/v1/documents/{ref}", routeViewer, s.getContentItem(domain.KindDocument)},
+		{http.MethodPatch, "/api/v1/documents/{ref}", routeEditor, s.updateContentItem(domain.KindDocument)},
+		{http.MethodGet, "/api/v1/documents/{ref}/versions", routeViewer, s.listContentItemVersions(domain.KindDocument)},
+		{http.MethodGet, "/api/v1/documents/{ref}/diff", routeViewer, s.getContentItemDiff(domain.KindDocument)},
 
 		{http.MethodGet, "/api/v1/projects/{key}/activity", routeViewer, s.listActivity},
 

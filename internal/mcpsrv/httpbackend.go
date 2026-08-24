@@ -212,6 +212,83 @@ func (b *HTTPBackend) UpdateDecision(ctx context.Context, in UpdateDecisionInput
 	return toDecisionWriteResult(toDomainDecision(d)), nil
 }
 
+// toDomainContentItem converts apiclient.ContentItem into
+// domain.ContentItem — the same edge-translation role
+// toDomainDecision/toDomainTicket play for HTTPBackend.
+func toDomainContentItem(c apiclient.ContentItem) domain.ContentItem {
+	return domain.ContentItem{
+		Ref: c.Ref, ProjectKey: c.Project, Kind: domain.EntityKind(c.Kind), Title: c.Title,
+		Representation: c.Representation, Body: c.Body,
+		Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+	}
+}
+
+// contentItemURLKind maps an entity kind to the URL segment
+// apiclient's kind-parameterized ContentItem methods expect ("plans"/
+// "documents"), or "" if kind is neither — the one place this mapping
+// lives, rather than a Plan/Document case in every caller.
+func contentItemURLKind(kind domain.EntityKind) string {
+	switch kind {
+	case domain.KindPlan:
+		return "plans"
+	case domain.KindDocument:
+		return "documents"
+	default:
+		return ""
+	}
+}
+
+func (b *HTTPBackend) GetContentItem(ctx context.Context, ref string) (domain.ContentItem, error) {
+	parsed, perr := domain.Parse(ref)
+	if perr != nil {
+		return domain.ContentItem{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	urlKind := contentItemURLKind(parsed.Kind)
+	if urlKind == "" {
+		return domain.ContentItem{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
+	}
+	item, err := b.Client.GetContentItem(ctx, urlKind, ref)
+	if err != nil {
+		return domain.ContentItem{}, toServiceError(err)
+	}
+	return toDomainContentItem(item), nil
+}
+
+func (b *HTTPBackend) CreateContentItem(ctx context.Context, in CreateContentItemInput) (ContentItemWriteResult, error) {
+	projectKey := in.ProjectKey
+	if projectKey == "" {
+		projectKey = b.DefaultProject
+	}
+	if projectKey == "" {
+		return ContentItemWriteResult{}, errMissingProjectKey()
+	}
+	urlKind := contentItemURLKind(domain.EntityKind(in.Kind))
+	if urlKind == "" {
+		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "kind", Message: "kind must be \"plan\" or \"document\""}
+	}
+	item, err := b.Client.CreateContentItem(ctx, urlKind, projectKey, apiclient.CreateContentItemRequest{Title: in.Title, Body: in.Body}, in.IdempotencyKey)
+	if err != nil {
+		return ContentItemWriteResult{}, toServiceError(err)
+	}
+	return toContentItemWriteResult(toDomainContentItem(item)), nil
+}
+
+func (b *HTTPBackend) UpdateContentItem(ctx context.Context, in UpdateContentItemInput) (ContentItemWriteResult, error) {
+	parsed, perr := domain.Parse(in.Ref)
+	if perr != nil {
+		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	urlKind := contentItemURLKind(parsed.Kind)
+	if urlKind == "" {
+		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
+	}
+	item, err := b.Client.UpdateContentItem(ctx, urlKind, in.Ref, apiclient.UpdateContentItemRequest{Title: in.Title, Body: in.Body}, in.ExpectedVersion)
+	if err != nil {
+		return ContentItemWriteResult{}, toServiceError(err)
+	}
+	return toContentItemWriteResult(toDomainContentItem(item)), nil
+}
+
 func (b *HTTPBackend) GetProject(ctx context.Context, key string) (domain.Project, error) {
 	if key == "" {
 		key = b.DefaultProject

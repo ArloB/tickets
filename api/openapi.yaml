@@ -1073,6 +1073,144 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /plans/{ref}/associations:
+    post:
+      operationId: addPlanAssociation
+      summary: Add a loose associated_with link from this plan to another entity
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddAssociationRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listPlanAssociations
+      summary: List every entity associated with this plan
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssociationsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}/associations/{target}:
+    delete:
+      operationId: removePlanAssociation
+      summary: Remove an association, as supplied from either end
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/TargetRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/associations:
+    post:
+      operationId: addDocumentAssociation
+      summary: Add a loose associated_with link from this document to another entity
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddAssociationRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDocumentAssociations
+      summary: List every entity associated with this document
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssociationsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/associations/{target}:
+    delete:
+      operationId: removeDocumentAssociation
+      summary: Remove an association, as supplied from either end
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/TargetRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /tickets/{ref}/links:
     post:
       operationId: addTicketLink
@@ -1262,6 +1400,132 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /plans/{ref}/links:
+    post:
+      operationId: addPlanLink
+      summary: Add a named external link to a plan (product spec §5.11)
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddLinkRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLink'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listPlanLinks
+      summary: List a plan's external links
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}/links/{id}:
+    delete:
+      operationId: removePlanLink
+      summary: Remove a plan's external link
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/LinkID'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/links:
+    post:
+      operationId: addDocumentLink
+      summary: Add a named external link to a document (product spec §5.11)
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddLinkRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLink'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDocumentLinks
+      summary: List a document's external links
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalLinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/links/{id}:
+    delete:
+      operationId: removeDocumentLink
+      summary: Remove a document's external link
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/LinkID'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /tickets/{ref}/backlinks:
     get:
       operationId: listTicketBacklinks
@@ -1310,6 +1574,362 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BacklinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}/backlinks:
+    get:
+      operationId: listPlanBacklinks
+      summary: List entities/comments that mention this plan (product spec §6.1)
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacklinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/backlinks:
+    get:
+      operationId: listDocumentBacklinks
+      summary: List entities/comments that mention this document (product spec §6.1)
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacklinksPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /projects/{key}/plans:
+    post:
+      operationId: createPlan
+      summary: >
+        Create a plan in a project (product spec §5.9) — Markdown
+        representation only in Phase 5 Step 3; file/path/url join in
+        later steps (see the ContentItem schema).
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContentItemRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listPlans
+      summary: List a project's non-deleted plans, cursor-paginated, ordered by creation time
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItemsPage'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}:
+    get:
+      operationId: getPlan
+      summary: Get a plan by its public reference (e.g. ABC-P1)
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updatePlan
+      summary: >
+        Replace a plan's title/body (optimistic concurrency) — a
+        full-representation update, the same contract as
+        PATCH /decisions/{ref}.
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContentItemRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Version conflict — see error.current_version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /plans/{ref}/versions:
+    get:
+      operationId: listPlanVersions
+      summary: >
+        List a plan's archived prior states, oldest first (product spec
+        §5.9: "each edit saves a full snapshot"). The live state is not
+        included — see it via GET /plans/{ref}.
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItemVersionsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}/diff:
+    get:
+      operationId: getPlanDiff
+      summary: >
+        A line-level diff of title and body between two named versions
+        (product spec §5.9). Either version number may name the live
+        version or any archived one.
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItemDiff'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /projects/{key}/documents:
+    post:
+      operationId: createDocument
+      summary: >
+        Create a document in a project (product spec §5.9) — Markdown
+        representation only in Phase 5 Step 3; see the ContentItem
+        schema.
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContentItemRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDocuments
+      summary: List a project's non-deleted documents, cursor-paginated, ordered by creation time
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItemsPage'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}:
+    get:
+      operationId: getDocument
+      summary: Get a document by its public reference (e.g. ABC-DOC1)
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateDocument
+      summary: >
+        Replace a document's title/body (optimistic concurrency) — a
+        full-representation update, the same contract as
+        PATCH /decisions/{ref}.
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContentItemRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Version conflict — see error.current_version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /documents/{ref}/versions:
+    get:
+      operationId: listDocumentVersions
+      summary: >
+        List a document's archived prior states, oldest first (product
+        spec §5.9: "each edit saves a full snapshot"). The live state is
+        not included — see it via GET /documents/{ref}.
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItemVersionsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/diff:
+    get:
+      operationId: getDocumentDiff
+      summary: >
+        A line-level diff of title and body between two named versions
+        (product spec §5.9). Either version number may name the live
+        version or any archived one.
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItemDiff'
+        '400':
+          $ref: '#/components/responses/Error'
         '404':
           $ref: '#/components/responses/Error'
 
@@ -1755,6 +2375,20 @@ components:
       schema:
         type: string
         example: ABC-D1
+    PlanRef:
+      name: ref
+      in: path
+      required: true
+      schema:
+        type: string
+        example: ABC-P1
+    DocumentRef:
+      name: ref
+      in: path
+      required: true
+      schema:
+        type: string
+        example: ABC-DOC1
     IfMatch:
       name: If-Match
       in: header
@@ -2241,6 +2875,109 @@ components:
         status_from: { $ref: '#/components/schemas/DecisionStatus' }
         status_to: { $ref: '#/components/schemas/DecisionStatus' }
 
+    CreateContentItemRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        body: { type: string, description: Markdown body (representation is always "markdown" in Phase 5 Step 3) }
+
+    UpdateContentItemRequest:
+      type: object
+      required: [title, body]
+      description: Full-representation update, like PATCH /decisions/{ref}.
+      properties:
+        title: { type: string }
+        body: { type: string }
+
+    ContentItem:
+      type: object
+      required: [ref, project, kind, title, representation, body, version, created_at, updated_at]
+      additionalProperties: false
+      description: >
+        A plan or document (product spec §5.9). kind distinguishes the
+        two; representation is always "markdown" in Phase 5 Step 3.
+      properties:
+        ref: { type: string, example: ABC-P1 }
+        project: { type: string }
+        kind:
+          type: string
+          enum: [plan, document]
+        title: { type: string }
+        representation:
+          type: string
+          enum: [markdown, file, path, url]
+        body: { type: string }
+        version: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ContentItemCompact:
+      type: object
+      required: [ref, title, kind, version, updated_at]
+      additionalProperties: false
+      description: >
+        GET /projects/{key}/plans|documents' list-item shape. No body —
+        same compact/detail split as DecisionCompact.
+      properties:
+        ref: { type: string, example: ABC-P1 }
+        title: { type: string }
+        kind:
+          type: string
+          enum: [plan, document]
+        version: { type: integer }
+        updated_at: { type: string, format: date-time }
+
+    ContentItemsPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ContentItemCompact' }
+        next_cursor:
+          type: string
+          description: Opaque pagination cursor. Absent on the last page.
+
+    ContentItemVersion:
+      type: object
+      required: [version, representation, title, body, edited_by, created_at]
+      additionalProperties: false
+      description: One archived prior state of a plan or document (product spec §5.9).
+      properties:
+        version: { type: integer }
+        representation:
+          type: string
+          enum: [markdown, file, path, url]
+        title: { type: string }
+        body: { type: string }
+        edited_by: { type: string, example: 'human:alice' }
+        created_at: { type: string, format: date-time }
+
+    ContentItemVersionsPage:
+      type: object
+      properties:
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/ContentItemVersion' }
+
+    ContentItemDiff:
+      type: object
+      required: [from_version, to_version, title, body]
+      additionalProperties: false
+      description: >
+        A line-level diff of title and body between two named versions
+        (product spec §5.9). Either version number may name the live
+        version or any archived one.
+      properties:
+        from_version: { type: integer }
+        to_version: { type: integer }
+        title:
+          type: array
+          items: { $ref: '#/components/schemas/DiffLine' }
+        body:
+          type: array
+          items: { $ref: '#/components/schemas/DiffLine' }
+
     ActivityEventType:
       type: string
       description: >
@@ -2275,6 +3012,8 @@ components:
         - decision_updated
         - external_link_added
         - external_link_removed
+        - content_item_created
+        - content_item_updated
 
     ActivityEvent:
       type: object

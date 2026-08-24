@@ -43,9 +43,14 @@ record_update's superseded_by is the one optional field: omit it (or
 send "") to clear an existing supersession link, the same as any other
 omitted field there — it isn't a partial-update exception.
 
-record_* is scoped to decisions (title/context/decision/rationale/
-consequences/status/superseded_by) — plans and documents join once a
-later phase builds them. ticket_comment is the only comment tool;
+record_* covers decisions, plans, and documents. record_create's kind
+is "decision" (default), "plan", or "document". Decisions use
+title/context/decision/rationale/consequences/status/superseded_by;
+plans and documents use title/body (Markdown) instead — the other
+kind's fields are simply omitted from that call. record_get/
+record_update infer which kind a reference names from the reference
+itself (ABC-D1 is a decision, ABC-P1 a plan, ABC-DOC1 a document), so
+neither needs a kind argument. ticket_comment is the only comment tool;
 comments exist on tickets only.
 
 ticket_comment and record_create accept an optional idempotency_key:

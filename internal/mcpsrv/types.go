@@ -154,12 +154,15 @@ func toFeatureWriteResult(f domain.Feature) FeatureWriteResult {
 	return FeatureWriteResult{Ref: f.Ref, Status: string(f.Status), Priority: string(f.Priority), Version: f.Version, UpdatedAt: f.UpdatedAt}
 }
 
-// DecisionWriteResult is record_create/record_update's output —
-// product spec §7.2's "writes return the changed entity's stable
-// reference, version, and essential fields" rule. record_get still
-// returns the full domain.Decision: same reasoning as feature_get
-// (small enough, and its text fields are exactly what a caller
-// fetching by reference wants).
+// DecisionWriteResult is CreateDecision/UpdateDecision's Backend-level
+// output — product spec §7.2's "writes return the changed entity's
+// stable reference, version, and essential fields" rule. record_get
+// still returns the full record: same reasoning as feature_get (small
+// enough, and its text fields are exactly what a caller fetching by
+// reference wants). This is a Backend-internal shape, not what the
+// record_create/record_update *tools* return on the wire — see
+// RecordWriteResult, which the tool handlers (tools.go) convert this
+// into, since one tool now answers decisions, plans, and documents.
 type DecisionWriteResult struct {
 	Ref       string    `json:"ref"`
 	Status    string    `json:"status"`
@@ -169,6 +172,82 @@ type DecisionWriteResult struct {
 
 func toDecisionWriteResult(d domain.Decision) DecisionWriteResult {
 	return DecisionWriteResult{Ref: d.Ref, Status: string(d.Status), Version: d.Version, UpdatedAt: d.UpdatedAt}
+}
+
+// ContentItemWriteResult is CreateContentItem/UpdateContentItem's
+// Backend-level output — mirrors DecisionWriteResult's shape (ref,
+// version, updated_at); a content item has no status field to echo.
+type ContentItemWriteResult struct {
+	Ref       string    `json:"ref"`
+	Version   int64     `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func toContentItemWriteResult(c domain.ContentItem) ContentItemWriteResult {
+	return ContentItemWriteResult{Ref: c.Ref, Version: c.Version, UpdatedAt: c.UpdatedAt}
+}
+
+// RecordDetail is what the record_get tool actually returns on the
+// wire — a superset shape covering decisions, plans, and documents,
+// since mcp.AddTool fixes one Out type per tool registration and
+// record_* now answers all three kinds (docs/adr/0017-content-items.md).
+// Fields that don't apply to the fetched record's Kind are omitted
+// (omitempty) rather than sent as null/""/0 — a plan or document's
+// response has no context/decision/rationale/consequences/status/
+// superseded_by, and a decision's response has no body.
+type RecordDetail struct {
+	Ref          string    `json:"ref"`
+	Project      string    `json:"project"`
+	Kind         string    `json:"kind"`
+	Title        string    `json:"title"`
+	Context      string    `json:"context,omitempty"`
+	Decision     string    `json:"decision,omitempty"`
+	Rationale    string    `json:"rationale,omitempty"`
+	Consequences string    `json:"consequences,omitempty"`
+	Status       string    `json:"status,omitempty"`
+	SupersededBy *string   `json:"superseded_by,omitempty"`
+	Body         string    `json:"body,omitempty"`
+	Version      int64     `json:"version"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+func toRecordDetailFromDecision(d domain.Decision) RecordDetail {
+	return RecordDetail{
+		Ref: d.Ref, Project: d.ProjectKey, Kind: "decision", Title: d.Title,
+		Context: d.Context, Decision: d.Decision, Rationale: d.Rationale, Consequences: d.Consequences,
+		Status: string(d.Status), SupersededBy: d.SupersededBy,
+		Version: d.Version, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
+	}
+}
+
+func toRecordDetailFromContentItem(c domain.ContentItem) RecordDetail {
+	return RecordDetail{
+		Ref: c.Ref, Project: c.ProjectKey, Kind: string(c.Kind), Title: c.Title, Body: c.Body,
+		Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+	}
+}
+
+// RecordWriteResult is what record_create/record_update actually
+// return on the wire — generalizes DecisionWriteResult/
+// ContentItemWriteResult to cover whichever kind was written. Kind
+// lets a caller confirm what got created without a separate
+// record_get, the same way Ref/Version already let it confirm the
+// rest.
+type RecordWriteResult struct {
+	Ref       string    `json:"ref"`
+	Kind      string    `json:"kind"`
+	Status    string    `json:"status,omitempty"`
+	Version   int64     `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func recordWriteResultFromDecision(d DecisionWriteResult) RecordWriteResult {
+	return RecordWriteResult{Ref: d.Ref, Kind: "decision", Status: d.Status, Version: d.Version, UpdatedAt: d.UpdatedAt}
+}
+
+func recordWriteResultFromContentItem(c ContentItemWriteResult, kind string) RecordWriteResult {
+	return RecordWriteResult{Ref: c.Ref, Kind: kind, Version: c.Version, UpdatedAt: c.UpdatedAt}
 }
 
 // toProjectCompact/toTicketCompact convert from internal/domain's full

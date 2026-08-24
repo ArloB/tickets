@@ -769,9 +769,9 @@ func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
 	if createRes.IsError {
 		t.Fatalf("record_create returned a tool error: %+v", createRes.Content)
 	}
-	created := decodeResult[DecisionWriteResult](t, createRes)
-	if created.Ref == "" || created.Status != "proposed" || created.Version != 1 {
-		t.Errorf("record_create result = %+v, want a ref, status=proposed, version=1", created)
+	created := decodeResult[RecordWriteResult](t, createRes)
+	if created.Ref == "" || created.Kind != "decision" || created.Status != "proposed" || created.Version != 1 {
+		t.Errorf("record_create result = %+v, want a ref, kind=decision, status=proposed, version=1", created)
 	}
 
 	getRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_get", Arguments: map[string]any{"ref": created.Ref}})
@@ -781,9 +781,9 @@ func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
 	if getRes.IsError {
 		t.Fatalf("record_get returned a tool error: %+v", getRes.Content)
 	}
-	got := decodeResult[domain.Decision](t, getRes)
-	if got.Title != "Use SQLite" || got.Rationale != "Simplicity" || got.Consequences != "Simpler ops" {
-		t.Errorf("record_get result = %+v, want title=%q rationale=Simplicity consequences=%q", got, "Use SQLite", "Simpler ops")
+	got := decodeResult[RecordDetail](t, getRes)
+	if got.Kind != "decision" || got.Title != "Use SQLite" || got.Rationale != "Simplicity" || got.Consequences != "Simpler ops" {
+		t.Errorf("record_get result = %+v, want kind=decision title=%q rationale=Simplicity consequences=%q", got, "Use SQLite", "Simpler ops")
 	}
 
 	// record_update is a full-representation update: every field
@@ -803,7 +803,7 @@ func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
 	if updateRes.IsError {
 		t.Fatalf("record_update returned a tool error: %+v", updateRes.Content)
 	}
-	updated := decodeResult[DecisionWriteResult](t, updateRes)
+	updated := decodeResult[RecordWriteResult](t, updateRes)
 	if updated.Status != "accepted" || updated.Version != got.Version+1 {
 		t.Errorf("record_update result = %+v, want status=accepted version=%d", updated, got.Version+1)
 	}
@@ -817,7 +817,7 @@ func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CallTool record_create (second): %v", err)
 	}
-	second := decodeResult[DecisionWriteResult](t, secondRes)
+	second := decodeResult[RecordWriteResult](t, secondRes)
 
 	supersedeRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_update", Arguments: map[string]any{
 		"ref": created.Ref, "title": got.Title, "context": got.Context, "decision": got.Decision, "rationale": got.Rationale,
@@ -834,7 +834,7 @@ func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CallTool record_get (final): %v", err)
 	}
-	final := decodeResult[domain.Decision](t, finalGetRes)
+	final := decodeResult[RecordDetail](t, finalGetRes)
 	if final.Consequences != "Simpler ops" {
 		t.Errorf("final record_get consequences = %q, want %q (must survive the supersede update)", final.Consequences, "Simpler ops")
 	}
@@ -868,6 +868,146 @@ func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("ticket associations = %+v, want it to include decision %s", associated, created.Ref)
+	}
+}
+
+// TestRecordToolsContentItemKindOverRealStreamableHTTP proves record_*'s
+// kind discriminator (Phase 5 Step 3) actually dispatches to
+// CreateContentItem/GetContentItem/UpdateContentItem for kind="plan"
+// and kind="document" — not just that the old decision path still
+// works (TestRecordToolsOverRealStreamableHTTP covers that).
+func TestRecordToolsContentItemKindOverRealStreamableHTTP(t *testing.T) {
+	backend, _ := newTestBackend(t)
+	raw, _ := mustIssueAgentToken(t, backend, "codex")
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	for _, kind := range []string{"plan", "document"} {
+		t.Run(kind, func(t *testing.T) {
+			createRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_create", Arguments: map[string]any{
+				"project_key": "ABC", "kind": kind, "title": "Rollout", "body": "Step one",
+			}})
+			if err != nil {
+				t.Fatalf("CallTool record_create: %v", err)
+			}
+			if createRes.IsError {
+				t.Fatalf("record_create returned a tool error: %+v", createRes.Content)
+			}
+			created := decodeResult[RecordWriteResult](t, createRes)
+			if created.Ref == "" || created.Kind != kind || created.Version != 1 || created.Status != "" {
+				t.Errorf("record_create result = %+v, want a ref, kind=%s, version=1, no status", created, kind)
+			}
+
+			getRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_get", Arguments: map[string]any{"ref": created.Ref}})
+			if err != nil {
+				t.Fatalf("CallTool record_get: %v", err)
+			}
+			if getRes.IsError {
+				t.Fatalf("record_get returned a tool error: %+v", getRes.Content)
+			}
+			got := decodeResult[RecordDetail](t, getRes)
+			if got.Kind != kind || got.Title != "Rollout" || got.Body != "Step one" || got.Context != "" {
+				t.Errorf("record_get result = %+v, want kind=%s title=Rollout body=%q and no decision-only fields", got, kind, "Step one")
+			}
+
+			updateRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_update", Arguments: map[string]any{
+				"ref": created.Ref, "title": "Rollout (final)", "body": "Step one\nStep two", "expected_version": got.Version,
+			}})
+			if err != nil {
+				t.Fatalf("CallTool record_update: %v", err)
+			}
+			if updateRes.IsError {
+				t.Fatalf("record_update returned a tool error: %+v", updateRes.Content)
+			}
+			updated := decodeResult[RecordWriteResult](t, updateRes)
+			if updated.Kind != kind || updated.Version != got.Version+1 {
+				t.Errorf("record_update result = %+v, want kind=%s version=%d", updated, kind, got.Version+1)
+			}
+
+			finalGetRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_get", Arguments: map[string]any{"ref": created.Ref}})
+			if err != nil {
+				t.Fatalf("CallTool record_get (final): %v", err)
+			}
+			final := decodeResult[RecordDetail](t, finalGetRes)
+			if final.Body != "Step one\nStep two" {
+				t.Errorf("final record_get body = %q, want %q", final.Body, "Step one\nStep two")
+			}
+		})
+	}
+}
+
+// TestRecordUpdateRejectsOmittedDecisionField is a regression test for
+// a code-review finding: sharing recordUpdateInput's schema across
+// decisions and content items meant its decision-only fields
+// (context/decision/rationale/consequences/status) had to gain
+// `omitempty` — and a first version of this change let an MCP client
+// omit e.g. context on a decision update, silently wiping it instead
+// of erroring (the "resend every field or it's cleared" contract this
+// tool has always documented). requireDecisionUpdateFields (tools.go)
+// fixes this by making those fields *string and rejecting a nil one
+// with validation_failed — this proves an omitted field errors rather
+// than reaching the service layer as "".
+func TestRecordUpdateRejectsOmittedDecisionField(t *testing.T) {
+	backend, _ := newTestBackend(t)
+	raw, _ := mustIssueAgentToken(t, backend, "codex")
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	createRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_create", Arguments: map[string]any{
+		"project_key": "ABC", "title": "Use SQLite", "context": "We need a store", "decision": "Use SQLite",
+		"rationale": "Simplicity", "consequences": "Simpler ops",
+	}})
+	if err != nil {
+		t.Fatalf("CallTool record_create: %v", err)
+	}
+	created := decodeResult[RecordWriteResult](t, createRes)
+
+	// Omit "context" entirely — a real client bug this test guards
+	// against reintroducing.
+	updateRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_update", Arguments: map[string]any{
+		"ref": created.Ref, "title": "Use SQLite", "decision": "Use SQLite", "rationale": "Simplicity",
+		"consequences": "Simpler ops", "status": "accepted", "expected_version": created.Version,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool record_update: %v", err)
+	}
+	if !updateRes.IsError {
+		t.Fatalf("record_update omitting context: want a tool error, got success: %+v", updateRes.Content)
+	}
+
+	// The decision's context must be untouched — no partial write
+	// happened before the rejection.
+	getRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_get", Arguments: map[string]any{"ref": created.Ref}})
+	if err != nil {
+		t.Fatalf("CallTool record_get: %v", err)
+	}
+	got := decodeResult[RecordDetail](t, getRes)
+	if got.Context != "We need a store" {
+		t.Errorf("decision context after a rejected update = %q, want it unchanged at %q", got.Context, "We need a store")
 	}
 }
 

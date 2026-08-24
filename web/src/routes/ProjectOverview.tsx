@@ -113,6 +113,8 @@ export default function ProjectOverview() {
         <Link to={`/projects/${key}/board`}>Ticket board</Link> ·{' '}
         <Link to={`/projects/${key}/features/board`}>Feature board</Link> ·{' '}
         <Link to={`/projects/${key}/decisions`}>View decisions</Link> ·{' '}
+        <Link to={`/projects/${key}/plans`}>Plans</Link> ·{' '}
+        <Link to={`/projects/${key}/documents`}>Documents</Link> ·{' '}
         <Link to={`/projects/${key}/activity`}>Activity</Link>
       </p>
       <h2>Features</h2>
