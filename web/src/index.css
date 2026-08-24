@@ -24,13 +24,24 @@ main {
 nav {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
   padding: 0.75rem 2rem;
   border-bottom: 1px solid light-dark(#ddd, #333);
 }
 
 nav > span {
   margin-left: auto;
+}
+
+@media (max-width: 30rem) {
+  main {
+    padding: 1rem;
+  }
+
+  nav {
+    padding: 0.75rem 1rem;
+  }
 }
 
 form {
@@ -61,6 +72,14 @@ main.centered-form form {
 table {
   border-collapse: collapse;
   width: 100%;
+}
+
+/* A wide table (backlog's 7-8 columns, the admin token list) would
+   otherwise force the whole page to scroll horizontally at narrow
+   viewport widths — contain the overflow to just the table, the same
+   way .board already contains a kanban board's overflow. */
+.table-scroll {
+  overflow-x: auto;
 }
 
 th,

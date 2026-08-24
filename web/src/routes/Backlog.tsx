@@ -483,64 +483,66 @@ export default function Backlog() {
       {!error && !tickets && <p>Loading tickets…</p>}
       {tickets && tickets.length === 0 && <p>No tickets match these filters.</p>}
       {tickets && tickets.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              {canEdit && <th>Select</th>}
-              <th>Ref</th>
-              <th>Title</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Priority</th>
-              <th>Severity</th>
-              {canReorder && <th>Reorder</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {tickets.map((t, i) => (
-              <tr key={t.ref}>
-                {canEdit && (
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selected.has(t.ref)}
-                      onChange={() => toggleSelected(t.ref)}
-                      aria-label={`Select ${t.ref}`}
-                    />
-                  </td>
-                )}
-                <td>
-                  <Link to={`/tickets/${t.ref}`}>{t.ref}</Link>
-                </td>
-                <td>{t.title}</td>
-                <td>{t.type}</td>
-                <td>{t.status}</td>
-                <td>{t.priority}</td>
-                <td>{t.severity ?? ''}</td>
-                {canReorder && (
-                  <td>
-                    <button
-                      type="button"
-                      onClick={() => void move(i, -1)}
-                      disabled={i === 0 || tickets[i - 1].priority !== t.priority}
-                      aria-label={`Move ${t.ref} up`}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void move(i, 1)}
-                      disabled={i === tickets.length - 1 || tickets[i + 1].priority !== t.priority}
-                      aria-label={`Move ${t.ref} down`}
-                    >
-                      ↓
-                    </button>
-                  </td>
-                )}
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                {canEdit && <th>Select</th>}
+                <th>Ref</th>
+                <th>Title</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Severity</th>
+                {canReorder && <th>Reorder</th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {tickets.map((t, i) => (
+                <tr key={t.ref}>
+                  {canEdit && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(t.ref)}
+                        onChange={() => toggleSelected(t.ref)}
+                        aria-label={`Select ${t.ref}`}
+                      />
+                    </td>
+                  )}
+                  <td>
+                    <Link to={`/tickets/${t.ref}`}>{t.ref}</Link>
+                  </td>
+                  <td>{t.title}</td>
+                  <td>{t.type}</td>
+                  <td>{t.status}</td>
+                  <td>{t.priority}</td>
+                  <td>{t.severity ?? ''}</td>
+                  {canReorder && (
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => void move(i, -1)}
+                        disabled={i === 0 || tickets[i - 1].priority !== t.priority}
+                        aria-label={`Move ${t.ref} up`}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void move(i, 1)}
+                        disabled={i === tickets.length - 1 || tickets[i + 1].priority !== t.priority}
+                        aria-label={`Move ${t.ref} down`}
+                      >
+                        ↓
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {nextCursor && <button onClick={loadMore}>Load more</button>}
 

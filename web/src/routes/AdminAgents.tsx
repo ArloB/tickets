@@ -145,34 +145,36 @@ function AgentTokens({ agentName }: { agentName: string }) {
       ) : tokens.length === 0 ? (
         <p>No tokens yet.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Description</th>
-              <th>Created</th>
-              <th>Expires</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {tokens.map((t) => (
-              <tr key={t.id}>
-                <td>{t.description}</td>
-                <td>{t.created_at}</td>
-                <td>{t.expires_at ?? 'never'}</td>
-                <td>{t.revoked_at ? `revoked ${t.revoked_at}` : 'active'}</td>
-                <td>
-                  {!t.revoked_at && (
-                    <button type="button" onClick={() => void revoke(t.id)}>
-                      Revoke
-                    </button>
-                  )}
-                </td>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Created</th>
+                <th>Expires</th>
+                <th>Status</th>
+                <th>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {tokens.map((t) => (
+                <tr key={t.id}>
+                  <td>{t.description}</td>
+                  <td>{t.created_at}</td>
+                  <td>{t.expires_at ?? 'never'}</td>
+                  <td>{t.revoked_at ? `revoked ${t.revoked_at}` : 'active'}</td>
+                  <td>
+                    {!t.revoked_at && (
+                      <button type="button" onClick={() => void revoke(t.id)}>
+                        Revoke
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <form
         onSubmit={(e) => {

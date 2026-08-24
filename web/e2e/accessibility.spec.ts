@@ -62,7 +62,15 @@ test.describe('accessibility smoke', () => {
 
   test('admin agents', async ({ page }) => {
     await login(page)
+    // Seed and expand an agent with a token so the token table (and
+    // its column headers) actually renders under axe — the empty-list
+    // state alone previously let an empty <th></th> slip past.
+    const name = randomKey('a11y').toLowerCase()
+    await apiPost(page.request, '/agents', { name, description: 'seeded for a11y check' })
+    await apiPost(page.request, `/agents/${name}/tokens`, { description: 'seeded token' })
     await page.goto('/admin/agents')
+    await page.getByRole('button', { name }).click()
+    await expect(page.getByRole('button', { name: 'Revoke' })).toBeVisible()
     await assertNoViolations(page)
   })
 })
