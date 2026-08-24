@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   createTicket,
+  getTicket,
   listTickets,
   reorderTicket,
   updateTicketStatus,
@@ -139,19 +140,30 @@ function BulkActions({
   tickets,
   onUpdated,
   onClearSelection,
+  results,
+  onResults,
 }: {
   selected: Set<string>
   tickets: TicketCompact[]
   onUpdated: (updated: TicketCompact) => void
   onClearSelection: (refs: string[]) => void
+  results: BulkResult[] | null
+  // Lifted to the parent rather than kept as this component's own
+  // state: a fully-successful apply clears every succeeded ref from
+  // `selected` (see onClearSelection below), which would otherwise
+  // drop `selected.size` to 0 and unmount this component — in the
+  // very same render as the results it just produced — before the
+  // "done"/"failed" list ever reached the DOM. The parent keeps this
+  // component mounted whenever there's a result to show, regardless
+  // of what's still selected.
+  onResults: (results: BulkResult[] | null) => void
 }) {
   const [bulkStatus, setBulkStatus] = useState<WorkflowStatus>('backlog')
   const [running, setRunning] = useState(false)
-  const [results, setResults] = useState<BulkResult[] | null>(null)
 
   async function apply() {
     setRunning(true)
-    setResults(null)
+    onResults(null)
     const targets = tickets.filter((t) => selected.has(t.ref))
     const outcomes: BulkResult[] = []
     const succeededRefs: string[] = []
@@ -180,9 +192,32 @@ function BulkActions({
           ok: false,
           message: err instanceof ApiError ? err.message : String(err),
         })
+        // A failed row stays selected for retry, but retrying with the
+        // same stale version would just 409 again forever — refresh
+        // the row's cached version (and any other fields someone else
+        // changed) from the server so a second "Apply" attempt has a
+        // real shot at succeeding.
+        if (err instanceof ApiError && err.code === 'version_conflict') {
+          try {
+            const live = await getTicket(t.ref)
+            onUpdated({
+              ref: live.ref,
+              title: live.title,
+              type: live.type,
+              status: live.status,
+              priority: live.priority,
+              severity: live.severity,
+              version: live.version,
+              updated_at: live.updated_at,
+            })
+          } catch {
+            // Best-effort refresh — if this also fails, the row is
+            // still selected and the visible error still explains why.
+          }
+        }
       }
     }
-    setResults(outcomes)
+    onResults(outcomes)
     onClearSelection(succeededRefs)
     setRunning(false)
   }
@@ -231,7 +266,9 @@ export default function Backlog() {
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkResults, setBulkResults] = useState<BulkResult[] | null>(null)
   const [reorderError, setReorderError] = useState<string | null>(null)
+  const [moveAnnouncement, setMoveAnnouncement] = useState('')
 
   const view = (params.get('view') as TicketListView | null) ?? 'priority_queue'
   const filters: TicketListFilters = {
@@ -254,6 +291,7 @@ export default function Backlog() {
     setTickets(null)
     setError(null)
     setSelected(new Set())
+    setBulkResults(null)
     listTickets(key, view, filters)
       .then((page) => {
         setTickets(page.tickets)
@@ -286,6 +324,10 @@ export default function Backlog() {
   }
 
   function toggleSelected(ref: string) {
+    // A fresh checkbox change means the user is building a new batch,
+    // not still reviewing the last one — drop any stale results so
+    // they don't linger next to an unrelated selection.
+    setBulkResults(null)
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(ref)) next.delete(ref)
@@ -344,6 +386,13 @@ export default function Backlog() {
       const page = await listTickets(key, view, filters)
       setTickets(page.tickets)
       setNextCursor(page.next_cursor)
+      // The refetch swaps in fresh row objects, and moving to the head
+      // of a priority band disables the button that triggered this
+      // (i === 0 now) — the browser drops focus off a disabled button
+      // with nothing else to say what happened. An aria-live
+      // announcement is the standard fallback for a screen-reader user
+      // when the visual move itself is the only other feedback.
+      setMoveAnnouncement(`Moved ${ticket.ref} ${direction === -1 ? 'up' : 'down'}`)
     } catch (err) {
       setReorderError(err instanceof ApiError ? err.message : String(err))
     }
@@ -426,6 +475,9 @@ export default function Backlog() {
         </label>
       </form>
 
+      <p aria-live="polite" className="sr-only">
+        {moveAnnouncement}
+      </p>
       {error && <p role="alert">{error}</p>}
       {reorderError && <p role="alert">{reorderError}</p>}
       {!error && !tickets && <p>Loading tickets…</p>}
@@ -434,7 +486,7 @@ export default function Backlog() {
         <table>
           <thead>
             <tr>
-              {canEdit && <th></th>}
+              {canEdit && <th>Select</th>}
               <th>Ref</th>
               <th>Title</th>
               <th>Type</th>
@@ -492,12 +544,14 @@ export default function Backlog() {
       )}
       {nextCursor && <button onClick={loadMore}>Load more</button>}
 
-      {canEdit && selected.size > 0 && tickets && (
+      {canEdit && (selected.size > 0 || bulkResults !== null) && tickets && (
         <BulkActions
           selected={selected}
           tickets={tickets}
           onUpdated={applyBulkUpdate}
           onClearSelection={clearSelection}
+          results={bulkResults}
+          onResults={setBulkResults}
         />
       )}
 
