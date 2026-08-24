@@ -16,6 +16,7 @@ function NewDecisionForm({
   const [context, setContext] = useState('')
   const [decision, setDecision] = useState('')
   const [rationale, setRationale] = useState('')
+  const [consequences, setConsequences] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,7 +24,7 @@ function NewDecisionForm({
     setBusy(true)
     setError(null)
     try {
-      const created = await createDecision(projectKey, { title, context, decision, rationale })
+      const created = await createDecision(projectKey, { title, context, decision, rationale, consequences })
       onCreated({
         ref: created.ref,
         title: created.title,
@@ -35,6 +36,7 @@ function NewDecisionForm({
       setContext('')
       setDecision('')
       setRationale('')
+      setConsequences('')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
     } finally {
@@ -64,6 +66,10 @@ function NewDecisionForm({
       <label>
         Rationale
         <textarea value={rationale} onChange={(e) => setRationale(e.target.value)} rows={4} />
+      </label>
+      <label>
+        Consequences
+        <textarea value={consequences} onChange={(e) => setConsequences(e.target.value)} rows={4} />
       </label>
       {error && <p role="alert">{error}</p>}
       <button type="submit" disabled={busy}>

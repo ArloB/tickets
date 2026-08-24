@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { getDecision } from '../api/decisions'
+import { getDecision, getDecisionDiff, listDecisionVersions } from '../api/decisions'
 import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
 import { listBacklinks } from '../api/backlinks'
@@ -10,8 +10,138 @@ import { Markdown } from '../components/Markdown'
 import { DecisionFieldsForm } from '../components/DecisionFieldsForm'
 import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
+import { DiffView } from '../components/DiffView'
 import { useAuth } from '../auth/AuthContext'
-import type { Backlink, DecisionDetail as DecisionDetailDto, ExternalLink } from '../api/types'
+import type {
+  Backlink,
+  DecisionDiff,
+  DecisionDetail as DecisionDetailDto,
+  DecisionVersion,
+  ExternalLink,
+} from '../api/types'
+
+function VersionHistory({ decision }: { decision: DecisionDetailDto }) {
+  const [versions, setVersions] = useState<DecisionVersion[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [from, setFrom] = useState<number | null>(null)
+  const [to, setTo] = useState<number>(decision.version)
+  const [diff, setDiff] = useState<DecisionDiff | null>(null)
+  const [diffError, setDiffError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setVersions(null)
+    setDiff(null)
+    listDecisionVersions(decision.ref)
+      .then((page) => {
+        setVersions(page.versions)
+        setFrom(page.versions.length > 0 ? page.versions[0].version : null)
+      })
+      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
+  }, [decision.ref])
+
+  async function showDiff() {
+    if (from === null) return
+    setDiffError(null)
+    try {
+      setDiff(await getDecisionDiff(decision.ref, from, to))
+    } catch (err) {
+      setDiffError(err instanceof ApiError ? err.message : String(err))
+    }
+  }
+
+  if (error) return <p role="alert">{error}</p>
+  if (!versions) return <p>Loading version history…</p>
+  if (versions.length === 0) return <p>No prior versions — this is the only version.</p>
+
+  const allVersions = [...versions.map((v) => v.version), decision.version]
+
+  return (
+    <div>
+      <table>
+        <thead>
+          <tr>
+            <th>Version</th>
+            <th>Title</th>
+            <th>Status</th>
+            <th>Edited by</th>
+            <th>Edited at</th>
+          </tr>
+        </thead>
+        <tbody>
+          {versions.map((v) => (
+            <tr key={v.version}>
+              <td>{v.version}</td>
+              <td>{v.title}</td>
+              <td>{v.status}</td>
+              <td>{v.edited_by}</td>
+              <td>{new Date(v.created_at).toLocaleString()}</td>
+            </tr>
+          ))}
+          <tr>
+            <td>{decision.version} (current)</td>
+            <td>{decision.title}</td>
+            <td>{decision.status}</td>
+            <td colSpan={2}></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          void showDiff()
+        }}
+      >
+        <label>
+          From
+          <select value={from ?? ''} onChange={(e) => setFrom(Number(e.target.value))}>
+            {allVersions.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          To
+          <select value={to} onChange={(e) => setTo(Number(e.target.value))}>
+            {allVersions.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit">Show diff</button>
+      </form>
+
+      {diffError && <p role="alert">{diffError}</p>}
+      {diff && (
+        <div data-testid="version-diff">
+          {diff.status_from !== diff.status_to && (
+            <p>
+              Status: {diff.status_from} → {diff.status_to}
+            </p>
+          )}
+          {(
+            [
+              ['Title', diff.title],
+              ['Context', diff.context],
+              ['Decision', diff.decision],
+              ['Rationale', diff.rationale],
+              ['Consequences', diff.consequences],
+            ] as const
+          ).map(([label, lines]) => (
+            <div key={label}>
+              <h3>{label}</h3>
+              <DiffView lines={lines} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function DecisionDetail() {
   const { ref = '' } = useParams()
@@ -72,6 +202,12 @@ export default function DecisionDetail() {
         Project: <Link to={`/projects/${decision.project}`}>{decision.project}</Link> ·{' '}
         {decision.status}
       </p>
+      {decision.superseded_by && (
+        <p>
+          Superseded by:{' '}
+          <Link to={detailRoute(decision.superseded_by)}>{decision.superseded_by}</Link>
+        </p>
+      )}
       {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
 
       <h2>Context</h2>
@@ -82,6 +218,9 @@ export default function DecisionDetail() {
 
       <h2>Rationale</h2>
       <Markdown>{decision.rationale}</Markdown>
+
+      <h2>Consequences</h2>
+      <Markdown>{decision.consequences}</Markdown>
 
       <h2>Associations</h2>
       {associated && (
@@ -111,6 +250,9 @@ export default function DecisionDetail() {
           ))}
         </ul>
       )}
+
+      <h2>Version history</h2>
+      <VersionHistory decision={decision} />
     </main>
   )
 }

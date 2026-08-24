@@ -170,7 +170,8 @@ func (b *HTTPBackend) UpdateFeature(ctx context.Context, in UpdateFeatureInput) 
 func toDomainDecision(d apiclient.Decision) domain.Decision {
 	return domain.Decision{
 		Ref: d.Ref, ProjectKey: d.Project, Title: d.Title, Context: d.Context,
-		Decision: d.Decision, Rationale: d.Rationale, Status: domain.DecisionStatus(d.Status),
+		Decision: d.Decision, Rationale: d.Rationale, Consequences: d.Consequences,
+		Status: domain.DecisionStatus(d.Status), SupersededBy: d.SupersededBy,
 		Version: d.Version, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
 }
@@ -192,7 +193,7 @@ func (b *HTTPBackend) CreateDecision(ctx context.Context, in CreateDecisionInput
 		return DecisionWriteResult{}, errMissingProjectKey()
 	}
 	d, err := b.Client.CreateDecision(ctx, projectKey, apiclient.CreateDecisionRequest{
-		Title: in.Title, Context: in.Context, Decision: in.Decision, Rationale: in.Rationale,
+		Title: in.Title, Context: in.Context, Decision: in.Decision, Rationale: in.Rationale, Consequences: in.Consequences,
 	}, in.IdempotencyKey)
 	if err != nil {
 		return DecisionWriteResult{}, toServiceError(err)
@@ -202,7 +203,8 @@ func (b *HTTPBackend) CreateDecision(ctx context.Context, in CreateDecisionInput
 
 func (b *HTTPBackend) UpdateDecision(ctx context.Context, in UpdateDecisionInput) (DecisionWriteResult, error) {
 	d, err := b.Client.UpdateDecision(ctx, in.Ref, apiclient.UpdateDecisionRequest{
-		Title: in.Title, Context: in.Context, Decision: in.Decision, Rationale: in.Rationale, Status: in.Status,
+		Title: in.Title, Context: in.Context, Decision: in.Decision, Rationale: in.Rationale,
+		Consequences: in.Consequences, Status: in.Status, SupersededBy: in.SupersededBy,
 	}, in.ExpectedVersion)
 	if err != nil {
 		return DecisionWriteResult{}, toServiceError(err)

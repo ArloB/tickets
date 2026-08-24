@@ -64,26 +64,47 @@ type Feature struct {
 	Creator   *ActorRef  `json:"creator,omitempty"`
 }
 
-// Decision is a first-class project record (§5.8). Phase 3 ships a
-// minimal slice — title, context, decision, rationale, status only —
-// just enough to exercise the representative agent workflow's "record
-// a decision" step; no versioning, no diffing, no supersession-
-// linking. Phase 5 extends this same table with those, the way it
-// also fully owns plans/documents (§5.9) as sibling record kinds.
+// Decision is a first-class project record (§5.8). Phase 3 shipped a
+// minimal slice — title, context, decision, rationale, status only, no
+// versioning/diffing/supersession-linking; Phase 5 Step 2 extends this
+// same table with those, plus the Consequences field §5.8 always named
+// but Phase 3 never added, the way this table's own migration comment
+// always said Phase 5 would. SupersededBy is set on the *old* decision,
+// pointing at the *new* one that replaces it — nil until an update
+// links it.
 type Decision struct {
-	UUID       string         `json:"-"`
-	Ref        string         `json:"ref"`
-	ProjectKey string         `json:"project"`
-	Title      string         `json:"title"`
-	Context    string         `json:"context"`
-	Decision   string         `json:"decision"`
-	Rationale  string         `json:"rationale"`
-	Status     DecisionStatus `json:"status"`
-	Version    int64          `json:"version"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
-	DeletedAt  *time.Time     `json:"deleted_at,omitempty"`
-	Creator    *ActorRef      `json:"creator,omitempty"`
+	UUID         string         `json:"-"`
+	Ref          string         `json:"ref"`
+	ProjectKey   string         `json:"project"`
+	Title        string         `json:"title"`
+	Context      string         `json:"context"`
+	Decision     string         `json:"decision"`
+	Rationale    string         `json:"rationale"`
+	Consequences string         `json:"consequences"`
+	Status       DecisionStatus `json:"status"`
+	SupersededBy *string        `json:"superseded_by,omitempty"`
+	Version      int64          `json:"version"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    *time.Time     `json:"deleted_at,omitempty"`
+	Creator      *ActorRef      `json:"creator,omitempty"`
+}
+
+// DecisionVersion is one archived prior state of a Decision (§5.8:
+// "every version remains visible") — the decision analogue of
+// CommentVersion, but archiving the whole record rather than a single
+// body field, since a decision has several independently editable
+// text fields plus a status enum.
+type DecisionVersion struct {
+	Version      int64          `json:"version"`
+	Title        string         `json:"title"`
+	Context      string         `json:"context"`
+	Decision     string         `json:"decision"`
+	Rationale    string         `json:"rationale"`
+	Consequences string         `json:"consequences"`
+	Status       DecisionStatus `json:"status"`
+	EditedBy     ActorRef       `json:"edited_by"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
 
 // Ticket is the base unit of actionable work (§5.5). Assignee is nil

@@ -65,19 +65,24 @@ type CreateDecisionInput struct {
 	Context        string
 	Decision       string
 	Rationale      string
+	Consequences   string
 	IdempotencyKey string
 }
 
 // UpdateDecisionInput mirrors UpdateFeatureInput: every field is
 // required (full-representation update, no partial merge — PATCH
 // /decisions/{ref} has the same contract as PATCH /features/{ref}).
+// SupersededBy "" clears an existing supersession link, the same
+// full-representation contract every other field here has.
 type UpdateDecisionInput struct {
 	Ref             string
 	Title           string
 	Context         string
 	Decision        string
 	Rationale       string
+	Consequences    string
 	Status          string
+	SupersededBy    string
 	ExpectedVersion int64
 }
 

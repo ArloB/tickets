@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/ArloB/tickets/internal/domain"
+	"github.com/ArloB/tickets/internal/service"
 )
 
 // This file is Step 5's decoupling point: internal/service's domain
@@ -240,34 +241,110 @@ type featuresPage struct {
 }
 
 // decisionDetail is every decision-returning endpoint's response
-// shape — the Phase 3 minimal slice (title/context/decision/
-// rationale/status only, product spec §5.8). No versioning/diff
-// fields: those are Phase 5's extension of this same record.
+// shape (product spec §5.8). SupersededBy is omitted entirely (not
+// null) until an update links it — matching every other optional
+// cross-reference field in this file (e.g. ticketDetail.Assignee).
 type decisionDetail struct {
-	Ref       string    `json:"ref"`
-	Project   string    `json:"project"`
-	Title     string    `json:"title"`
-	Context   string    `json:"context"`
-	Decision  string    `json:"decision"`
-	Rationale string    `json:"rationale"`
-	Status    string    `json:"status"`
-	Version   int64     `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Ref          string    `json:"ref"`
+	Project      string    `json:"project"`
+	Title        string    `json:"title"`
+	Context      string    `json:"context"`
+	Decision     string    `json:"decision"`
+	Rationale    string    `json:"rationale"`
+	Consequences string    `json:"consequences"`
+	Status       string    `json:"status"`
+	SupersededBy *string   `json:"superseded_by,omitempty"`
+	Version      int64     `json:"version"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 func toDecisionDetail(d domain.Decision) decisionDetail {
 	return decisionDetail{
-		Ref:       d.Ref,
-		Project:   d.ProjectKey,
-		Title:     d.Title,
-		Context:   d.Context,
-		Decision:  d.Decision,
-		Rationale: d.Rationale,
-		Status:    string(d.Status),
-		Version:   d.Version,
-		CreatedAt: d.CreatedAt,
-		UpdatedAt: d.UpdatedAt,
+		Ref:          d.Ref,
+		Project:      d.ProjectKey,
+		Title:        d.Title,
+		Context:      d.Context,
+		Decision:     d.Decision,
+		Rationale:    d.Rationale,
+		Consequences: d.Consequences,
+		Status:       string(d.Status),
+		SupersededBy: d.SupersededBy,
+		Version:      d.Version,
+		CreatedAt:    d.CreatedAt,
+		UpdatedAt:    d.UpdatedAt,
+	}
+}
+
+// decisionVersionEntry is one entry in a decision's edit history
+// (§5.8: "every version remains visible") — the decision analogue of
+// commentVersionEntry, archiving the whole record's field set rather
+// than a single body.
+type decisionVersionEntry struct {
+	Version      int64     `json:"version"`
+	Title        string    `json:"title"`
+	Context      string    `json:"context"`
+	Decision     string    `json:"decision"`
+	Rationale    string    `json:"rationale"`
+	Consequences string    `json:"consequences"`
+	Status       string    `json:"status"`
+	EditedBy     string    `json:"edited_by"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func toDecisionVersionEntry(v domain.DecisionVersion) decisionVersionEntry {
+	return decisionVersionEntry{
+		Version: v.Version, Title: v.Title, Context: v.Context, Decision: v.Decision,
+		Rationale: v.Rationale, Consequences: v.Consequences, Status: string(v.Status),
+		EditedBy: v.EditedBy.String(), CreatedAt: v.CreatedAt,
+	}
+}
+
+type decisionVersionsPage struct {
+	Versions []decisionVersionEntry `json:"versions"`
+}
+
+// diffLine mirrors domain.DiffLine on the wire — op is one of
+// "equal"/"add"/"remove" (domain.DiffOp's values).
+type diffLine struct {
+	Op   string `json:"op"`
+	Text string `json:"text"`
+}
+
+func toDiffLines(lines []domain.DiffLine) []diffLine {
+	out := make([]diffLine, len(lines))
+	for i, l := range lines {
+		out[i] = diffLine{Op: string(l.Op), Text: l.Text}
+	}
+	return out
+}
+
+// decisionDiff is GET /decisions/{ref}/diff's response shape: a
+// per-field line diff between two named versions, plus the simple
+// before/after status values.
+type decisionDiff struct {
+	FromVersion  int64      `json:"from_version"`
+	ToVersion    int64      `json:"to_version"`
+	Title        []diffLine `json:"title"`
+	Context      []diffLine `json:"context"`
+	Decision     []diffLine `json:"decision"`
+	Rationale    []diffLine `json:"rationale"`
+	Consequences []diffLine `json:"consequences"`
+	StatusFrom   string     `json:"status_from"`
+	StatusTo     string     `json:"status_to"`
+}
+
+func toDecisionDiff(d service.DecisionDiff) decisionDiff {
+	return decisionDiff{
+		FromVersion:  d.FromVersion,
+		ToVersion:    d.ToVersion,
+		Title:        toDiffLines(d.Fields.Title),
+		Context:      toDiffLines(d.Fields.Context),
+		Decision:     toDiffLines(d.Fields.Decision),
+		Rationale:    toDiffLines(d.Fields.Rationale),
+		Consequences: toDiffLines(d.Fields.Consequences),
+		StatusFrom:   string(d.StatusFrom),
+		StatusTo:     string(d.StatusTo),
 	}
 }
 

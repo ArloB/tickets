@@ -24,10 +24,11 @@ func parseDecisionRef(s string) (domain.Reference, *service.Error) {
 }
 
 type createDecisionRequest struct {
-	Title     string `json:"title"`
-	Context   string `json:"context"`
-	Decision  string `json:"decision"`
-	Rationale string `json:"rationale"`
+	Title        string `json:"title"`
+	Context      string `json:"context"`
+	Decision     string `json:"decision"`
+	Rationale    string `json:"rationale"`
+	Consequences string `json:"consequences"`
 }
 
 func (s *Server) createDecision(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +53,7 @@ func (s *Server) createDecision(w http.ResponseWriter, r *http.Request) {
 
 	decision, err := s.svc.CreateDecision(r.Context(), service.CreateDecisionRequest{
 		ProjectKey: projectKey, Title: req.Title, Context: req.Context, Decision: req.Decision, Rationale: req.Rationale,
+		Consequences: req.Consequences,
 	}, requestActor(r), correlationID(r), idempotencyKey(r), fp)
 	if err != nil {
 		writeError(w, r, err)
@@ -101,11 +103,13 @@ func (s *Server) getDecision(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateDecisionRequest struct {
-	Title     string `json:"title"`
-	Context   string `json:"context"`
-	Decision  string `json:"decision"`
-	Rationale string `json:"rationale"`
-	Status    string `json:"status"`
+	Title        string `json:"title"`
+	Context      string `json:"context"`
+	Decision     string `json:"decision"`
+	Rationale    string `json:"rationale"`
+	Consequences string `json:"consequences"`
+	Status       string `json:"status"`
+	SupersededBy string `json:"superseded_by"`
 }
 
 func (s *Server) updateDecision(w http.ResponseWriter, r *http.Request) {
@@ -133,11 +137,64 @@ func (s *Server) updateDecision(w http.ResponseWriter, r *http.Request) {
 
 	decision, err := s.svc.UpdateDecision(r.Context(), service.UpdateDecisionRequest{
 		Ref: ref, Title: req.Title, Context: req.Context, Decision: req.Decision, Rationale: req.Rationale,
-		Status: domain.DecisionStatus(req.Status), ExpectedVersion: version,
+		Consequences: req.Consequences, Status: domain.DecisionStatus(req.Status), SupersededBy: req.SupersededBy,
+		ExpectedVersion: version,
 	}, requestActor(r), correlationID(r))
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toDecisionDetail(decision))
+}
+
+func (s *Server) listDecisionVersions(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseDecisionRef(r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	versions, err := s.svc.ListDecisionVersions(r.Context(), ref)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	out := make([]decisionVersionEntry, len(versions))
+	for i, v := range versions {
+		out[i] = toDecisionVersionEntry(v)
+	}
+	writeJSON(w, http.StatusOK, decisionVersionsPage{Versions: out})
+}
+
+func parseDiffVersionParam(q, field string) (int64, *service.Error) {
+	n, err := strconv.ParseInt(q, 10, 64)
+	if err != nil || n < 1 {
+		return 0, &service.Error{Code: domain.ErrValidationFailed, Field: field, Message: field + " must be a positive integer"}
+	}
+	return n, nil
+}
+
+func (s *Server) getDecisionDiff(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseDecisionRef(r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	q := r.URL.Query()
+	from, svcErr := parseDiffVersionParam(q.Get("from"), "from")
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	to, svcErr := parseDiffVersionParam(q.Get("to"), "to")
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+
+	diff, err := s.svc.GetDecisionDiff(r.Context(), ref, from, to)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toDecisionDiff(diff))
 }

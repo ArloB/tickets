@@ -86,6 +86,6 @@ commands:
   feature  client commands against a running Tickets server (list, get, create, update)
   ticket   client commands against a running Tickets server (list, get, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
   comment  client commands against a running Tickets server (add, list, edit, delete)
-  decision client commands against a running Tickets server (list, get, create, update)
+  decision client commands against a running Tickets server (list, get, create, update, versions, diff)
   activity client commands against a running Tickets server (list)`)
 }

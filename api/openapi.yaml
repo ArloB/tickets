@@ -1423,6 +1423,58 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
+  /decisions/{ref}/versions:
+    get:
+      operationId: listDecisionVersions
+      summary: >
+        List a decision's archived prior states, oldest first (product
+        spec §5.8: "every version remains visible"). The live state is
+        not included — see it via GET /decisions/{ref}.
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionVersionsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /decisions/{ref}/diff:
+    get:
+      operationId: getDecisionDiff
+      summary: >
+        A per-field line-level diff between two named versions (product
+        spec §5.9). Either version number may name the live version or
+        any archived one.
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionDiff'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /projects/{key}/activity:
     get:
       operationId: listActivity
@@ -2062,25 +2114,33 @@ components:
         context: { type: string }
         decision: { type: string }
         rationale: { type: string }
+        consequences: { type: string }
 
     UpdateDecisionRequest:
       type: object
       required: [title, status]
+      description: >
+        Full-representation update, like PATCH /features/{ref}.
+        superseded_by is a decision reference or "" to clear an existing
+        link — omitting it clears it too, the same full-representation
+        contract every other field here has.
       properties:
         title: { type: string }
         context: { type: string }
         decision: { type: string }
         rationale: { type: string }
+        consequences: { type: string }
         status: { $ref: '#/components/schemas/DecisionStatus' }
+        superseded_by: { type: string, example: ABC-D9 }
 
     Decision:
       type: object
-      required: [ref, project, title, context, decision, rationale, status, version, created_at, updated_at]
+      required: [ref, project, title, context, decision, rationale, consequences, status, version, created_at, updated_at]
       additionalProperties: false
       description: >
-        Phase 3's minimal decisions slice (product spec §5.8) — no
-        versioning/diff/supersession fields yet; those are Phase 5's
-        extension of this same record.
+        Product spec §5.8. superseded_by is set on the *old* decision,
+        pointing at the *new* one that replaces it; absent until an
+        update links it.
       properties:
         ref: { type: string, example: ABC-D1 }
         project: { type: string }
@@ -2088,7 +2148,9 @@ components:
         context: { type: string }
         decision: { type: string }
         rationale: { type: string }
+        consequences: { type: string }
         status: { $ref: '#/components/schemas/DecisionStatus' }
+        superseded_by: { type: string, example: ABC-D9 }
         version: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -2116,6 +2178,68 @@ components:
         next_cursor:
           type: string
           description: Opaque pagination cursor. Absent on the last page.
+
+    DecisionVersion:
+      type: object
+      required: [version, title, context, decision, rationale, consequences, status, edited_by, created_at]
+      additionalProperties: false
+      description: One archived prior state of a decision (product spec §5.8).
+      properties:
+        version: { type: integer }
+        title: { type: string }
+        context: { type: string }
+        decision: { type: string }
+        rationale: { type: string }
+        consequences: { type: string }
+        status: { $ref: '#/components/schemas/DecisionStatus' }
+        edited_by: { type: string, example: 'human:alice' }
+        created_at: { type: string, format: date-time }
+
+    DecisionVersionsPage:
+      type: object
+      properties:
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/DecisionVersion' }
+
+    DiffLine:
+      type: object
+      required: [op, text]
+      additionalProperties: false
+      properties:
+        op:
+          type: string
+          enum: [equal, add, remove]
+        text: { type: string }
+
+    DecisionDiff:
+      type: object
+      required: [from_version, to_version, title, context, decision, rationale, consequences, status_from, status_to]
+      additionalProperties: false
+      description: >
+        A per-field line-level diff between two named versions (product
+        spec §5.9). Either version number may name the live version or
+        any archived one.
+      properties:
+        from_version: { type: integer }
+        to_version: { type: integer }
+        title:
+          type: array
+          items: { $ref: '#/components/schemas/DiffLine' }
+        context:
+          type: array
+          items: { $ref: '#/components/schemas/DiffLine' }
+        decision:
+          type: array
+          items: { $ref: '#/components/schemas/DiffLine' }
+        rationale:
+          type: array
+          items: { $ref: '#/components/schemas/DiffLine' }
+        consequences:
+          type: array
+          items: { $ref: '#/components/schemas/DiffLine' }
+        status_from: { $ref: '#/components/schemas/DecisionStatus' }
+        status_to: { $ref: '#/components/schemas/DecisionStatus' }
 
     ActivityEventType:
       type: string

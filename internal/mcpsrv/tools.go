@@ -250,7 +250,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "record_create",
-		Description:  "Create a decision in a project (product spec §5.8): context, decision, and rationale. Scoped to decisions in Phase 3 — see record_get.",
+		Description:  "Create a decision in a project (product spec §5.8): context, decision, rationale, and consequences. Scoped to decisions in Phase 3 — see record_get.",
 		OutputSchema: outputSchemaFor[DecisionWriteResult](),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in recordCreateInput) (*mcp.CallToolResult, DecisionWriteResult, error) {
 		out, err := backend.CreateDecision(withCallerActor(ctx, req), CreateDecisionInput(in))
@@ -262,7 +262,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "record_update",
-		Description:  "Replace a decision's title/context/decision/rationale/status — a full-representation update (send every field, even ones you're not changing). expected_version must be the version from a prior record_get/record_create/record_update call. Scoped to decisions in Phase 3 — see record_get.",
+		Description:  "Replace a decision's title/context/decision/rationale/consequences/status/superseded_by — a full-representation update (send every field, even ones you're not changing, or they'll be cleared). expected_version must be the version from a prior record_get/record_create/record_update call. Scoped to decisions in Phase 3 — see record_get.",
 		OutputSchema: outputSchemaFor[DecisionWriteResult](),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in recordUpdateInput) (*mcp.CallToolResult, DecisionWriteResult, error) {
 		out, err := backend.UpdateDecision(withCallerActor(ctx, req), UpdateDecisionInput(in))
@@ -402,6 +402,7 @@ type recordCreateInput struct {
 	Context        string `json:"context,omitempty" jsonschema:"Markdown: the situation prompting this decision"`
 	Decision       string `json:"decision,omitempty" jsonschema:"Markdown: what was decided"`
 	Rationale      string `json:"rationale,omitempty" jsonschema:"Markdown: why"`
+	Consequences   string `json:"consequences,omitempty" jsonschema:"Markdown: what this decision leads to"`
 	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"optional: a client-chosen key to make a retried call safe. Reusing the same key with the same content returns the original decision instead of creating a duplicate; reusing it with different content is rejected as idempotency_key_reused."`
 }
 
@@ -411,7 +412,9 @@ type recordUpdateInput struct {
 	Context         string `json:"context" jsonschema:"Markdown: the situation prompting this decision — full-representation update; resend the current value if unchanged"`
 	Decision        string `json:"decision" jsonschema:"Markdown: what was decided — full-representation update; resend the current value if unchanged"`
 	Rationale       string `json:"rationale" jsonschema:"Markdown: why — full-representation update; resend the current value if unchanged"`
+	Consequences    string `json:"consequences" jsonschema:"Markdown: what this decision leads to — full-representation update; resend the current value if unchanged"`
 	Status          string `json:"status" jsonschema:"proposed, accepted, rejected, or superseded"`
+	SupersededBy    string `json:"superseded_by,omitempty" jsonschema:"reference of the decision that supersedes this one, e.g. ABC-D9 — full-representation update; resend the current value if unchanged, or omit/empty to clear it"`
 	ExpectedVersion int64  `json:"expected_version" jsonschema:"the decision's current version, from a prior record_get/record_create/record_update call"`
 }
 

@@ -308,6 +308,7 @@ func (b *InProcessBackend) CreateDecision(ctx context.Context, in CreateDecision
 	}
 	req := service.CreateDecisionRequest{
 		ProjectKey: in.ProjectKey, Title: in.Title, Context: in.Context, Decision: in.Decision, Rationale: in.Rationale,
+		Consequences: in.Consequences,
 	}
 	var fingerprint string
 	if in.IdempotencyKey != "" {
@@ -337,7 +338,8 @@ func (b *InProcessBackend) UpdateDecision(ctx context.Context, in UpdateDecision
 	}
 	d, err := b.Svc.UpdateDecision(ctx, service.UpdateDecisionRequest{
 		Ref: ref, Title: in.Title, Context: in.Context, Decision: in.Decision, Rationale: in.Rationale,
-		Status: domain.DecisionStatus(in.Status), ExpectedVersion: in.ExpectedVersion,
+		Consequences: in.Consequences, Status: domain.DecisionStatus(in.Status), SupersededBy: in.SupersededBy,
+		ExpectedVersion: in.ExpectedVersion,
 	}, actor, service.NewCorrelationID())
 	if err != nil {
 		return DecisionWriteResult{}, err

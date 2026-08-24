@@ -87,11 +87,14 @@ writing:
 > carries still replaces what is stored, unchanged or not. Call
 > feature_get/record_get first and resend every field's current value
 > (you need that call's version for expected_version anyway).
+> record_update's superseded_by is the one optional field: omit it (or
+> send "") to clear an existing supersession link, the same as any
+> other omitted field there — it isn't a partial-update exception.
 >
-> record_\* is scoped to decisions in Phase 3 (title/context/decision/
-> rationale/status) — plans and documents join once a later phase
-> builds them. ticket_comment is the only comment tool; comments exist
-> on tickets only.
+> record_\* is scoped to decisions (title/context/decision/rationale/
+> consequences/status/superseded_by) — plans and documents join once a
+> later phase builds them. ticket_comment is the only comment tool;
+> comments exist on tickets only.
 >
 > ticket_comment and record_create accept an optional idempotency_key:
 > reusing the same key with identical arguments returns the original

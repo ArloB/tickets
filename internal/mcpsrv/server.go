@@ -12,8 +12,8 @@ import (
 // field carries the essential cross-tool guidance" — the one place an
 // agent reads this once, up front, instead of having to infer it from
 // scattered per-tool descriptions. It only states things that are
-// actually true of the current tool surface (Phase 3's scope) — no
-// forward-looking claims about tools that don't exist yet.
+// actually true of the current tool surface — no forward-looking
+// claims about tools that don't exist yet.
 const serverInstructions = `Tickets is a self-hosted issue tracker. References use the form
 PROJECTKEY-N: a ticket is "ABC-123" (no letter code), a feature is
 "ABC-F1", a decision is "ABC-D1". Writing "#ABC-123" inside a ticket's
@@ -39,11 +39,14 @@ one (rather than silently wiping it) — but the value each field
 carries still replaces what is stored, unchanged or not. Call
 feature_get/record_get first and resend every field's current value
 (you need that call's version for expected_version anyway).
+record_update's superseded_by is the one optional field: omit it (or
+send "") to clear an existing supersession link, the same as any other
+omitted field there — it isn't a partial-update exception.
 
-record_* is scoped to decisions in Phase 3 (title/context/decision/
-rationale/status) — plans and documents join once a later phase builds
-them. ticket_comment is the only comment tool; comments exist on
-tickets only.
+record_* is scoped to decisions (title/context/decision/rationale/
+consequences/status/superseded_by) — plans and documents join once a
+later phase builds them. ticket_comment is the only comment tool;
+comments exist on tickets only.
 
 ticket_comment and record_create accept an optional idempotency_key:
 reusing the same key with identical arguments returns the original

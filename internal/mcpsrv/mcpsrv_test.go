@@ -761,6 +761,7 @@ func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
 
 	createRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_create", Arguments: map[string]any{
 		"project_key": "ABC", "title": "Use SQLite", "context": "We need a store", "decision": "Use SQLite", "rationale": "Simplicity",
+		"consequences": "Simpler ops",
 	}})
 	if err != nil {
 		t.Fatalf("CallTool record_create: %v", err)
@@ -781,13 +782,20 @@ func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
 		t.Fatalf("record_get returned a tool error: %+v", getRes.Content)
 	}
 	got := decodeResult[domain.Decision](t, getRes)
-	if got.Title != "Use SQLite" || got.Rationale != "Simplicity" {
-		t.Errorf("record_get result = %+v, want title=%q rationale=Simplicity", got, "Use SQLite")
+	if got.Title != "Use SQLite" || got.Rationale != "Simplicity" || got.Consequences != "Simpler ops" {
+		t.Errorf("record_get result = %+v, want title=%q rationale=Simplicity consequences=%q", got, "Use SQLite", "Simpler ops")
 	}
 
+	// record_update is a full-representation update: every field
+	// (including consequences/superseded_by) must be resent, and an
+	// omitted one is cleared — the same contract PATCH /decisions/{ref}
+	// has (docs/contracts/concurrency.md). This exercises both fields
+	// through the MCP surface specifically because they are the two
+	// UpdateDecisionInput gained in Phase 5 Step 2 and are easy to leave
+	// unwired on this backend while the HTTP path already works.
 	updateRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_update", Arguments: map[string]any{
 		"ref": created.Ref, "title": got.Title, "context": got.Context, "decision": got.Decision, "rationale": got.Rationale,
-		"status": "accepted", "expected_version": got.Version,
+		"consequences": got.Consequences, "status": "accepted", "expected_version": got.Version,
 	}})
 	if err != nil {
 		t.Fatalf("CallTool record_update: %v", err)
@@ -798,6 +806,40 @@ func TestRecordToolsOverRealStreamableHTTP(t *testing.T) {
 	updated := decodeResult[DecisionWriteResult](t, updateRes)
 	if updated.Status != "accepted" || updated.Version != got.Version+1 {
 		t.Errorf("record_update result = %+v, want status=accepted version=%d", updated, got.Version+1)
+	}
+
+	// A second decision, then supersede the first with it — proving
+	// superseded_by reaches the service layer through this tool, not
+	// just the HTTP route.
+	secondRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_create", Arguments: map[string]any{
+		"project_key": "ABC", "title": "Use Postgres instead",
+	}})
+	if err != nil {
+		t.Fatalf("CallTool record_create (second): %v", err)
+	}
+	second := decodeResult[DecisionWriteResult](t, secondRes)
+
+	supersedeRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_update", Arguments: map[string]any{
+		"ref": created.Ref, "title": got.Title, "context": got.Context, "decision": got.Decision, "rationale": got.Rationale,
+		"consequences": got.Consequences, "status": "superseded", "superseded_by": second.Ref, "expected_version": updated.Version,
+	}})
+	if err != nil {
+		t.Fatalf("CallTool record_update (supersede): %v", err)
+	}
+	if supersedeRes.IsError {
+		t.Fatalf("record_update (supersede) returned a tool error: %+v", supersedeRes.Content)
+	}
+
+	finalGetRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_get", Arguments: map[string]any{"ref": created.Ref}})
+	if err != nil {
+		t.Fatalf("CallTool record_get (final): %v", err)
+	}
+	final := decodeResult[domain.Decision](t, finalGetRes)
+	if final.Consequences != "Simpler ops" {
+		t.Errorf("final record_get consequences = %q, want %q (must survive the supersede update)", final.Consequences, "Simpler ops")
+	}
+	if final.SupersededBy == nil || *final.SupersededBy != second.Ref {
+		t.Errorf("final record_get superseded_by = %v, want %q", final.SupersededBy, second.Ref)
 	}
 
 	linkRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_link", Arguments: map[string]any{

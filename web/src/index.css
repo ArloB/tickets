@@ -142,3 +142,13 @@ td {
 .board-card p {
   margin: 0.25rem 0;
 }
+
+[data-diff-op='add'] {
+  background: light-dark(#e6ffed, #0d2818);
+  color: light-dark(#116329, #7ee2a8);
+}
+
+[data-diff-op='remove'] {
+  background: light-dark(#ffebe9, #2d1214);
+  color: light-dark(#82071e, #f28b82);
+}

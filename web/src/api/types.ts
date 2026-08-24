@@ -134,6 +134,8 @@ export interface DecisionCompact {
   updated_at: string
 }
 
+/** superseded_by is set on the *old* decision, pointing at the *new*
+ * one that replaces it — absent until an update links it. */
 export interface DecisionDetail {
   ref: string
   project: string
@@ -141,7 +143,9 @@ export interface DecisionDetail {
   context: string
   decision: string
   rationale: string
+  consequences: string
   status: DecisionStatus
+  superseded_by?: string
   version: number
   created_at: string
   updated_at: string
@@ -150,6 +154,47 @@ export interface DecisionDetail {
 export interface DecisionsPage {
   decisions: DecisionCompact[]
   next_cursor?: string
+}
+
+/** One archived prior state of a decision (§5.8: "every version
+ * remains visible"). The live state is not included here — see it via
+ * DecisionDetail. */
+export interface DecisionVersion {
+  version: number
+  title: string
+  context: string
+  decision: string
+  rationale: string
+  consequences: string
+  status: DecisionStatus
+  edited_by: string
+  created_at: string
+}
+
+export interface DecisionVersionsPage {
+  versions: DecisionVersion[]
+}
+
+export type DiffOp = 'equal' | 'add' | 'remove'
+
+export interface DiffLine {
+  op: DiffOp
+  text: string
+}
+
+/** A per-field line-level diff between two named decision versions
+ * (§5.9). Either version number may name the live version or any
+ * archived one. */
+export interface DecisionDiff {
+  from_version: number
+  to_version: number
+  title: DiffLine[]
+  context: DiffLine[]
+  decision: DiffLine[]
+  rationale: DiffLine[]
+  consequences: DiffLine[]
+  status_from: DecisionStatus
+  status_to: DecisionStatus
 }
 
 // -- Activity --

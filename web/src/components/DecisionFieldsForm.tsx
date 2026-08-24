@@ -10,7 +10,9 @@ interface DecisionFields extends Record<string, string> {
   context: string
   decision: string
   rationale: string
+  consequences: string
   status: string
+  superseded_by: string
 }
 
 function toFields(d: DecisionDetail): DecisionFields {
@@ -19,19 +21,26 @@ function toFields(d: DecisionDetail): DecisionFields {
     context: d.context,
     decision: d.decision,
     rationale: d.rationale,
+    consequences: d.consequences,
     status: d.status,
+    superseded_by: d.superseded_by ?? '',
   }
 }
 
 function fromFields(
   fields: DecisionFields,
-): Pick<DecisionDetail, 'title' | 'context' | 'decision' | 'rationale' | 'status'> {
+): Pick<
+  DecisionDetail,
+  'title' | 'context' | 'decision' | 'rationale' | 'consequences' | 'status' | 'superseded_by'
+> {
   return {
     title: fields.title,
     context: fields.context,
     decision: fields.decision,
     rationale: fields.rationale,
+    consequences: fields.consequences,
     status: fields.status as DecisionStatus,
+    superseded_by: fields.superseded_by || undefined,
   }
 }
 
@@ -41,7 +50,9 @@ function fromFields(
  * was built — see docs/contracts/concurrency.md and updateDecision's
  * doc comment). Status is a plain field here, not a separate PATCH
  * like tickets — decisions have no independent status-transition
- * endpoint, so a status change goes through this same merge. */
+ * endpoint, so a status change goes through this same merge.
+ * superseded_by clears when left blank, matching every other field
+ * here's full-representation contract. */
 export function DecisionFieldsForm({
   decision,
   onSaved,
@@ -67,7 +78,9 @@ export function DecisionFieldsForm({
             context: fields.context,
             decision: fields.decision,
             rationale: fields.rationale,
+            consequences: fields.consequences,
             status: fields.status as DecisionStatus,
+            superseded_by: fields.superseded_by,
           },
           expectedVersion,
         )
@@ -113,6 +126,14 @@ export function DecisionFieldsForm({
         />
       </label>
       <label>
+        Consequences
+        <textarea
+          value={draft.consequences}
+          onChange={(e) => setField('consequences', e.target.value)}
+          rows={5}
+        />
+      </label>
+      <label>
         Status
         <select value={draft.status} onChange={(e) => setField('status', e.target.value)}>
           {statuses.map((s) => (
@@ -121,6 +142,14 @@ export function DecisionFieldsForm({
             </option>
           ))}
         </select>
+      </label>
+      <label>
+        Superseded by
+        <input
+          value={draft.superseded_by}
+          onChange={(e) => setField('superseded_by', e.target.value)}
+          placeholder="e.g. ABC-D9"
+        />
       </label>
 
       {error && <p role="alert">{error}</p>}

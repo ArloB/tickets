@@ -120,6 +120,8 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodGet, "/api/v1/projects/{key}/decisions", routeViewer, s.listDecisions},
 		{http.MethodGet, "/api/v1/decisions/{ref}", routeViewer, s.getDecision},
 		{http.MethodPatch, "/api/v1/decisions/{ref}", routeEditor, s.updateDecision},
+		{http.MethodGet, "/api/v1/decisions/{ref}/versions", routeViewer, s.listDecisionVersions},
+		{http.MethodGet, "/api/v1/decisions/{ref}/diff", routeViewer, s.getDecisionDiff},
 
 		{http.MethodGet, "/api/v1/projects/{key}/activity", routeViewer, s.listActivity},
 

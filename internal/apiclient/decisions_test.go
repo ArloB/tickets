@@ -22,6 +22,18 @@ func TestDecisionRoundTrip(t *testing.T) {
 		case r.Method == http.MethodPatch && r.URL.Path == "/decisions/ABC-D1":
 			gotIfMatch = r.Header.Get("If-Match")
 			_ = json.NewEncoder(w).Encode(Decision{Ref: "ABC-D1", Project: "ABC", Title: "Use SQLite (final)", Status: "accepted", Version: 2})
+		case r.Method == http.MethodGet && r.URL.Path == "/decisions/ABC-D1/versions":
+			_ = json.NewEncoder(w).Encode(DecisionVersionsPage{Versions: []DecisionVersion{
+				{Version: 1, Title: "Use SQLite", Status: "proposed", EditedBy: "human:local"},
+			}})
+		case r.Method == http.MethodGet && r.URL.Path == "/decisions/ABC-D1/diff":
+			if r.URL.Query().Get("from") != "1" || r.URL.Query().Get("to") != "2" {
+				t.Errorf("diff query = %q, want from=1&to=2", r.URL.RawQuery)
+			}
+			_ = json.NewEncoder(w).Encode(DecisionDiff{
+				FromVersion: 1, ToVersion: 2, StatusFrom: "proposed", StatusTo: "accepted",
+				Title: []DiffLine{{Op: "equal", Text: "Use SQLite"}},
+			})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -66,5 +78,21 @@ func TestDecisionRoundTrip(t *testing.T) {
 	}
 	if gotIfMatch != `"1"` {
 		t.Errorf("UpdateDecision If-Match = %q, want %q", gotIfMatch, `"1"`)
+	}
+
+	versions, err := c.ListDecisionVersions(t.Context(), "ABC-D1")
+	if err != nil {
+		t.Fatalf("ListDecisionVersions: %v", err)
+	}
+	if len(versions.Versions) != 1 || versions.Versions[0].Title != "Use SQLite" {
+		t.Errorf("ListDecisionVersions = %+v, want exactly one archived version titled %q", versions, "Use SQLite")
+	}
+
+	diff, err := c.GetDecisionDiff(t.Context(), "ABC-D1", 1, 2)
+	if err != nil {
+		t.Fatalf("GetDecisionDiff: %v", err)
+	}
+	if diff.StatusFrom != "proposed" || diff.StatusTo != "accepted" {
+		t.Errorf("GetDecisionDiff = %+v, want status proposed -> accepted", diff)
 	}
 }
