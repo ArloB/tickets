@@ -27,6 +27,11 @@
 /web/dist/*
 !/web/dist/.gitkeep
 
+# Playwright (task web:e2e) output — traces/reports from a local run.
+/web/test-results/
+/web/playwright-report/
+/web/blob-report/
+
 # Local scratch / OS
 .DS_Store
 Thumbs.db

@@ -75,6 +75,18 @@ tasks:
     cmds:
       - npm run build
 
+  web:e2e:
+    desc: >
+      Run the Playwright e2e suite against a real compiled `tickets`
+      binary and a fresh throwaway SQLite data dir (web/e2e/run-server.mjs
+      launches and tears it down automatically). Not part of `task ci`
+      (like `task bench`) — needs the binary built first and is slower
+      than the rest of the gate.
+    dir: web
+    deps: [web:install, build]
+    cmds:
+      - npx playwright test
+
   web:dev:
     desc: >
       Run the Vite dev server against a separately running `tickets

@@ -47,5 +47,17 @@ export default defineConfig({
     // on injected globals.
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // web/e2e/*.spec.ts are Playwright Test files (task web:e2e), not
+    // Vitest's — Vitest's default include glob would otherwise try to
+    // run them too and fail immediately (test() outside a Playwright
+    // runner throws). Restating the rest of Vitest's own default
+    // exclude list here since setting this option replaces it wholesale
+    // rather than extending it.
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.{idea,git,cache,output,temp}/**',
+      './e2e/**',
+    ],
   },
 })
