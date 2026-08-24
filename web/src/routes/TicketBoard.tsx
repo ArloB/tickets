@@ -42,6 +42,13 @@ export default function TicketBoard() {
       >,
   )
   const canEdit = me?.permission === 'editor'
+  // A card moving to a new status column unmounts its <select> from
+  // one column's list and mounts a fresh one in another — different
+  // parent lists, so React can't preserve focus across the move the
+  // way key-based reconciliation does within one list. This
+  // announcement is the fallback for a screen-reader user once focus
+  // silently drops to the document body.
+  const [moveAnnouncement, setMoveAnnouncement] = useState('')
 
   useEffect(() => {
     setColumns(
@@ -123,6 +130,7 @@ export default function TicketBoard() {
         }
         return next
       })
+      setMoveAnnouncement(`Moved ${ticket.ref} to ${newStatus}`)
     } catch (err) {
       setColumns((prev) => ({
         ...prev,
@@ -137,6 +145,9 @@ export default function TicketBoard() {
   return (
     <main>
       <h1>Board — {key}</h1>
+      <p aria-live="polite" className="sr-only">
+        {moveAnnouncement}
+      </p>
       <div className="board">
         {statuses.map((status) => {
           const col = columns[status]

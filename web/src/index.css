@@ -70,6 +70,25 @@ td {
   border-bottom: 1px solid light-dark(#eee, #333);
 }
 
+/* Visually hidden but still readable by assistive tech — used for
+   aria-live announcements where a visible status line isn't
+   warranted (a board card or backlog row moving is already visible
+   on-screen; screen-reader users need the equivalent told to them
+   since the move itself carries no other cue, especially once the
+   control that triggered it goes disabled or unmounts and takes
+   focus with it). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .board {
   display: flex;
   gap: 1rem;

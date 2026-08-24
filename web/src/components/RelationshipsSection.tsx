@@ -87,19 +87,25 @@ export function RelationshipsSection({
             void submitAdd()
           }}
         >
-          <select value={type} onChange={(e) => setType(e.target.value as RelationshipType)}>
-            {relationshipTypes.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <input
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            placeholder="ABC-2"
-            required
-          />
+          <label>
+            Relationship
+            <select value={type} onChange={(e) => setType(e.target.value as RelationshipType)}>
+              {relationshipTypes.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Other ticket
+            <input
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder="ABC-2"
+              required
+            />
+          </label>
           <button type="submit" disabled={busy}>
             Add relationship
           </button>

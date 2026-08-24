@@ -46,7 +46,12 @@ function EditingComment({
 
   return (
     <li>
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={4} />
+      <textarea
+        aria-label="Edit comment"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={4}
+      />
       {theirs && (
         <div role="alert">
           <p>
@@ -172,6 +177,7 @@ export function CommentsSection({
           }}
         >
           <textarea
+            aria-label="Add a comment"
             value={newBody}
             onChange={(e) => setNewBody(e.target.value)}
             rows={3}

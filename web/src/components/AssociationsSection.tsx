@@ -75,12 +75,15 @@ export function AssociationsSection({
             void submitAdd()
           }}
         >
-          <input
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            placeholder="ABC-1, ABC-F1, ABC-D1…"
-            required
-          />
+          <label>
+            Associate with
+            <input
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder="ABC-1, ABC-F1, ABC-D1…"
+              required
+            />
+          </label>
           <button type="submit" disabled={busy}>
             Associate
           </button>

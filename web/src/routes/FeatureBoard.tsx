@@ -38,6 +38,10 @@ export default function FeatureBoard() {
       >,
   )
   const canEdit = me?.permission === 'editor'
+  // See TicketBoard's identical field: a card moving column remounts
+  // its <select> in a different parent list, dropping focus with
+  // nothing else to tell a screen-reader user what happened.
+  const [moveAnnouncement, setMoveAnnouncement] = useState('')
 
   useEffect(() => {
     setColumns(
@@ -108,6 +112,7 @@ export default function FeatureBoard() {
         }
         return next
       })
+      setMoveAnnouncement(`Moved ${feature.ref} to ${newStatus}`)
     } catch (err) {
       setColumns((prev) => ({
         ...prev,
@@ -122,6 +127,9 @@ export default function FeatureBoard() {
   return (
     <main>
       <h1>Feature board — {key}</h1>
+      <p aria-live="polite" className="sr-only">
+        {moveAnnouncement}
+      </p>
       <div className="board">
         {statuses.map((status) => {
           const col = columns[status]

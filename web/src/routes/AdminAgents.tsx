@@ -79,7 +79,7 @@ function NewTokenBanner({ token, onDismiss }: { token: string; onDismiss: () => 
       <p>
         <strong>This token will not be shown again.</strong> Copy it now.
       </p>
-      <input value={token} readOnly onFocus={(e) => e.target.select()} />
+      <input aria-label="New token value" value={token} readOnly onFocus={(e) => e.target.select()} />
       <button type="button" onClick={() => void copy()}>
         {copied ? 'Copied' : 'Copy'}
       </button>
