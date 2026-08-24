@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   CONTENT_ITEM_LABELS,
+  contentItemDownloadUrl,
   getContentItem,
   getContentItemDiff,
   listContentItemVersions,
+  replaceContentItemFile,
   updateContentItem,
 } from '../api/content-items'
 import type { ContentItemUrlKind } from '../api/content-items'
@@ -156,6 +158,9 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
   const [editing, setEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editBody, setEditBody] = useState('')
+  const [editPath, setEditPath] = useState('')
+  const [editUrl, setEditUrl] = useState('')
+  const [editFile, setEditFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -194,16 +199,36 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
     if (!item) return
     setEditTitle(item.title)
     setEditBody(item.body)
+    setEditPath(item.path_value ?? '')
+    setEditUrl(item.url_value ?? '')
+    setEditFile(null)
     setSaveError(null)
     setEditing(true)
   }
 
   async function save() {
     if (!item) return
+    if (item.representation === 'file' && !editFile) {
+      setSaveError('Choose a file to upload.')
+      return
+    }
     setSaving(true)
     setSaveError(null)
     try {
-      const updated = await updateContentItem(urlKind, item.ref, { title: editTitle, body: editBody }, item.version)
+      const updated =
+        item.representation === 'file'
+          ? await replaceContentItemFile(urlKind, item.ref, editTitle, editFile!, item.version)
+          : await updateContentItem(
+              urlKind,
+              item.ref,
+              {
+                title: editTitle,
+                body: item.representation === 'markdown' ? editBody : undefined,
+                path: item.representation === 'path' ? editPath : undefined,
+                url: item.representation === 'url' ? editUrl : undefined,
+              },
+              item.version,
+            )
       setItem(updated)
       setEditing(false)
     } catch (err) {
@@ -229,7 +254,25 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
             Title
             <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} required />
           </label>
-          <MarkdownEditor label="Body" value={editBody} onChange={setEditBody} />
+          {item.representation === 'markdown' && <MarkdownEditor label="Body" value={editBody} onChange={setEditBody} />}
+          {item.representation === 'file' && (
+            <label>
+              New file
+              <input type="file" onChange={(e) => setEditFile(e.target.files?.[0] ?? null)} required />
+            </label>
+          )}
+          {item.representation === 'path' && (
+            <label>
+              Path
+              <input value={editPath} onChange={(e) => setEditPath(e.target.value)} required />
+            </label>
+          )}
+          {item.representation === 'url' && (
+            <label>
+              URL
+              <input value={editUrl} onChange={(e) => setEditUrl(e.target.value)} required />
+            </label>
+          )}
           {saveError && <p role="alert">{saveError}</p>}
           <button type="submit" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
@@ -252,8 +295,39 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
       </p>
       {canEdit && <button onClick={startEditing}>Edit</button>}
 
-      <h2>Body</h2>
-      <Markdown>{item.body}</Markdown>
+      {item.representation === 'markdown' && (
+        <>
+          <h2>Body</h2>
+          <Markdown>{item.body}</Markdown>
+        </>
+      )}
+      {item.representation === 'file' && (
+        <>
+          <h2>File</h2>
+          <p>
+            <a href={contentItemDownloadUrl(urlKind, item.ref)}>
+              {item.file_name || 'Download'}
+            </a>
+            {item.file_size ? ` (${item.file_size} bytes)` : ''}
+          </p>
+        </>
+      )}
+      {item.representation === 'path' && (
+        <>
+          <h2>Path</h2>
+          <p>{item.path_value}</p>
+        </>
+      )}
+      {item.representation === 'url' && (
+        <>
+          <h2>URL</h2>
+          <p>
+            <a href={item.url_value} target="_blank" rel="noreferrer">
+              {item.url_value}
+            </a>
+          </p>
+        </>
+      )}
 
       <h2>Associations</h2>
       {associated && (

@@ -93,21 +93,32 @@ type UpdateDecisionInput struct {
 // CreateContentItemInput is record_create's content-item path (Kind
 // "plan" or "document") — mirrors CreateDecisionInput's shape, with
 // Body (Markdown) in place of the decision-specific text fields.
+// Representation defaults to "markdown" server-side when empty; Path/
+// URL are used instead of Body for the "path"/"url" representations
+// (§5.9). There is deliberately no file-upload path over MCP — a tool
+// call has no multipart transport, so record_create can't stream file
+// bytes the way the HTTP/CLI surfaces do.
 type CreateContentItemInput struct {
 	ProjectKey     string
 	Kind           string
 	Title          string
+	Representation string
 	Body           string
+	Path           string
+	URL            string
 	IdempotencyKey string
 }
 
 // UpdateContentItemInput is record_update's content-item path — a
 // full-representation update mirroring UpdateDecisionInput's contract
-// (every field required, no partial merge).
+// (every field required, no partial merge). No Representation field:
+// it's immutable, inferred server-side from the existing item.
 type UpdateContentItemInput struct {
 	Ref             string
 	Title           string
 	Body            string
+	Path            string
+	URL             string
 	ExpectedVersion int64
 }
 

@@ -144,6 +144,8 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodPatch, "/api/v1/plans/{ref}", routeEditor, s.updateContentItem(domain.KindPlan)},
 		{http.MethodGet, "/api/v1/plans/{ref}/versions", routeViewer, s.listContentItemVersions(domain.KindPlan)},
 		{http.MethodGet, "/api/v1/plans/{ref}/diff", routeViewer, s.getContentItemDiff(domain.KindPlan)},
+		{http.MethodGet, "/api/v1/plans/{ref}/download", routeViewer, s.downloadContentItem(domain.KindPlan)},
+		{http.MethodGet, "/api/v1/plans/{ref}/versions/{version}/download", routeViewer, s.downloadContentItemVersion(domain.KindPlan)},
 
 		{http.MethodPost, "/api/v1/projects/{key}/documents", routeEditor, s.createContentItem(domain.KindDocument)},
 		{http.MethodGet, "/api/v1/projects/{key}/documents", routeViewer, s.listContentItems(domain.KindDocument)},
@@ -151,6 +153,8 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodPatch, "/api/v1/documents/{ref}", routeEditor, s.updateContentItem(domain.KindDocument)},
 		{http.MethodGet, "/api/v1/documents/{ref}/versions", routeViewer, s.listContentItemVersions(domain.KindDocument)},
 		{http.MethodGet, "/api/v1/documents/{ref}/diff", routeViewer, s.getContentItemDiff(domain.KindDocument)},
+		{http.MethodGet, "/api/v1/documents/{ref}/download", routeViewer, s.downloadContentItem(domain.KindDocument)},
+		{http.MethodGet, "/api/v1/documents/{ref}/versions/{version}/download", routeViewer, s.downloadContentItemVersion(domain.KindDocument)},
 
 		{http.MethodPost, "/api/v1/tickets/{ref}/attachments", routeEditor, s.addAttachment},
 		{http.MethodGet, "/api/v1/tickets/{ref}/attachments", routeViewer, s.listAttachments},

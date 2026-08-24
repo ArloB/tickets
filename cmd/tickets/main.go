@@ -93,8 +93,8 @@ commands:
   ticket   client commands against a running Tickets server (list, get, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
   comment  client commands against a running Tickets server (add, list, edit, delete)
   decision client commands against a running Tickets server (list, get, create, update, versions, diff)
-  plan     client commands against a running Tickets server (list, get, create, update, versions, diff)
-  document client commands against a running Tickets server (list, get, create, update, versions, diff)
+  plan     client commands against a running Tickets server (list, get, create, update, versions, diff, download)
+  document client commands against a running Tickets server (list, get, create, update, versions, diff, download)
   activity client commands against a running Tickets server (list)
   attachment client commands against a running Tickets server (upload, path, list, get, versions, download, replace, delete)`)
 }

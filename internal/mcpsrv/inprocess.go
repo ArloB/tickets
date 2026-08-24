@@ -364,7 +364,9 @@ func (b *InProcessBackend) CreateContentItem(ctx context.Context, in CreateConte
 		return ContentItemWriteResult{}, err
 	}
 	req := service.CreateContentItemRequest{
-		ProjectKey: in.ProjectKey, Kind: domain.EntityKind(in.Kind), Title: in.Title, Body: in.Body,
+		ProjectKey: in.ProjectKey, Kind: domain.EntityKind(in.Kind), Title: in.Title,
+		Representation: domain.ContentRepresentation(in.Representation), Body: in.Body,
+		PathValue: in.Path, URLValue: in.URL,
 	}
 	var fingerprint string
 	if in.IdempotencyKey != "" {
@@ -393,7 +395,7 @@ func (b *InProcessBackend) UpdateContentItem(ctx context.Context, in UpdateConte
 		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
 	}
 	c, err := b.Svc.UpdateContentItem(ctx, service.UpdateContentItemRequest{
-		Ref: ref, Title: in.Title, Body: in.Body, ExpectedVersion: in.ExpectedVersion,
+		Ref: ref, Title: in.Title, Body: in.Body, PathValue: in.Path, URLValue: in.URL, ExpectedVersion: in.ExpectedVersion,
 	}, actor, service.NewCorrelationID())
 	if err != nil {
 		return ContentItemWriteResult{}, err

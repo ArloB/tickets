@@ -2085,9 +2085,9 @@ paths:
     post:
       operationId: createPlan
       summary: >
-        Create a plan in a project (product spec §5.9) — Markdown
-        representation only in Phase 5 Step 3; file/path/url join in
-        later steps (see the ContentItem schema).
+        Create a plan in a project (product spec §5.9). Multipart for
+        representation=file, JSON for markdown/path/url (ADR 0007) —
+        see requestBody's two content entries.
       parameters:
         - $ref: '#/components/parameters/ProjectKey'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -2098,6 +2098,16 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateContentItemRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [title, file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
       responses:
         '201':
           description: Created
@@ -2110,6 +2120,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '413':
           $ref: '#/components/responses/Error'
     get:
       operationId: listPlans
@@ -2158,9 +2170,11 @@ paths:
     patch:
       operationId: updatePlan
       summary: >
-        Replace a plan's title/body (optimistic concurrency) — a
-        full-representation update, the same contract as
-        PATCH /decisions/{ref}.
+        Replace a plan's title and representation-specific content
+        (optimistic concurrency) — a full-representation update, the
+        same contract as PATCH /decisions/{ref}. Representation itself
+        is immutable and not accepted here; multipart replaces a file
+        representation's bytes, JSON replaces body/path/url.
       parameters:
         - $ref: '#/components/parameters/PlanRef'
         - $ref: '#/components/parameters/IfMatch'
@@ -2171,6 +2185,16 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateContentItemRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [title, file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
       responses:
         '200':
           description: OK
@@ -2190,6 +2214,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}/download:
+    get:
+      operationId: downloadPlan
+      summary: >
+        Download a file-representation plan's current bytes, streamed.
+        Any other representation returns 400.
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}/versions/{version}/download:
+    get:
+      operationId: downloadPlanVersion
+      summary: Download one archived version's bytes, streamed
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/AttachmentVersion'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
 
   /plans/{ref}/versions:
     get:
@@ -2247,9 +2314,9 @@ paths:
     post:
       operationId: createDocument
       summary: >
-        Create a document in a project (product spec §5.9) — Markdown
-        representation only in Phase 5 Step 3; see the ContentItem
-        schema.
+        Create a document in a project (product spec §5.9). Multipart
+        for representation=file, JSON for markdown/path/url (ADR 0007)
+        — see requestBody's two content entries.
       parameters:
         - $ref: '#/components/parameters/ProjectKey'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -2260,6 +2327,16 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateContentItemRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [title, file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
       responses:
         '201':
           description: Created
@@ -2272,6 +2349,8 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '404':
+          $ref: '#/components/responses/Error'
+        '413':
           $ref: '#/components/responses/Error'
     get:
       operationId: listDocuments
@@ -2320,9 +2399,11 @@ paths:
     patch:
       operationId: updateDocument
       summary: >
-        Replace a document's title/body (optimistic concurrency) — a
-        full-representation update, the same contract as
-        PATCH /decisions/{ref}.
+        Replace a document's title and representation-specific content
+        (optimistic concurrency) — a full-representation update, the
+        same contract as PATCH /decisions/{ref}. Representation itself
+        is immutable and not accepted here; multipart replaces a file
+        representation's bytes, JSON replaces body/path/url.
       parameters:
         - $ref: '#/components/parameters/DocumentRef'
         - $ref: '#/components/parameters/IfMatch'
@@ -2333,6 +2414,16 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/UpdateContentItemRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [title, file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
       responses:
         '200':
           description: OK
@@ -2352,6 +2443,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/download:
+    get:
+      operationId: downloadDocument
+      summary: >
+        Download a file-representation document's current bytes,
+        streamed. Any other representation returns 400.
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/versions/{version}/download:
+    get:
+      operationId: downloadDocumentVersion
+      summary: Download one archived version's bytes, streamed
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/AttachmentVersion'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
 
   /documents/{ref}/versions:
     get:
@@ -3362,25 +3496,42 @@ components:
     CreateContentItemRequest:
       type: object
       required: [title]
+      description: >
+        JSON body for markdown/path/url representations — a file
+        representation is created via multipart/form-data instead (see
+        the create operation's other requestBody content entry).
+        representation defaults to "markdown" when omitted.
       properties:
         title: { type: string }
-        body: { type: string, description: Markdown body (representation is always "markdown" in Phase 5 Step 3) }
+        representation:
+          type: string
+          enum: [markdown, path, url]
+        body: { type: string, description: "Markdown body, when representation is markdown" }
+        path: { type: string, description: "A path string only, never resolved or read by the server (ADR 0007) — when representation is path" }
+        url: { type: string, description: "When representation is url" }
 
     UpdateContentItemRequest:
       type: object
-      required: [title, body]
-      description: Full-representation update, like PATCH /decisions/{ref}.
+      required: [title]
+      description: >
+        Full-representation update, like PATCH /decisions/{ref}. No
+        representation field — it's immutable after creation and
+        inferred server-side from the existing item; only the field
+        relevant to that representation is used.
       properties:
         title: { type: string }
         body: { type: string }
+        path: { type: string }
+        url: { type: string }
 
     ContentItem:
       type: object
-      required: [ref, project, kind, title, representation, body, version, created_at, updated_at]
+      required: [ref, project, kind, title, representation, version, created_at, updated_at]
       additionalProperties: false
       description: >
         A plan or document (product spec §5.9). kind distinguishes the
-        two; representation is always "markdown" in Phase 5 Step 3.
+        two. body/file_*/checksum/path_value/url_value are mutually
+        exclusive, populated according to representation.
       properties:
         ref: { type: string, example: ABC-P1 }
         project: { type: string }
@@ -3392,6 +3543,12 @@ components:
           type: string
           enum: [markdown, file, path, url]
         body: { type: string }
+        file_name: { type: string }
+        file_size: { type: integer }
+        media_type: { type: string }
+        checksum: { type: string }
+        path_value: { type: string }
+        url_value: { type: string }
         version: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -3424,7 +3581,7 @@ components:
 
     ContentItemVersion:
       type: object
-      required: [version, representation, title, body, edited_by, created_at]
+      required: [version, representation, title, edited_by, created_at]
       additionalProperties: false
       description: One archived prior state of a plan or document (product spec §5.9).
       properties:
@@ -3434,6 +3591,12 @@ components:
           enum: [markdown, file, path, url]
         title: { type: string }
         body: { type: string }
+        file_name: { type: string }
+        file_size: { type: integer }
+        media_type: { type: string }
+        checksum: { type: string }
+        path_value: { type: string }
+        url_value: { type: string }
         edited_by: { type: string, example: 'human:alice' }
         created_at: { type: string, format: date-time }
 

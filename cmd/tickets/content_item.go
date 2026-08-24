@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -34,7 +35,7 @@ func runDocument(args []string) error { return runContentItem(documentOps, args)
 
 func runContentItem(ops contentItemOps, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("%s: expected a subcommand (list, get, create, update, versions, diff)", ops.name)
+		return fmt.Errorf("%s: expected a subcommand (list, get, create, update, versions, diff, download)", ops.name)
 	}
 	switch args[0] {
 	case "list":
@@ -49,6 +50,8 @@ func runContentItem(ops contentItemOps, args []string) error {
 		return runContentItemVersions(ops, args[1:])
 	case "diff":
 		return runContentItemDiff(ops, args[1:])
+	case "download":
+		return runContentItemDownload(ops, args[1:])
 	default:
 		return fmt.Errorf("%s: unknown subcommand %q", ops.name, args[0])
 	}
@@ -124,9 +127,13 @@ func runContentItemCreate(ops contentItemOps, args []string) error {
 		return err
 	}
 	title := fs.String("title", "", "the "+ops.name+"'s title (required)")
-	body := fs.String("body", "", "Markdown body, given inline")
+	body := fs.String("body", "", "Markdown body, given inline (representation=markdown, the default)")
 	bodyFile := fs.String("body-file", "", "path to a file containing the Markdown body, or - for stdin")
-	idempotencyKey := fs.String("idempotency-key", "", "optional: a client-chosen key that makes a retried call safe — reusing the same key with the same content returns the original "+ops.name+" instead of creating a duplicate")
+	file := fs.String("file", "", "path to a file to upload (representation=file)")
+	path := fs.String("path", "", "a path reference, never read by the server (representation=path)")
+	contentURL := fs.String("content-url", "", "an external URL (representation=url)")
+	mediaType := fs.String("media-type", "", "MIME type for a file representation (defaults to the file's own detected type if omitted)")
+	idempotencyKey := fs.String("idempotency-key", "", "optional: a client-chosen key that makes a retried call safe — reusing the same key with the same content returns the original "+ops.name+" instead of creating a duplicate (ignored for --file, which can't be fingerprinted)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -143,14 +150,44 @@ func runContentItemCreate(ops contentItemOps, args []string) error {
 	if set["body"] && set["body-file"] {
 		return fmt.Errorf("%s create: --body and --body-file are mutually exclusive", ops.name)
 	}
-	resolvedBody, err := resolveTextFlag(*body, *bodyFile, set["body-file"])
-	if err != nil {
-		return err
+	representationFlags := 0
+	for _, s := range []bool{set["body"] || set["body-file"], set["file"], set["path"], set["content-url"]} {
+		if s {
+			representationFlags++
+		}
+	}
+	if representationFlags > 1 {
+		return fmt.Errorf("%s create: --body/--body-file, --file, --path, and --url are mutually exclusive", ops.name)
 	}
 
-	item, err := cfg.newClient().CreateContentItem(context.Background(), ops.urlKind, cfg.Project, apiclient.CreateContentItemRequest{
-		Title: *title, Body: resolvedBody,
-	}, *idempotencyKey)
+	client := cfg.newClient()
+	var item apiclient.ContentItem
+	switch {
+	case set["file"]:
+		f, ferr := os.Open(*file)
+		if ferr != nil {
+			return fmt.Errorf("%s create: open %s: %w", ops.name, *file, ferr)
+		}
+		defer func() { _ = f.Close() }()
+		item, err = client.UploadContentItem(context.Background(), ops.urlKind, cfg.Project, *title, fileBaseName(*file), *mediaType, f)
+	case set["path"]:
+		item, err = client.CreateContentItem(context.Background(), ops.urlKind, cfg.Project, apiclient.CreateContentItemRequest{
+			Title: *title, Representation: "path", Path: *path,
+		}, *idempotencyKey)
+	case set["content-url"]:
+		item, err = client.CreateContentItem(context.Background(), ops.urlKind, cfg.Project, apiclient.CreateContentItemRequest{
+			Title: *title, Representation: "url", URL: *contentURL,
+		}, *idempotencyKey)
+	default:
+		var resolvedBody string
+		resolvedBody, err = resolveTextFlag(*body, *bodyFile, set["body-file"])
+		if err != nil {
+			return err
+		}
+		item, err = client.CreateContentItem(context.Background(), ops.urlKind, cfg.Project, apiclient.CreateContentItemRequest{
+			Title: *title, Representation: "markdown", Body: resolvedBody,
+		}, *idempotencyKey)
+	}
 	if err != nil {
 		return err
 	}
@@ -171,8 +208,12 @@ func runContentItemUpdate(ops contentItemOps, args []string) error {
 		return err
 	}
 	title := fs.String("title", "", "the "+ops.name+"'s new title (required — full-representation update)")
-	body := fs.String("body", "", "the "+ops.name+"'s new Markdown body, given inline (defaults to the current body if omitted)")
+	body := fs.String("body", "", "the "+ops.name+"'s new Markdown body, given inline (representation=markdown only; defaults to the current body if omitted)")
 	bodyFile := fs.String("body-file", "", "path to a file containing the new Markdown body, or - for stdin")
+	file := fs.String("file", "", "path to a new file to upload as the next version (representation=file only)")
+	path := fs.String("path", "", "the item's new path value (representation=path only)")
+	contentURL := fs.String("content-url", "", "the item's new URL value (representation=url only)")
+	mediaType := fs.String("media-type", "", "MIME type for a file representation (defaults to the file's own detected type if omitted)")
 	ifVersion := fs.Int64("if-version", 0, "the "+ops.name+"'s current version, from a prior "+ops.name+" get (required)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -192,23 +233,42 @@ func runContentItemUpdate(ops contentItemOps, args []string) error {
 	}
 
 	client := cfg.newClient()
-	var current apiclient.ContentItem
-	if !set["body"] && !set["body-file"] {
-		// Full-representation update: an unset body would otherwise be
-		// sent as "" and silently wipe the current body server-side.
-		current, err = client.GetContentItem(context.Background(), ops.urlKind, ref)
+	var item apiclient.ContentItem
+	switch {
+	case set["file"]:
+		f, ferr := os.Open(*file)
+		if ferr != nil {
+			return fmt.Errorf("%s update: open %s: %w", ops.name, *file, ferr)
+		}
+		defer func() { _ = f.Close() }()
+		item, err = client.ReplaceContentItemFile(context.Background(), ops.urlKind, ref, *title, fileBaseName(*file), *mediaType, f, *ifVersion)
+	case set["path"]:
+		item, err = client.UpdateContentItem(context.Background(), ops.urlKind, ref, apiclient.UpdateContentItemRequest{
+			Title: *title, Path: *path,
+		}, *ifVersion)
+	case set["content-url"]:
+		item, err = client.UpdateContentItem(context.Background(), ops.urlKind, ref, apiclient.UpdateContentItemRequest{
+			Title: *title, URL: *contentURL,
+		}, *ifVersion)
+	default:
+		var current apiclient.ContentItem
+		if !set["body"] && !set["body-file"] {
+			// Full-representation update: an unset body would otherwise be
+			// sent as "" and silently wipe the current body server-side.
+			current, err = client.GetContentItem(context.Background(), ops.urlKind, ref)
+			if err != nil {
+				return err
+			}
+		}
+		var resolvedBody string
+		resolvedBody, err = resolveTextFlagOr(*body, *bodyFile, set["body"], set["body-file"], current.Body)
 		if err != nil {
 			return err
 		}
+		item, err = client.UpdateContentItem(context.Background(), ops.urlKind, ref, apiclient.UpdateContentItemRequest{
+			Title: *title, Body: resolvedBody,
+		}, *ifVersion)
 	}
-	resolvedBody, err := resolveTextFlagOr(*body, *bodyFile, set["body"], set["body-file"], current.Body)
-	if err != nil {
-		return err
-	}
-
-	item, err := client.UpdateContentItem(context.Background(), ops.urlKind, ref, apiclient.UpdateContentItemRequest{
-		Title: *title, Body: resolvedBody,
-	}, *ifVersion)
 	if err != nil {
 		return err
 	}
@@ -296,6 +356,51 @@ func runContentItemDiff(ops contentItemOps, args []string) error {
 			}
 			_, _ = fmt.Fprintf(os.Stdout, "%s %s| %s%s\n", prefix, f.name, prefix, line.Text)
 		}
+	}
+	return nil
+}
+
+func runContentItemDownload(ops contentItemOps, args []string) error {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		return fmt.Errorf("%s download: expected a %s reference as the first argument", ops.name, ops.name)
+	}
+	ref := args[0]
+	fs, cfg, err := newClientFlagSet(ops.name + " download")
+	if err != nil {
+		return err
+	}
+	version := fs.Int64("version", 0, "download this archived version instead of the current one")
+	output := fs.String("output", "", "write to this file instead of stdout")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if err := cfg.finish(); err != nil {
+		return err
+	}
+
+	client := cfg.newClient()
+	var dl apiclient.ContentItemDownload
+	if *version > 0 {
+		dl, err = client.DownloadContentItemVersion(context.Background(), ops.urlKind, ref, *version)
+	} else {
+		dl, err = client.DownloadContentItem(context.Background(), ops.urlKind, ref)
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dl.Content.Close() }()
+
+	out := os.Stdout
+	if *output != "" {
+		f, ferr := os.Create(*output)
+		if ferr != nil {
+			return fmt.Errorf("%s download: create %s: %w", ops.name, *output, ferr)
+		}
+		defer func() { _ = f.Close() }()
+		out = f
+	}
+	if _, err := io.Copy(out, dl.Content); err != nil {
+		return fmt.Errorf("%s download: write output: %w", ops.name, err)
 	}
 	return nil
 }

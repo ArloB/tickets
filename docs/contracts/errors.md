@@ -97,15 +97,18 @@ for it.
 
 | Code | HTTP status | Meaning |
 | --- | --- | --- |
-| `upload_too_large` | 413 | An attachment upload exceeded the configured size limit (ADR 0007, 25 MiB default per version). |
+| `upload_too_large` | 413 | An attachment upload, or a plan/document's file-representation upload, exceeded the configured size limit (ADR 0007, 25 MiB default per version). |
 
-`upload_too_large` is decided in `internal/httpapi`'s attachment
-upload handlers, before the handler body starts writing to storage
-(ADR 0007) — the one code in this catalogue enforced at the
+`upload_too_large` is decided in `internal/httpapi`'s attachment and
+content-item upload handlers, before the handler body starts writing
+to storage (ADR 0007) — the one code in this catalogue enforced at the
 translation layer rather than `internal/service`, for the same
 mechanical reason streaming enforcement needs to happen before any
 service call: the request body is size-limited as it's read, not
-after it's fully buffered.
+after it's fully buffered. Both handler families share the same
+`internal/httpapi.maxUploadBytes` limit (configurable via
+`--max-upload-bytes`/`TICKETS_MAX_UPLOAD_BYTES`) — there is one upload
+size limit for the whole server, not a separate one per feature.
 
 ## OpenAPI's `code` field is a bare string, not an enum
 

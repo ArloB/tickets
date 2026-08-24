@@ -46,12 +46,16 @@ omitted field there — it isn't a partial-update exception.
 record_* covers decisions, plans, and documents. record_create's kind
 is "decision" (default), "plan", or "document". Decisions use
 title/context/decision/rationale/consequences/status/superseded_by;
-plans and documents use title/body (Markdown) instead — the other
-kind's fields are simply omitted from that call. record_get/
-record_update infer which kind a reference names from the reference
-itself (ABC-D1 is a decision, ABC-P1 a plan, ABC-DOC1 a document), so
-neither needs a kind argument. ticket_comment is the only comment tool;
-comments exist on tickets only.
+plans and documents use title plus representation ("markdown" default,
+"path", or "url") to pick which of body/path/url applies — the other
+kind's fields are simply omitted from that call. A plan or document's
+representation is fixed at creation and can never be changed by
+record_update; there is no file-upload representation over MCP at all
+(a tool call has no multipart transport) — upload one via the HTTP API
+or CLI instead. record_get/record_update infer which kind a reference
+names from the reference itself (ABC-D1 is a decision, ABC-P1 a plan,
+ABC-DOC1 a document), so neither needs a kind argument. ticket_comment
+is the only comment tool; comments exist on tickets only.
 
 ticket_comment and record_create accept an optional idempotency_key:
 reusing the same key with identical arguments returns the original

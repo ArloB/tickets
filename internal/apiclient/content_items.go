@@ -2,15 +2,22 @@ package apiclient
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/ArloB/tickets/internal/domain"
 )
 
 // ContentItem mirrors internal/httpapi/wire.go's contentItemDetail
-// field-for-field (product spec §5.9). Kind is "plan" or "document";
-// Representation is always "markdown" in Phase 5 Step 3.
+// field-for-field (product spec §5.9). Kind is "plan" or "document".
+// Body/FileName+FileSize+MediaType+Checksum/PathValue/URLValue are
+// mutually exclusive, populated according to Representation.
 type ContentItem struct {
 	Ref            string    `json:"ref"`
 	Project        string    `json:"project"`
@@ -18,6 +25,12 @@ type ContentItem struct {
 	Title          string    `json:"title"`
 	Representation string    `json:"representation"`
 	Body           string    `json:"body"`
+	FileName       string    `json:"file_name,omitempty"`
+	FileSize       int64     `json:"file_size,omitempty"`
+	MediaType      string    `json:"media_type,omitempty"`
+	Checksum       string    `json:"checksum,omitempty"`
+	PathValue      string    `json:"path_value,omitempty"`
+	URLValue       string    `json:"url_value,omitempty"`
 	Version        int64     `json:"version"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -41,18 +54,28 @@ type ContentItemsPage struct {
 }
 
 // CreateContentItemRequest is POST /projects/{key}/plans|documents'
-// request body.
+// JSON request body for markdown/path/url representations — a file
+// representation is created via UploadContentItem instead.
+// Representation defaults to "markdown" server-side when empty.
 type CreateContentItemRequest struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	Title          string `json:"title"`
+	Representation string `json:"representation,omitempty"`
+	Body           string `json:"body,omitempty"`
+	Path           string `json:"path,omitempty"`
+	URL            string `json:"url,omitempty"`
 }
 
-// UpdateContentItemRequest is PATCH /plans|documents/{ref}'s request
-// body — a full-representation update, matching UpdateDecisionRequest's
-// contract.
+// UpdateContentItemRequest is PATCH /plans|documents/{ref}'s JSON
+// request body — a full-representation update, matching
+// UpdateDecisionRequest's contract. No Representation field:
+// representation is immutable, inferred server-side from the existing
+// item. A file representation is replaced via ReplaceContentItemFile
+// instead.
 type UpdateContentItemRequest struct {
 	Title string `json:"title"`
-	Body  string `json:"body"`
+	Body  string `json:"body,omitempty"`
+	Path  string `json:"path,omitempty"`
+	URL   string `json:"url,omitempty"`
 }
 
 // ContentItemVersion mirrors internal/httpapi/wire.go's
@@ -62,6 +85,12 @@ type ContentItemVersion struct {
 	Representation string    `json:"representation"`
 	Title          string    `json:"title"`
 	Body           string    `json:"body"`
+	FileName       string    `json:"file_name,omitempty"`
+	FileSize       int64     `json:"file_size,omitempty"`
+	MediaType      string    `json:"media_type,omitempty"`
+	Checksum       string    `json:"checksum,omitempty"`
+	PathValue      string    `json:"path_value,omitempty"`
+	URLValue       string    `json:"url_value,omitempty"`
 	EditedBy       string    `json:"edited_by"`
 	CreatedAt      time.Time `json:"created_at"`
 }
@@ -131,4 +160,127 @@ func (c *Client) GetContentItemDiff(ctx context.Context, urlKind, ref string, fr
 	path := "/" + urlKind + "/" + url.PathEscape(ref) + "/diff?from=" + strconv.FormatInt(from, 10) + "&to=" + strconv.FormatInt(to, 10)
 	err := c.do(ctx, http.MethodGet, path, nil, &diff, requestOptions{})
 	return diff, err
+}
+
+// UploadContentItem creates a file-representation plan or document —
+// POST /projects/{key}/{urlKind}, multipart/form-data. Mirrors
+// UploadAttachment: content is streamed straight into the request
+// body, never buffered whole.
+func (c *Client) UploadContentItem(ctx context.Context, urlKind, projectKey, title, fileName, mediaType string, content io.Reader) (ContentItem, error) {
+	path := "/projects/" + url.PathEscape(projectKey) + "/" + urlKind
+	return c.doMultipartContentItem(ctx, http.MethodPost, path, nil, title, fileName, mediaType, content)
+}
+
+// ReplaceContentItemFile stores a new version as a file-representation
+// item's current state — PATCH /{urlKind}/{ref}, multipart/form-data.
+func (c *Client) ReplaceContentItemFile(ctx context.Context, urlKind, ref, title, fileName, mediaType string, content io.Reader, expectedVersion int64) (ContentItem, error) {
+	path := "/" + urlKind + "/" + url.PathEscape(ref)
+	return c.doMultipartContentItem(ctx, http.MethodPatch, path, &expectedVersion, title, fileName, mediaType, content)
+}
+
+func (c *Client) doMultipartContentItem(ctx context.Context, method, path string, ifMatch *int64, title, fileName, mediaType string, content io.Reader) (ContentItem, error) {
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		defer func() { _ = pw.Close() }()
+		if err := mw.WriteField("title", title); err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+		if mediaType != "" {
+			if err := mw.WriteField("media_type", mediaType); err != nil {
+				_ = pw.CloseWithError(err)
+				return
+			}
+		}
+		fw, err := mw.CreateFormFile("file", fileName)
+		if err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(fw, content); err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+		_ = mw.Close()
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, pr)
+	if err != nil {
+		return ContentItem{}, fmt.Errorf("apiclient: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	if ifMatch != nil {
+		req.Header.Set("If-Match", `"`+strconv.FormatInt(*ifMatch, 10)+`"`)
+	}
+	req.Header.Set("X-Correlation-Id", newCorrelationID())
+
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return ContentItem{}, fmt.Errorf("apiclient: request %s %s: %w", method, path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 300 {
+		var env errorEnvelope
+		if decErr := json.NewDecoder(resp.Body).Decode(&env); decErr != nil || env.Error.Code == "" {
+			return ContentItem{}, fmt.Errorf("apiclient: %s %s returned status %d with no decodable error body", method, path, resp.StatusCode)
+		}
+		return ContentItem{}, &Error{Code: domain.ErrorCode(env.Error.Code), Message: env.Error.Message, Field: env.Error.Field, CurrentVersion: env.Error.CurrentVersion}
+	}
+
+	var out ContentItem
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return ContentItem{}, fmt.Errorf("apiclient: decode response from %s %s: %w", method, path, err)
+	}
+	return out, nil
+}
+
+// ContentItemDownload is DownloadContentItem/DownloadContentItemVersion's
+// result — callers must Close Content.
+type ContentItemDownload struct {
+	Content     io.ReadCloser
+	FileName    string
+	ContentType string
+}
+
+// DownloadContentItem streams a file-representation plan or document's
+// current bytes. The caller must Close the returned Content.
+func (c *Client) DownloadContentItem(ctx context.Context, urlKind, ref string) (ContentItemDownload, error) {
+	return c.downloadContentItem(ctx, "/"+urlKind+"/"+url.PathEscape(ref)+"/download")
+}
+
+// DownloadContentItemVersion streams one archived version's bytes.
+func (c *Client) DownloadContentItemVersion(ctx context.Context, urlKind, ref string, version int64) (ContentItemDownload, error) {
+	return c.downloadContentItem(ctx, "/"+urlKind+"/"+url.PathEscape(ref)+"/versions/"+strconv.FormatInt(version, 10)+"/download")
+}
+
+func (c *Client) downloadContentItem(ctx context.Context, path string) (ContentItemDownload, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
+	if err != nil {
+		return ContentItemDownload{}, fmt.Errorf("apiclient: build request: %w", err)
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	req.Header.Set("X-Correlation-Id", newCorrelationID())
+
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return ContentItemDownload{}, fmt.Errorf("apiclient: request GET %s: %w", path, err)
+	}
+	if resp.StatusCode >= 300 {
+		defer func() { _ = resp.Body.Close() }()
+		var env errorEnvelope
+		if decErr := json.NewDecoder(resp.Body).Decode(&env); decErr != nil || env.Error.Code == "" {
+			return ContentItemDownload{}, fmt.Errorf("apiclient: GET %s returned status %d with no decodable error body", path, resp.StatusCode)
+		}
+		return ContentItemDownload{}, &Error{Code: domain.ErrorCode(env.Error.Code), Message: env.Error.Message, Field: env.Error.Field, CurrentVersion: env.Error.CurrentVersion}
+	}
+
+	fileName := parseContentDispositionFileName(resp.Header.Get("Content-Disposition"))
+	return ContentItemDownload{Content: resp.Body, FileName: fileName, ContentType: resp.Header.Get("Content-Type")}, nil
 }

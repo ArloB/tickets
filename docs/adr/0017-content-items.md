@@ -89,3 +89,22 @@ introduces.
 - Steps 4–5 (attachments, and content items' file/path/url
   representations) build on this table's already-present nullable
   columns without a further migration.
+
+**Implemented in Phase 5 Step 5.** `file`/`path`/`url` representations
+land on `CreateContentItem`/`UpdateContentItem`, reusing Step 4's
+`internal/blobstore` for `file` (dedup falls out of content-addressing
+the same way it does for attachments) — no schema change, since the
+migration already reserved these columns. `internal/httpapi` dispatches
+create/update on Content-Type (`multipart/form-data` means
+`representation=file`, JSON otherwise, naming `path`/`url` in the body)
+the same way `attachments.go` does; new `GET /plans|documents/{ref}
+/download` and `.../versions/{version}/download` routes stream a file
+representation's bytes, and reject any other representation — a path
+representation's target is never opened, the same ADR 0007 boundary
+attachments enforce. `record_create`/`record_update` (MCP) gain
+`representation`/`path`/`url` fields but no file-upload path: a tool
+call has no multipart transport, so uploading a file representation
+stays HTTP/CLI-only. Representation is confirmed immutable at the type
+level, not just by convention — `UpdateContentItemRequest` (service,
+HTTP, apiclient, and MCP) carries no representation field at all, so
+there is no code path that could switch one.

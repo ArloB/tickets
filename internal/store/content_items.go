@@ -12,18 +12,22 @@ import (
 
 // ContentItemRow is the internal (store-only) view of a plan or
 // document — mirrors DecisionRow's shape/doc. ProjectEntityID is
-// internal-only, the same boundary DecisionRow draws.
+// internal-only, the same boundary DecisionRow draws. FileHash is
+// internal-only the same way AttachmentRow's is — it addresses the
+// blobstore, never reaches the wire directly.
 type ContentItemRow struct {
 	Entity          domain.ContentItem
 	ID              int64
 	ProjectEntityID int64
+	FileHash        *string
 }
 
 const contentItemSelectColumns = `
 	e.id, e.uuid, e.version, e.created_at, e.updated_at, e.kind,
 	p.key, ci.project_id, ci.seq,
-	ci.title, ci.representation, ci.body, e.deleted_at,
-	ca.kind, ca.name`
+	ci.title, ci.representation, ci.body,
+	ci.file_hash, ci.file_name, ci.file_size, ci.media_type, ci.checksum, ci.path_value, ci.url_value,
+	e.deleted_at, ca.kind, ca.name`
 
 func scanContentItemRow(scan func(dest ...any) error) (ContentItemRow, error) {
 	var (
@@ -32,17 +36,43 @@ func scanContentItemRow(scan func(dest ...any) error) (ContentItemRow, error) {
 		createdAt, updatedAt     string
 		kind                     string
 		seq                      int64
+		fileHash, fileName       sql.NullString
+		fileSize                 sql.NullInt64
+		mediaType, checksum      sql.NullString
+		pathValue, urlValue      sql.NullString
 		deletedAt                sql.NullString
 		creatorKind, creatorName sql.NullString
 	)
 	err := scan(&row.ID, &u, &row.Entity.Version, &createdAt, &updatedAt, &kind,
 		&row.Entity.ProjectKey, &row.ProjectEntityID, &seq,
-		&row.Entity.Title, &row.Entity.Representation, &row.Entity.Body, &deletedAt,
-		&creatorKind, &creatorName)
+		&row.Entity.Title, &row.Entity.Representation, &row.Entity.Body,
+		&fileHash, &fileName, &fileSize, &mediaType, &checksum, &pathValue, &urlValue,
+		&deletedAt, &creatorKind, &creatorName)
 	if err != nil {
 		return ContentItemRow{}, err
 	}
 	row.Entity.Kind = domain.EntityKind(kind)
+	if fileHash.Valid {
+		row.FileHash = &fileHash.String
+	}
+	if fileName.Valid {
+		row.Entity.FileName = fileName.String
+	}
+	if fileSize.Valid {
+		row.Entity.FileSize = fileSize.Int64
+	}
+	if mediaType.Valid {
+		row.Entity.MediaType = mediaType.String
+	}
+	if checksum.Valid {
+		row.Entity.Checksum = checksum.String
+	}
+	if pathValue.Valid {
+		row.Entity.PathValue = pathValue.String
+	}
+	if urlValue.Valid {
+		row.Entity.URLValue = urlValue.String
+	}
 	if creatorKind.Valid {
 		row.Entity.Creator = &domain.ActorRef{Kind: domain.ActorKind(creatorKind.String), Name: creatorName.String}
 	}
@@ -203,18 +233,35 @@ func GetContentItemRefByEntityIDAnyDeletion(ctx context.Context, q Querier, enti
 	return domain.Reference{ProjectKey: projectKey, Kind: domain.EntityKind(kind), Seq: seq}, nil
 }
 
+// ContentItemFields groups the representation-specific columns shared
+// by content_items/content_versions inserts and updates — the same
+// nullable-column-bag shape store.AttachmentFields uses. Representation
+// is included because InsertContentItem needs it; UpdateContentItemFields
+// always receives the item's own existing (immutable) representation
+// back, never a caller-chosen new one.
+type ContentItemFields struct {
+	Representation domain.ContentRepresentation
+	Body           string
+	FileHash       *string
+	FileName       *string
+	FileSize       *int64
+	MediaType      *string
+	Checksum       *string
+	PathValue      *string
+	URLValue       *string
+}
+
 // InsertContentItem creates a content_items row. Called inside the
 // same transaction as InsertEntity/AllocateReference, mirroring
 // InsertDecision's contract. kind must equal the value InsertEntity was
 // just called with — see content_items' migration comment on why this
-// table denormalizes kind. Step 3 always passes representation
-// "markdown"; Steps 4-5 pass the other representation-specific values
-// (not yet parameters here — added when those steps extend this
-// function).
-func InsertContentItem(ctx context.Context, q Querier, entityID, projectEntityID int64, kind domain.EntityKind, seq int64, title, representation, body string) error {
+// table denormalizes kind.
+func InsertContentItem(ctx context.Context, q Querier, entityID, projectEntityID int64, kind domain.EntityKind, seq int64, title string, f ContentItemFields) error {
 	if _, err := q.ExecContext(ctx,
-		`INSERT INTO content_items (id, project_id, kind, seq, title, representation, body) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		entityID, projectEntityID, string(kind), seq, title, representation, body,
+		`INSERT INTO content_items (id, project_id, kind, seq, title, representation, body, file_hash, file_name, file_size, media_type, checksum, path_value, url_value)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		entityID, projectEntityID, string(kind), seq, title, string(f.Representation), f.Body,
+		f.FileHash, f.FileName, f.FileSize, f.MediaType, f.Checksum, f.PathValue, f.URLValue,
 	); err != nil {
 		return fmt.Errorf("insert content item: %w", err)
 	}
@@ -225,15 +272,18 @@ func InsertContentItem(ctx context.Context, q Querier, entityID, projectEntityID
 // 0008's version-guard pattern via bumpEntityVersion) — mirrors
 // UpdateDecisionFields. The archived-version snapshot is a separate
 // InsertContentItemVersion call the caller makes first, against the
-// pre-update row it already read.
-func UpdateContentItemFields(ctx context.Context, q Querier, entityID int64, title, body string, expectedVersion int64, now string) (newVersion int64, err error) {
+// pre-update row it already read. f.Representation is written back
+// unchanged (immutable after creation) — this is a full-representation
+// overwrite of every representation-specific column, the same
+// unconditional-replace shape UpdateAttachmentCurrent uses.
+func UpdateContentItemFields(ctx context.Context, q Querier, entityID int64, title string, f ContentItemFields, expectedVersion int64, now string) (newVersion int64, err error) {
 	newVersion, err = bumpEntityVersion(ctx, q, entityID, expectedVersion, now)
 	if err != nil {
 		return 0, err
 	}
 	if _, err := q.ExecContext(ctx,
-		`UPDATE content_items SET title = ?, body = ? WHERE id = ?`,
-		title, body, entityID,
+		`UPDATE content_items SET title = ?, body = ?, file_hash = ?, file_name = ?, file_size = ?, media_type = ?, checksum = ?, path_value = ?, url_value = ? WHERE id = ?`,
+		title, f.Body, f.FileHash, f.FileName, f.FileSize, f.MediaType, f.Checksum, f.PathValue, f.URLValue, entityID,
 	); err != nil {
 		return 0, fmt.Errorf("update content item fields: %w", err)
 	}
@@ -244,11 +294,12 @@ func UpdateContentItemFields(ctx context.Context, q Querier, entityID int64, tit
 // — called with the row's fields and version *before*
 // UpdateContentItemFields overwrites them, mirroring
 // InsertDecisionVersion's ordering.
-func InsertContentItemVersion(ctx context.Context, q Querier, contentItemID, version int64, representation, title, body string, editedBy int64, now string) error {
+func InsertContentItemVersion(ctx context.Context, q Querier, contentItemID, version int64, title string, f ContentItemFields, editedBy int64, now string) error {
 	if _, err := q.ExecContext(ctx,
-		`INSERT INTO content_versions(content_item_id, version, representation, title, body, edited_by, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		contentItemID, version, representation, title, body, editedBy, now,
+		`INSERT INTO content_versions(content_item_id, version, representation, title, body, file_hash, file_name, file_size, media_type, checksum, path_value, url_value, edited_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		contentItemID, version, string(f.Representation), title, f.Body,
+		f.FileHash, f.FileName, f.FileSize, f.MediaType, f.Checksum, f.PathValue, f.URLValue, editedBy, now,
 	); err != nil {
 		return fmt.Errorf("insert content item version: %w", err)
 	}
@@ -257,9 +308,47 @@ func InsertContentItemVersion(ctx context.Context, q Querier, contentItemID, ver
 
 // ListContentItemVersions returns a content item's archived prior
 // states, oldest first — mirrors ListDecisionVersions.
+const contentItemVersionSelectColumns = `
+	cv.version, cv.representation, cv.title, cv.body,
+	cv.file_name, cv.file_size, cv.media_type, cv.checksum, cv.path_value, cv.url_value,
+	a.kind, a.name, cv.created_at`
+
+func scanContentItemVersion(scan func(dest ...any) error) (domain.ContentItemVersion, error) {
+	var (
+		v                          domain.ContentItemVersion
+		body                       sql.NullString
+		fileName, mediaType        sql.NullString
+		fileSize                   sql.NullInt64
+		checksum, pathValue        sql.NullString
+		urlValue                   sql.NullString
+		editedByKind, editedByName string
+		createdAt                  string
+	)
+	if err := scan(&v.Version, &v.Representation, &v.Title, &body,
+		&fileName, &fileSize, &mediaType, &checksum, &pathValue, &urlValue,
+		&editedByKind, &editedByName, &createdAt); err != nil {
+		return domain.ContentItemVersion{}, fmt.Errorf("scan content item version: %w", err)
+	}
+	v.Body = body.String
+	v.FileName = fileName.String
+	v.FileSize = fileSize.Int64
+	v.MediaType = mediaType.String
+	v.Checksum = checksum.String
+	v.PathValue = pathValue.String
+	v.URLValue = urlValue.String
+	v.EditedBy = domain.ActorRef{Kind: domain.ActorKind(editedByKind), Name: editedByName}
+	var err error
+	if v.CreatedAt, err = parseTime(createdAt); err != nil {
+		return domain.ContentItemVersion{}, fmt.Errorf("parse content item version created_at: %w", err)
+	}
+	return v, nil
+}
+
+// ListContentItemVersions returns a content item's archived prior
+// states, oldest first — mirrors ListDecisionVersions.
 func ListContentItemVersions(ctx context.Context, q Querier, contentItemID int64) ([]domain.ContentItemVersion, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT cv.version, cv.representation, cv.title, cv.body, a.kind, a.name, cv.created_at
+		`SELECT`+contentItemVersionSelectColumns+`
 		 FROM content_versions cv JOIN actors a ON a.id = cv.edited_by
 		 WHERE cv.content_item_id = ?
 		 ORDER BY cv.version ASC`,
@@ -272,19 +361,9 @@ func ListContentItemVersions(ctx context.Context, q Querier, contentItemID int64
 
 	var out []domain.ContentItemVersion
 	for rows.Next() {
-		var (
-			v                          domain.ContentItemVersion
-			body                       sql.NullString
-			editedByKind, editedByName string
-			createdAt                  string
-		)
-		if err := rows.Scan(&v.Version, &v.Representation, &v.Title, &body, &editedByKind, &editedByName, &createdAt); err != nil {
-			return nil, fmt.Errorf("scan content item version: %w", err)
-		}
-		v.Body = body.String
-		v.EditedBy = domain.ActorRef{Kind: domain.ActorKind(editedByKind), Name: editedByName}
-		if v.CreatedAt, err = parseTime(createdAt); err != nil {
-			return nil, fmt.Errorf("parse content item version created_at: %w", err)
+		v, err := scanContentItemVersion(rows.Scan)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, v)
 	}
@@ -297,28 +376,39 @@ func ListContentItemVersions(ctx context.Context, q Querier, contentItemID int64
 // GetContentItemVersion returns one archived version by number, or
 // ErrNotFound — mirrors GetDecisionVersion.
 func GetContentItemVersion(ctx context.Context, q Querier, contentItemID, version int64) (domain.ContentItemVersion, error) {
-	var (
-		v                          domain.ContentItemVersion
-		body                       sql.NullString
-		editedByKind, editedByName string
-		createdAt                  string
-	)
-	err := q.QueryRowContext(ctx,
-		`SELECT cv.version, cv.representation, cv.title, cv.body, a.kind, a.name, cv.created_at
+	row := q.QueryRowContext(ctx,
+		`SELECT`+contentItemVersionSelectColumns+`
 		 FROM content_versions cv JOIN actors a ON a.id = cv.edited_by
 		 WHERE cv.content_item_id = ? AND cv.version = ?`,
 		contentItemID, version,
-	).Scan(&v.Version, &v.Representation, &v.Title, &body, &editedByKind, &editedByName, &createdAt)
+	)
+	v, err := scanContentItemVersion(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.ContentItemVersion{}, ErrNotFound
 	}
 	if err != nil {
 		return domain.ContentItemVersion{}, fmt.Errorf("get content item version %d/%d: %w", contentItemID, version, err)
 	}
-	v.Body = body.String
-	v.EditedBy = domain.ActorRef{Kind: domain.ActorKind(editedByKind), Name: editedByName}
-	if v.CreatedAt, err = parseTime(createdAt); err != nil {
-		return domain.ContentItemVersion{}, fmt.Errorf("parse content item version created_at: %w", err)
-	}
 	return v, nil
+}
+
+// GetContentItemVersionBlobHash returns the file_hash a specific
+// archived version points at — mirrors
+// GetAttachmentVersionBlobHash, used by the versioned-download route.
+func GetContentItemVersionBlobHash(ctx context.Context, q Querier, contentItemID, version int64) (fileHash *string, fileName string, mediaType string, err error) {
+	var hash, name, media sql.NullString
+	row := q.QueryRowContext(ctx,
+		`SELECT file_hash, file_name, media_type FROM content_versions WHERE content_item_id = ? AND version = ?`,
+		contentItemID, version,
+	)
+	if err := row.Scan(&hash, &name, &media); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, "", "", ErrNotFound
+		}
+		return nil, "", "", fmt.Errorf("get content item version blob hash %d/%d: %w", contentItemID, version, err)
+	}
+	if hash.Valid {
+		fileHash = &hash.String
+	}
+	return fileHash, name.String, media.String, nil
 }

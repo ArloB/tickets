@@ -111,11 +111,14 @@ type DecisionVersion struct {
 // (KindPlan/KindDocument) is the sole discriminator; content_items
 // carries no redundant kind field of its own on this struct beyond
 // what's needed to render it, mirroring Decision (docs/adr/0017-
-// content-items.md). Representation is immutable after creation: Phase
-// 5 Step 3 only ever produces "markdown"; Steps 4-5 add "file", "path",
-// and "url". Body is populated only when Representation is "markdown" —
-// the other representations' fields join this struct when their steps
-// land.
+// content-items.md). Representation is immutable after creation
+// (Phase 5 plan's confirmed decision) — one of "markdown", "file",
+// "path", "url" (domain.ContentRepresentation). Body is populated only
+// for "markdown"; FileName/FileSize/MediaType/Checksum only for
+// "file"; PathValue only for "path"; URLValue only for "url" — the
+// same one-populated-field-per-representation shape Attachment uses.
+// FileHash is deliberately not exposed here — see Attachment's own
+// doc for why.
 type ContentItem struct {
 	UUID           string     `json:"-"`
 	Ref            string     `json:"ref"`
@@ -124,6 +127,12 @@ type ContentItem struct {
 	Title          string     `json:"title"`
 	Representation string     `json:"representation"`
 	Body           string     `json:"body"`
+	FileName       string     `json:"file_name,omitempty"`
+	FileSize       int64      `json:"file_size,omitempty"`
+	MediaType      string     `json:"media_type,omitempty"`
+	Checksum       string     `json:"checksum,omitempty"`
+	PathValue      string     `json:"path_value,omitempty"`
+	URLValue       string     `json:"url_value,omitempty"`
 	Version        int64      `json:"version"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
@@ -133,12 +142,20 @@ type ContentItem struct {
 
 // ContentItemVersion is one archived prior state of a ContentItem
 // (§5.9: "each edit saves a full snapshot") — the content-item analogue
-// of DecisionVersion.
+// of DecisionVersion. No diff is attempted for file/path/url versions
+// (§5.9: "binary line diffs are not attempted") — only markdown
+// versions feed GetContentItemDiff.
 type ContentItemVersion struct {
 	Version        int64     `json:"version"`
 	Representation string    `json:"representation"`
 	Title          string    `json:"title"`
 	Body           string    `json:"body"`
+	FileName       string    `json:"file_name,omitempty"`
+	FileSize       int64     `json:"file_size,omitempty"`
+	MediaType      string    `json:"media_type,omitempty"`
+	Checksum       string    `json:"checksum,omitempty"`
+	PathValue      string    `json:"path_value,omitempty"`
+	URLValue       string    `json:"url_value,omitempty"`
 	EditedBy       ActorRef  `json:"edited_by"`
 	CreatedAt      time.Time `json:"created_at"`
 }

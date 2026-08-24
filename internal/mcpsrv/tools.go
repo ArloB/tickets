@@ -265,7 +265,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "record_create",
-		Description:  "Create a decision, plan, or document in a project (product spec §5.8/§5.9). kind is \"decision\" (default), \"plan\", or \"document\". Decisions use context/decision/rationale/consequences; plans and documents use body (Markdown) instead.",
+		Description:  "Create a decision, plan, or document in a project (product spec §5.8/§5.9). kind is \"decision\" (default), \"plan\", or \"document\". Decisions use context/decision/rationale/consequences; plans and documents use representation (\"markdown\" default, \"path\", or \"url\") to pick which of body/path/url applies — there is no file-upload representation over MCP, since a tool call has no multipart transport.",
 		OutputSchema: outputSchemaFor[RecordWriteResult](),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in recordCreateInput) (*mcp.CallToolResult, RecordWriteResult, error) {
 		ctx = withCallerActor(ctx, req)
@@ -285,7 +285,8 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 			return nil, recordWriteResultFromDecision(out), nil
 		case "plan", "document":
 			out, err := backend.CreateContentItem(ctx, CreateContentItemInput{
-				ProjectKey: in.ProjectKey, Kind: kind, Title: in.Title, Body: in.Body, IdempotencyKey: in.IdempotencyKey,
+				ProjectKey: in.ProjectKey, Kind: kind, Title: in.Title, Representation: in.Representation,
+				Body: in.Body, Path: in.Path, URL: in.URL, IdempotencyKey: in.IdempotencyKey,
 			})
 			if err != nil {
 				return nil, RecordWriteResult{}, toolError(err)
@@ -298,7 +299,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "record_update",
-		Description:  "Replace a decision/plan/document's fields — a full-representation update (send every field that applies to this record's kind, even ones you're not changing, or they'll be cleared). Decisions: title/context/decision/rationale/consequences/status/superseded_by — omitting any of context/decision/rationale/consequences/status on a decision update is rejected as an error, not treated as a clear. Plans/documents: title/body. expected_version must be the version from a prior record_get/record_create/record_update call.",
+		Description:  "Replace a decision/plan/document's fields — a full-representation update (send every field that applies to this record's kind, even ones you're not changing, or they'll be cleared). Decisions: title/context/decision/rationale/consequences/status/superseded_by — omitting any of context/decision/rationale/consequences/status on a decision update is rejected as an error, not treated as a clear. Plans/documents: title, plus whichever of body/path/url matches the item's own (immutable) representation — there is no representation field here, and a file representation can't be replaced over MCP (use the HTTP API or CLI). expected_version must be the version from a prior record_get/record_create/record_update call.",
 		OutputSchema: outputSchemaFor[RecordWriteResult](),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in recordUpdateInput) (*mcp.CallToolResult, RecordWriteResult, error) {
 		kind, kerr := recordRefKind(in.Ref)
@@ -322,7 +323,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 			return nil, recordWriteResultFromDecision(out), nil
 		case domain.KindPlan, domain.KindDocument:
 			out, err := backend.UpdateContentItem(ctx, UpdateContentItemInput{
-				Ref: in.Ref, Title: in.Title, Body: in.Body, ExpectedVersion: in.ExpectedVersion,
+				Ref: in.Ref, Title: in.Title, Body: in.Body, Path: in.Path, URL: in.URL, ExpectedVersion: in.ExpectedVersion,
 			})
 			if err != nil {
 				return nil, RecordWriteResult{}, toolError(err)
@@ -465,7 +466,10 @@ type recordCreateInput struct {
 	Decision       string `json:"decision,omitempty" jsonschema:"decision only. Markdown: what was decided"`
 	Rationale      string `json:"rationale,omitempty" jsonschema:"decision only. Markdown: why"`
 	Consequences   string `json:"consequences,omitempty" jsonschema:"decision only. Markdown: what this decision leads to"`
-	Body           string `json:"body,omitempty" jsonschema:"plan/document only. The Markdown body"`
+	Representation string `json:"representation,omitempty" jsonschema:"plan/document only. \"markdown\" (default), \"path\", or \"url\" — there is no file-upload path over MCP (no multipart transport); upload a file representation via the HTTP API or CLI instead"`
+	Body           string `json:"body,omitempty" jsonschema:"plan/document only, representation=markdown. The Markdown body"`
+	Path           string `json:"path,omitempty" jsonschema:"plan/document only, representation=path. A path string only — never resolved or read by the server (ADR 0007)"`
+	URL            string `json:"url,omitempty" jsonschema:"plan/document only, representation=url. An external URL"`
 	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"optional: a client-chosen key to make a retried call safe. Reusing the same key with the same content returns the original record instead of creating a duplicate; reusing it with different content is rejected as idempotency_key_reused."`
 }
 
@@ -494,7 +498,9 @@ type recordUpdateInput struct {
 	Consequences    *string `json:"consequences,omitempty" jsonschema:"decision only, and required for a decision update. Markdown: what this decision leads to — full-representation update; resend the current value if unchanged"`
 	Status          *string `json:"status,omitempty" jsonschema:"decision only, and required for a decision update. proposed, accepted, rejected, or superseded"`
 	SupersededBy    string  `json:"superseded_by,omitempty" jsonschema:"decision only. Reference of the decision that supersedes this one, e.g. ABC-D9 — full-representation update; resend the current value if unchanged, or omit/empty to clear it"`
-	Body            string  `json:"body,omitempty" jsonschema:"plan/document only. The Markdown body — full-representation update; resend the current value if unchanged"`
+	Body            string  `json:"body,omitempty" jsonschema:"plan/document only, when its representation is markdown. The Markdown body — full-representation update; resend the current value if unchanged"`
+	Path            string  `json:"path,omitempty" jsonschema:"plan/document only, when its representation is path. The new path value — full-representation update; resend the current value if unchanged"`
+	URL             string  `json:"url,omitempty" jsonschema:"plan/document only, when its representation is url. The new URL value — full-representation update; resend the current value if unchanged"`
 	ExpectedVersion int64   `json:"expected_version" jsonschema:"the record's current version, from a prior record_get/record_create/record_update call"`
 }
 

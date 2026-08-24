@@ -205,6 +205,27 @@ func (k AttachmentKind) Valid() bool {
 	return false
 }
 
+// ContentRepresentation is how a content_items row (a plan or
+// document, §5.9) stores its content — immutable after creation
+// (Phase 5 plan's confirmed decision): switching representations
+// means creating a new item, not converting an existing one.
+type ContentRepresentation string
+
+const (
+	ContentRepresentationMarkdown ContentRepresentation = "markdown"
+	ContentRepresentationFile     ContentRepresentation = "file"
+	ContentRepresentationPath     ContentRepresentation = "path"
+	ContentRepresentationURL      ContentRepresentation = "url"
+)
+
+func (r ContentRepresentation) Valid() bool {
+	switch r {
+	case ContentRepresentationMarkdown, ContentRepresentationFile, ContentRepresentationPath, ContentRepresentationURL:
+		return true
+	}
+	return false
+}
+
 func (a AssociationType) Valid() bool {
 	return a == AssociationAssociatedWith
 }

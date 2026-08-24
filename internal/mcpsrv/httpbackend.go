@@ -219,6 +219,8 @@ func toDomainContentItem(c apiclient.ContentItem) domain.ContentItem {
 	return domain.ContentItem{
 		Ref: c.Ref, ProjectKey: c.Project, Kind: domain.EntityKind(c.Kind), Title: c.Title,
 		Representation: c.Representation, Body: c.Body,
+		FileName: c.FileName, FileSize: c.FileSize, MediaType: c.MediaType, Checksum: c.Checksum,
+		PathValue: c.PathValue, URLValue: c.URLValue,
 		Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 }
@@ -266,7 +268,9 @@ func (b *HTTPBackend) CreateContentItem(ctx context.Context, in CreateContentIte
 	if urlKind == "" {
 		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "kind", Message: "kind must be \"plan\" or \"document\""}
 	}
-	item, err := b.Client.CreateContentItem(ctx, urlKind, projectKey, apiclient.CreateContentItemRequest{Title: in.Title, Body: in.Body}, in.IdempotencyKey)
+	item, err := b.Client.CreateContentItem(ctx, urlKind, projectKey, apiclient.CreateContentItemRequest{
+		Title: in.Title, Representation: in.Representation, Body: in.Body, Path: in.Path, URL: in.URL,
+	}, in.IdempotencyKey)
 	if err != nil {
 		return ContentItemWriteResult{}, toServiceError(err)
 	}
@@ -282,7 +286,9 @@ func (b *HTTPBackend) UpdateContentItem(ctx context.Context, in UpdateContentIte
 	if urlKind == "" {
 		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
 	}
-	item, err := b.Client.UpdateContentItem(ctx, urlKind, in.Ref, apiclient.UpdateContentItemRequest{Title: in.Title, Body: in.Body}, in.ExpectedVersion)
+	item, err := b.Client.UpdateContentItem(ctx, urlKind, in.Ref, apiclient.UpdateContentItemRequest{
+		Title: in.Title, Body: in.Body, Path: in.Path, URL: in.URL,
+	}, in.ExpectedVersion)
 	if err != nil {
 		return ContentItemWriteResult{}, toServiceError(err)
 	}

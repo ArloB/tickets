@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { CONTENT_ITEM_LABELS, createContentItem, listContentItems } from '../api/content-items'
+import { CONTENT_ITEM_LABELS, createContentItem, listContentItems, uploadContentItem } from '../api/content-items'
 import type { ContentItemUrlKind } from '../api/content-items'
 import { ApiError } from '../api/client'
 import { MarkdownEditor } from '../components/MarkdownEditor'
 import { useAuth } from '../auth/AuthContext'
-import type { ContentItemCompact } from '../api/types'
+import type { ContentItemCompact, ContentItemRepresentation } from '../api/types'
 
 function NewContentItemForm({
   urlKind,
@@ -19,15 +19,40 @@ function NewContentItemForm({
   onCreated: (item: ContentItemCompact) => void
 }) {
   const [title, setTitle] = useState('')
+  const [representation, setRepresentation] = useState<ContentItemRepresentation>('markdown')
   const [body, setBody] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [pathValue, setPathValue] = useState('')
+  const [urlValue, setUrlValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  function reset() {
+    setTitle('')
+    setBody('')
+    setFile(null)
+    setPathValue('')
+    setUrlValue('')
+  }
+
   async function submit() {
+    if (representation === 'file' && !file) {
+      setError('Choose a file to upload.')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const created = await createContentItem(urlKind, projectKey, { title, body })
+      const created =
+        representation === 'file'
+          ? await uploadContentItem(urlKind, projectKey, title, file!)
+          : await createContentItem(urlKind, projectKey, {
+              title,
+              representation,
+              body: representation === 'markdown' ? body : undefined,
+              path: representation === 'path' ? pathValue : undefined,
+              url: representation === 'url' ? urlValue : undefined,
+            })
       onCreated({
         ref: created.ref,
         title: created.title,
@@ -35,8 +60,7 @@ function NewContentItemForm({
         version: created.version,
         updated_at: created.updated_at,
       })
-      setTitle('')
-      setBody('')
+      reset()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
     } finally {
@@ -55,7 +79,49 @@ function NewContentItemForm({
         Title
         <input value={title} onChange={(e) => setTitle(e.target.value)} required />
       </label>
-      <MarkdownEditor label="Body" value={body} onChange={setBody} />
+      <fieldset>
+        <legend>Representation</legend>
+        {(['markdown', 'file', 'path', 'url'] as const).map((r) => (
+          <label key={r}>
+            <input
+              type="radio"
+              name="content-item-representation"
+              checked={representation === r}
+              onChange={() => setRepresentation(r)}
+            />
+            {r}
+          </label>
+        ))}
+      </fieldset>
+      {representation === 'markdown' && <MarkdownEditor label="Body" value={body} onChange={setBody} />}
+      {representation === 'file' && (
+        <label>
+          File
+          <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required />
+        </label>
+      )}
+      {representation === 'path' && (
+        <label>
+          Path
+          <input
+            value={pathValue}
+            onChange={(e) => setPathValue(e.target.value)}
+            placeholder="/path/to/file"
+            required
+          />
+        </label>
+      )}
+      {representation === 'url' && (
+        <label>
+          URL
+          <input
+            value={urlValue}
+            onChange={(e) => setUrlValue(e.target.value)}
+            placeholder="https://…"
+            required
+          />
+        </label>
+      )}
       {error && <p role="alert">{error}</p>}
       <button type="submit" disabled={busy}>
         {busy ? 'Creating…' : `Create ${singular}`}

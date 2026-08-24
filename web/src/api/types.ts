@@ -210,8 +210,8 @@ export interface ContentItemCompact {
   updated_at: string
 }
 
-/** A plan or document (§5.9). representation is always "markdown" in
- * Phase 5 Step 3 — file/path/url join in later steps. */
+/** A plan or document (§5.9). body/file_*+checksum/path_value/url_value
+ * are mutually exclusive, populated according to representation. */
 export interface ContentItemDetail {
   ref: string
   project: string
@@ -219,6 +219,12 @@ export interface ContentItemDetail {
   title: string
   representation: ContentItemRepresentation
   body: string
+  file_name?: string
+  file_size?: number
+  media_type?: string
+  checksum?: string
+  path_value?: string
+  url_value?: string
   version: number
   created_at: string
   updated_at: string
@@ -237,6 +243,12 @@ export interface ContentItemVersion {
   representation: ContentItemRepresentation
   title: string
   body: string
+  file_name?: string
+  file_size?: number
+  media_type?: string
+  checksum?: string
+  path_value?: string
+  url_value?: string
   edited_by: string
   created_at: string
 }

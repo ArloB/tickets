@@ -1,7 +1,8 @@
-import { apiFetch, ifMatchHeader } from './client'
+import { apiFetch, apiFetchMultipart, ifMatchHeader } from './client'
 import type {
   ContentItemDetail,
   ContentItemDiff,
+  ContentItemRepresentation,
   ContentItemsPage,
   ContentItemVersionsPage,
 } from './types'
@@ -35,7 +36,10 @@ export async function getContentItem(urlKind: ContentItemUrlKind, ref: string): 
 
 export interface CreateContentItemInput {
   title: string
-  body: string
+  representation?: ContentItemRepresentation
+  body?: string
+  path?: string
+  url?: string
 }
 
 export async function createContentItem(
@@ -49,15 +53,32 @@ export async function createContentItem(
   })
 }
 
+export async function uploadContentItem(
+  urlKind: ContentItemUrlKind,
+  projectKey: string,
+  title: string,
+  file: File,
+  mediaType?: string,
+): Promise<ContentItemDetail> {
+  const form = new FormData()
+  form.set('title', title)
+  if (mediaType) form.set('media_type', mediaType)
+  form.set('file', file)
+  return apiFetchMultipart<ContentItemDetail>(`/projects/${encodeURIComponent(projectKey)}/${urlKind}`, { form })
+}
+
 export interface UpdateContentItemInput {
   title: string
-  body: string
+  body?: string
+  path?: string
+  url?: string
 }
 
 /** PATCH /plans|documents/{ref} is a full-representation update (like
- * PATCH /decisions/{ref}) — every field, not just what changed.
- * Requires If-Match; a 409 carries the live record's current_version
- * (docs/contracts/errors.md). */
+ * PATCH /decisions/{ref}) — title plus whichever field matches the
+ * item's own (immutable) representation. Requires If-Match; a 409
+ * carries the live record's current_version (docs/contracts/
+ * errors.md). */
 export async function updateContentItem(
   urlKind: ContentItemUrlKind,
   ref: string,
@@ -69,6 +90,31 @@ export async function updateContentItem(
     body: input,
     headers: ifMatchHeader(expectedVersion),
   })
+}
+
+export async function replaceContentItemFile(
+  urlKind: ContentItemUrlKind,
+  ref: string,
+  title: string,
+  file: File,
+  expectedVersion: number,
+  mediaType?: string,
+): Promise<ContentItemDetail> {
+  const form = new FormData()
+  form.set('title', title)
+  if (mediaType) form.set('media_type', mediaType)
+  form.set('file', file)
+  return apiFetchMultipart<ContentItemDetail>(`/${urlKind}/${encodeURIComponent(ref)}`, {
+    method: 'PATCH',
+    form,
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+export function contentItemDownloadUrl(urlKind: ContentItemUrlKind, ref: string, version?: number): string {
+  return version
+    ? `/api/v1/${urlKind}/${encodeURIComponent(ref)}/versions/${version}/download`
+    : `/api/v1/${urlKind}/${encodeURIComponent(ref)}/download`
 }
 
 /** GET /plans|documents/{ref}/versions — archived prior states, oldest

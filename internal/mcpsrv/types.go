@@ -196,20 +196,25 @@ func toContentItemWriteResult(c domain.ContentItem) ContentItemWriteResult {
 // response has no context/decision/rationale/consequences/status/
 // superseded_by, and a decision's response has no body.
 type RecordDetail struct {
-	Ref          string    `json:"ref"`
-	Project      string    `json:"project"`
-	Kind         string    `json:"kind"`
-	Title        string    `json:"title"`
-	Context      string    `json:"context,omitempty"`
-	Decision     string    `json:"decision,omitempty"`
-	Rationale    string    `json:"rationale,omitempty"`
-	Consequences string    `json:"consequences,omitempty"`
-	Status       string    `json:"status,omitempty"`
-	SupersededBy *string   `json:"superseded_by,omitempty"`
-	Body         string    `json:"body,omitempty"`
-	Version      int64     `json:"version"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Ref            string    `json:"ref"`
+	Project        string    `json:"project"`
+	Kind           string    `json:"kind"`
+	Title          string    `json:"title"`
+	Context        string    `json:"context,omitempty"`
+	Decision       string    `json:"decision,omitempty"`
+	Rationale      string    `json:"rationale,omitempty"`
+	Consequences   string    `json:"consequences,omitempty"`
+	Status         string    `json:"status,omitempty"`
+	SupersededBy   *string   `json:"superseded_by,omitempty"`
+	Representation string    `json:"representation,omitempty"`
+	Body           string    `json:"body,omitempty"`
+	FileName       string    `json:"file_name,omitempty"`
+	MediaType      string    `json:"media_type,omitempty"`
+	PathValue      string    `json:"path_value,omitempty"`
+	URLValue       string    `json:"url_value,omitempty"`
+	Version        int64     `json:"version"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 func toRecordDetailFromDecision(d domain.Decision) RecordDetail {
@@ -223,7 +228,9 @@ func toRecordDetailFromDecision(d domain.Decision) RecordDetail {
 
 func toRecordDetailFromContentItem(c domain.ContentItem) RecordDetail {
 	return RecordDetail{
-		Ref: c.Ref, Project: c.ProjectKey, Kind: string(c.Kind), Title: c.Title, Body: c.Body,
+		Ref: c.Ref, Project: c.ProjectKey, Kind: string(c.Kind), Title: c.Title,
+		Representation: c.Representation, Body: c.Body,
+		FileName: c.FileName, MediaType: c.MediaType, PathValue: c.PathValue, URLValue: c.URLValue,
 		Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 }

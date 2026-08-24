@@ -376,9 +376,10 @@ type decisionsPage struct {
 }
 
 // contentItemDetail is every plan/document-returning endpoint's
-// response shape (product spec §5.9). Representation is always
-// "markdown" in Phase 5 Step 3 — the file/path/url-specific fields join
-// this DTO when Steps 4-5 implement those representations.
+// response shape (product spec §5.9). Body is populated only for
+// "markdown"; FileName/FileSize/MediaType/Checksum only for "file";
+// PathValue only for "path"; URLValue only for "url" — the same
+// one-populated-field-per-representation shape attachmentView uses.
 type contentItemDetail struct {
 	Ref            string    `json:"ref"`
 	Project        string    `json:"project"`
@@ -386,6 +387,12 @@ type contentItemDetail struct {
 	Title          string    `json:"title"`
 	Representation string    `json:"representation"`
 	Body           string    `json:"body"`
+	FileName       string    `json:"file_name,omitempty"`
+	FileSize       int64     `json:"file_size,omitempty"`
+	MediaType      string    `json:"media_type,omitempty"`
+	Checksum       string    `json:"checksum,omitempty"`
+	PathValue      string    `json:"path_value,omitempty"`
+	URLValue       string    `json:"url_value,omitempty"`
 	Version        int64     `json:"version"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -399,6 +406,12 @@ func toContentItemDetail(c domain.ContentItem) contentItemDetail {
 		Title:          c.Title,
 		Representation: c.Representation,
 		Body:           c.Body,
+		FileName:       c.FileName,
+		FileSize:       c.FileSize,
+		MediaType:      c.MediaType,
+		Checksum:       c.Checksum,
+		PathValue:      c.PathValue,
+		URLValue:       c.URLValue,
 		Version:        c.Version,
 		CreatedAt:      c.CreatedAt,
 		UpdatedAt:      c.UpdatedAt,
@@ -439,6 +452,12 @@ type contentItemVersionEntry struct {
 	Representation string    `json:"representation"`
 	Title          string    `json:"title"`
 	Body           string    `json:"body"`
+	FileName       string    `json:"file_name,omitempty"`
+	FileSize       int64     `json:"file_size,omitempty"`
+	MediaType      string    `json:"media_type,omitempty"`
+	Checksum       string    `json:"checksum,omitempty"`
+	PathValue      string    `json:"path_value,omitempty"`
+	URLValue       string    `json:"url_value,omitempty"`
 	EditedBy       string    `json:"edited_by"`
 	CreatedAt      time.Time `json:"created_at"`
 }
@@ -446,6 +465,8 @@ type contentItemVersionEntry struct {
 func toContentItemVersionEntry(v domain.ContentItemVersion) contentItemVersionEntry {
 	return contentItemVersionEntry{
 		Version: v.Version, Representation: v.Representation, Title: v.Title, Body: v.Body,
+		FileName: v.FileName, FileSize: v.FileSize, MediaType: v.MediaType, Checksum: v.Checksum,
+		PathValue: v.PathValue, URLValue: v.URLValue,
 		EditedBy: v.EditedBy.String(), CreatedAt: v.CreatedAt,
 	}
 }
