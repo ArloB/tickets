@@ -25,9 +25,14 @@ const (
 // commenting on their own subscribed ticket, editing their own
 // subscribed decision). sourceCommentID follows rescanMentions'
 // sourceOwnBody convention: 0 means "no comment," stored as SQL NULL.
-func notify(ctx context.Context, tx *sql.Tx, recipientActorID int64, kind string, entityID, sourceCommentID, triggeredBy int64, now string) error {
+// notify's bool return reports whether a notification was actually
+// inserted (false on the self-notification skip) — callers collect
+// the true cases into a recipient-id slice so the mutation's outer
+// method can publish a HintNotificationsChanged for each one after
+// the transaction commits (events.go's publishNotified).
+func notify(ctx context.Context, tx *sql.Tx, recipientActorID int64, kind string, entityID, sourceCommentID, triggeredBy int64, now string) (bool, error) {
 	if recipientActorID == triggeredBy {
-		return nil
+		return false, nil
 	}
 	var commentID *int64
 	if sourceCommentID != sourceOwnBody {
@@ -36,26 +41,33 @@ func notify(ctx context.Context, tx *sql.Tx, recipientActorID int64, kind string
 	}
 	tb := triggeredBy
 	if err := store.InsertNotification(ctx, tx, recipientActorID, kind, entityID, commentID, &tb, now); err != nil {
-		return fmt.Errorf("service: insert notification: %w", err)
+		return false, fmt.Errorf("service: insert notification: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // notifySubscribers fans a notification out to every current
 // subscriber of entityID except triggeredBy — the "commented"/
 // "changed" categories, which are subscriber-driven rather than
 // aimed at one named recipient the way "assigned"/"mentioned" are.
-func notifySubscribers(ctx context.Context, tx *sql.Tx, entityID int64, kind string, sourceCommentID, triggeredBy int64, now string) error {
+// Returns the recipient ids actually notified, for the same reason as
+// notify's bool return.
+func notifySubscribers(ctx context.Context, tx *sql.Tx, entityID int64, kind string, sourceCommentID, triggeredBy int64, now string) ([]int64, error) {
 	subscriberIDs, err := store.ListSubscriberActorIDs(ctx, tx, entityID)
 	if err != nil {
-		return fmt.Errorf("service: list subscribers: %w", err)
+		return nil, fmt.Errorf("service: list subscribers: %w", err)
 	}
+	var notified []int64
 	for _, recipientID := range subscriberIDs {
-		if err := notify(ctx, tx, recipientID, kind, entityID, sourceCommentID, triggeredBy, now); err != nil {
-			return err
+		ok, err := notify(ctx, tx, recipientID, kind, entityID, sourceCommentID, triggeredBy, now)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			notified = append(notified, recipientID)
 		}
 	}
-	return nil
+	return notified, nil
 }
 
 // subscribe records actorID as a subscriber of entityID — the

@@ -36,9 +36,13 @@ const sourceOwnBody = 0
 // 1 plan's Step 4). A self-mention is also skipped for both scans;
 // neither table's primary key rejects a self-loop on its own, so this
 // is a real guard, not defensive insurance.
-func rescanMentions(ctx context.Context, tx *sql.Tx, sourceEntityID, sourceCommentID int64, scopeProjectKey, body, now string, actorID int64) error {
+//
+// Returns the actor ids notified (the "mentioned" recipients) so the
+// caller's outer method can fold them into its own post-commit
+// publishNotified call — see notify's doc for why.
+func rescanMentions(ctx context.Context, tx *sql.Tx, sourceEntityID, sourceCommentID int64, scopeProjectKey, body, now string, actorID int64) ([]int64, error) {
 	if err := store.DeleteMentionsFromSource(ctx, tx, sourceEntityID, sourceCommentID); err != nil {
-		return fmt.Errorf("service: clear mentions: %w", err)
+		return nil, fmt.Errorf("service: clear mentions: %w", err)
 	}
 	for _, ref := range domain.ScanReferences(body, scopeProjectKey) {
 		targetID, err := resolveMentionTarget(ctx, tx, ref)
@@ -46,38 +50,43 @@ func rescanMentions(ctx context.Context, tx *sql.Tx, sourceEntityID, sourceComme
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("service: resolve mention: %w", err)
+			return nil, fmt.Errorf("service: resolve mention: %w", err)
 		}
 		if targetID == sourceEntityID {
 			continue
 		}
 		if err := store.InsertDerivedMention(ctx, tx, sourceEntityID, sourceCommentID, targetID, now); err != nil {
-			return fmt.Errorf("service: insert mention: %w", err)
+			return nil, fmt.Errorf("service: insert mention: %w", err)
 		}
 	}
 
 	if err := store.DeleteActorMentionsFromSource(ctx, tx, sourceEntityID, sourceCommentID); err != nil {
-		return fmt.Errorf("service: clear actor mentions: %w", err)
+		return nil, fmt.Errorf("service: clear actor mentions: %w", err)
 	}
+	var notified []int64
 	for _, actorRef := range domain.ScanActorMentions(body) {
 		mentionedID, err := store.GetActorIDByRef(ctx, tx, actorRef.Kind, actorRef.Name)
 		if errors.Is(err, store.ErrNotFound) {
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("service: resolve actor mention: %w", err)
+			return nil, fmt.Errorf("service: resolve actor mention: %w", err)
 		}
 		if mentionedID == actorID {
 			continue
 		}
 		if err := store.InsertActorMention(ctx, tx, sourceEntityID, sourceCommentID, mentionedID, now); err != nil {
-			return fmt.Errorf("service: insert actor mention: %w", err)
+			return nil, fmt.Errorf("service: insert actor mention: %w", err)
 		}
-		if err := notify(ctx, tx, mentionedID, notificationKindMentioned, sourceEntityID, sourceCommentID, actorID, now); err != nil {
-			return err
+		ok, err := notify(ctx, tx, mentionedID, notificationKindMentioned, sourceEntityID, sourceCommentID, actorID, now)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			notified = append(notified, mentionedID)
 		}
 	}
-	return nil
+	return notified, nil
 }
 
 // resolveMentionTarget resolves a scanned reference to its internal

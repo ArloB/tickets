@@ -17,6 +17,12 @@ type Server struct {
 	// once by internal/config.Load and passed in at construction —
 	// httpapi itself never re-derives it from the bind address.
 	anonymousRead bool
+	// hub is the SSE fan-out backing GET /api/v1/events (events.go,
+	// ADR 0020). Always non-nil — NewHandler constructs one and
+	// registers it as svc's service.Broadcaster, so every mutation's
+	// change hint has somewhere to go even before any browser has
+	// connected.
+	hub *Hub
 }
 
 // routePermission is the minimum auth.Permission a route table entry
@@ -199,6 +205,8 @@ func (s *Server) routeTable() []routeEntry {
 
 		{http.MethodGet, "/api/v1/search", routeViewer, s.search},
 
+		{http.MethodGet, "/api/v1/events", routeViewer, s.events},
+
 		{http.MethodPost, "/api/v1/agents", routeAdmin, s.createAgent},
 		{http.MethodGet, "/api/v1/agents", routeAdmin, s.listAgents},
 		{http.MethodPost, "/api/v1/agents/{name}/tokens", routeAdmin, s.createAgentToken},
@@ -247,7 +255,8 @@ var unauthenticatedRoutes = []struct{ method, pattern string }{
 // permission field drives which of requireEditor/requireAdmin (if any)
 // wraps each handler before it's registered.
 func NewHandler(svc *service.Service, anonymousRead bool) http.Handler {
-	s := &Server{svc: svc, anonymousRead: anonymousRead}
+	s := &Server{svc: svc, anonymousRead: anonymousRead, hub: NewHub()}
+	svc.SetBroadcaster(s.hub)
 
 	protected := http.NewServeMux()
 	for _, e := range s.routeTable() {

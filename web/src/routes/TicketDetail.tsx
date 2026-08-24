@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getTicket } from '../api/tickets'
 import { listBacklinks } from '../api/backlinks'
@@ -7,6 +7,7 @@ import { listAssociations } from '../api/associations'
 import { listAttachments } from '../api/attachments'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
+import { useEntityChanged } from '../api/events'
 import { Markdown } from '../components/Markdown'
 import { TicketFieldsForm } from '../components/TicketFieldsForm'
 import { TicketActions } from '../components/TicketActions'
@@ -35,14 +36,16 @@ export default function TicketDetail() {
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
 
-  useEffect(() => {
-    setTicket(null)
-    setLinks(null)
-    setAssociated(null)
-    setBacklinks(null)
-    setAttachments(null)
-    setError(null)
-    setEditing(false)
+  const load = useCallback((clear: boolean) => {
+    if (clear) {
+      setTicket(null)
+      setLinks(null)
+      setAssociated(null)
+      setBacklinks(null)
+      setAttachments(null)
+      setError(null)
+      setEditing(false)
+    }
     Promise.all([
       getTicket(ref, ['comments', 'relationships']),
       listLinks(ref),
@@ -59,6 +62,23 @@ export default function TicketDetail() {
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [ref])
+
+  useEffect(() => {
+    load(true)
+  }, [load])
+
+  // Another actor's edit/comment/assignment on this same ticket — a
+  // change hint only says "this ref changed," so the response is
+  // always a silent refetch, never trusting the hint's own payload
+  // (product spec §17, ADR 0020). Suppressed while editing: a
+  // background refetch would overwrite `ticket`, bumping the version
+  // TicketFieldsForm's useConflictForm keys its draft-reset effect on
+  // and silently wiping the user's in-progress edit — staleness here
+  // must surface through the PUT's own 409 conflict flow (Phase 4's
+  // exit criterion), never a live refetch racing ahead of it.
+  useEntityChanged(ticket?.ref, useCallback(() => {
+    if (!editing) load(false)
+  }, [editing, load]))
 
   if (error) return <p role="alert">{error}</p>
   if (!ticket) return <p>Loading ticket…</p>

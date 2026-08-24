@@ -34,6 +34,7 @@ func (s *Service) CreateDecision(ctx context.Context, req CreateDecisionRequest,
 	}
 
 	var result domain.Reference
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		if cached, found, err := checkIdempotency(ctx, tx, idemKey, actorID, fingerprint); err != nil {
 			return err
@@ -65,9 +66,11 @@ func (s *Service) CreateDecision(ctx context.Context, req CreateDecisionRequest,
 		if err := store.InsertDecision(ctx, tx, decisionEntityID, proj.ID, seq, title, req.Context, req.Decision, req.Rationale, req.Consequences, string(domain.DecisionStatusProposed)); err != nil {
 			return fmt.Errorf("service: create decision: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, decisionEntityID, sourceOwnBody, req.ProjectKey, req.Context+"\n"+req.Decision+"\n"+req.Rationale+"\n"+req.Consequences, now, actorID); err != nil {
+		ids, err := rescanMentions(ctx, tx, decisionEntityID, sourceOwnBody, req.ProjectKey, req.Context+"\n"+req.Decision+"\n"+req.Rationale+"\n"+req.Consequences, now, actorID)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = ids
 
 		ref := domain.Reference{ProjectKey: req.ProjectKey, Kind: domain.KindDecision, Seq: seq}
 		refStr, err := domain.Format(ref)
@@ -97,7 +100,13 @@ func (s *Service) CreateDecision(ctx context.Context, req CreateDecisionRequest,
 	if err != nil {
 		return domain.Decision{}, err
 	}
-	return s.GetDecision(ctx, result)
+	decision, err := s.GetDecision(ctx, result)
+	if err != nil {
+		return domain.Decision{}, err
+	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: decision.Ref, Project: decision.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
+	return decision, nil
 }
 
 // resolveDecisionEntity fills in a store.DecisionRow's SupersededBy
@@ -209,6 +218,7 @@ func (s *Service) UpdateDecision(ctx context.Context, req UpdateDecisionRequest,
 	}
 
 	var result domain.Decision
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetDecisionByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
@@ -259,7 +269,8 @@ func (s *Service) UpdateDecision(ctx context.Context, req UpdateDecisionRequest,
 			}
 			return fmt.Errorf("service: update decision: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Context+"\n"+req.Decision+"\n"+req.Rationale+"\n"+req.Consequences, now, actorID); err != nil {
+		mentioned, err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Context+"\n"+req.Decision+"\n"+req.Rationale+"\n"+req.Consequences, now, actorID)
+		if err != nil {
 			return err
 		}
 
@@ -267,9 +278,11 @@ func (s *Service) UpdateDecision(ctx context.Context, req UpdateDecisionRequest,
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventDecisionUpdated, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
-		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+		subscribed, err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = append(mentioned, subscribed...)
 
 		updated, err := store.GetDecisionByRef(ctx, tx, req.Ref)
 		if err != nil {
@@ -287,6 +300,8 @@ func (s *Service) UpdateDecision(ctx context.Context, req UpdateDecisionRequest,
 	if err != nil {
 		return domain.Decision{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
 	return result, nil
 }
 

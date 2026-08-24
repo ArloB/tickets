@@ -33,7 +33,7 @@ func TestServeGracefulShutdownDrainsInFlightRequest(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	serveDone := make(chan error, 1)
-	go func() { serveDone <- serve(ctx, srv, ln, logger, 5*time.Second) }()
+	go func() { serveDone <- serve(ctx, srv, ln, logger, 5*time.Second, func() {}) }()
 
 	reqDone := make(chan *http.Response, 1)
 	go func() {
@@ -82,7 +82,7 @@ func TestServeReturnsBindErrorImmediately(t *testing.T) {
 	srv := &http.Server{Handler: http.NewServeMux()}
 	logger := slog.New(slog.DiscardHandler)
 
-	err = serve(context.Background(), srv, ln, logger, time.Second)
+	err = serve(context.Background(), srv, ln, logger, time.Second, func() {})
 	if err == nil {
 		t.Fatal("serve on a closed listener: want error, got nil")
 	}

@@ -56,15 +56,22 @@ func (s *Service) CreateTicket(ctx context.Context, req CreateTicketRequest, act
 		}
 	}
 
-	ref, err := s.createTicketTx(ctx, req, title, priority, actor, correlationID, idemKey, fingerprint)
+	ref, notifiedIDs, err := s.createTicketTx(ctx, req, title, priority, actor, correlationID, idemKey, fingerprint)
 	if err != nil {
 		return domain.Ticket{}, err
 	}
-	return s.GetTicket(ctx, ref)
+	result, err := s.GetTicket(ctx, ref)
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
+	return result, nil
 }
 
-func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, title string, priority domain.Priority, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (domain.Reference, error) {
+func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, title string, priority domain.Priority, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (domain.Reference, []int64, error) {
 	var result domain.Reference
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		if cached, found, err := checkIdempotency(ctx, tx, idemKey, actorID, fingerprint); err != nil {
 			return err
@@ -110,9 +117,11 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 			string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr, domain.TailPosition(maxPos)); err != nil {
 			return fmt.Errorf("service: create ticket: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, ticketEntityID, sourceOwnBody, req.ProjectKey, req.Description, now, actorID); err != nil {
+		ids, err := rescanMentions(ctx, tx, ticketEntityID, sourceOwnBody, req.ProjectKey, req.Description, now, actorID)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = ids
 
 		ref := domain.Reference{ProjectKey: req.ProjectKey, Kind: domain.KindTicket, Seq: seq}
 		refStr, err := domain.Format(ref)
@@ -140,9 +149,9 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 		return nil
 	})
 	if err != nil {
-		return domain.Reference{}, err
+		return domain.Reference{}, nil, err
 	}
-	return result, nil
+	return result, notifiedIDs, nil
 }
 
 // GetTicket looks up a ticket by its parsed reference.
@@ -179,6 +188,7 @@ func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatus
 	}
 
 	var result domain.Ticket
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
@@ -204,9 +214,11 @@ func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatus
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketStatusChanged, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
-		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+		ids, err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = ids
 
 		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if err != nil {
@@ -221,6 +233,8 @@ func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatus
 	if err != nil {
 		return domain.Ticket{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
 	return result, nil
 }
 
@@ -261,6 +275,7 @@ func (s *Service) UpdateTicketFields(ctx context.Context, req UpdateTicketFields
 	}
 
 	var result domain.Ticket
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
@@ -293,7 +308,8 @@ func (s *Service) UpdateTicketFields(ctx context.Context, req UpdateTicketFields
 			}
 			return fmt.Errorf("service: update ticket: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now, actorID); err != nil {
+		mentioned, err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now, actorID)
+		if err != nil {
 			return err
 		}
 
@@ -301,9 +317,11 @@ func (s *Service) UpdateTicketFields(ctx context.Context, req UpdateTicketFields
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketUpdated, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
-		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+		subscribed, err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = append(mentioned, subscribed...)
 
 		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if err != nil {
@@ -318,6 +336,8 @@ func (s *Service) UpdateTicketFields(ctx context.Context, req UpdateTicketFields
 	if err != nil {
 		return domain.Ticket{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
 	return result, nil
 }
 
@@ -335,6 +355,7 @@ type AssignTicketRequest struct {
 // unassigning is always available regardless.
 func (s *Service) AssignTicket(ctx context.Context, req AssignTicketRequest, actor domain.ActorRef, correlationID string) (domain.Ticket, error) {
 	var result domain.Ticket
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
@@ -374,8 +395,12 @@ func (s *Service) AssignTicket(ctx context.Context, req AssignTicketRequest, act
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
 		if assigneeID != nil {
-			if err := notify(ctx, tx, *assigneeID, notificationKindAssigned, row.ID, sourceOwnBody, actorID, now); err != nil {
+			ok, err := notify(ctx, tx, *assigneeID, notificationKindAssigned, row.ID, sourceOwnBody, actorID, now)
+			if err != nil {
 				return err
+			}
+			if ok {
+				notifiedIDs = append(notifiedIDs, *assigneeID)
 			}
 		}
 
@@ -389,6 +414,8 @@ func (s *Service) AssignTicket(ctx context.Context, req AssignTicketRequest, act
 	if err != nil {
 		return domain.Ticket{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
 	return result, nil
 }
 
@@ -450,6 +477,7 @@ func (s *Service) MoveTicketFeature(ctx context.Context, req MoveTicketFeatureRe
 	if err != nil {
 		return domain.Ticket{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
 	return result, nil
 }
 
@@ -559,6 +587,7 @@ func (s *Service) ReorderTicket(ctx context.Context, req ReorderTicketRequest, a
 	if err != nil {
 		return domain.Ticket{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
 	return result, nil
 }
 
@@ -581,6 +610,7 @@ type DeleteTicketRequest struct {
 // subsequent RestoreTicket's If-Match can target without a second read).
 func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, actor domain.ActorRef, correlationID string) (int64, error) {
 	var newVersion int64
+	var hint ChangeHint
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
@@ -602,6 +632,7 @@ func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, act
 			return fmt.Errorf("service: soft-delete ticket: %w", err)
 		}
 		newVersion = v
+		hint = ChangeHint{Kind: HintEntityChanged, Ref: row.Entity.Ref, Project: row.Entity.ProjectKey}
 
 		changes := auditChanges(map[string]any{"ref": row.Entity.Ref})
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketDeleted, corrID, nil, changes, now); err != nil {
@@ -615,6 +646,7 @@ func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, act
 	if err != nil {
 		return 0, err
 	}
+	s.broadcast(hint)
 	return newVersion, nil
 }
 
@@ -689,5 +721,6 @@ func (s *Service) RestoreTicket(ctx context.Context, req RestoreTicketRequest, a
 	if err != nil {
 		return domain.Ticket{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
 	return result, nil
 }

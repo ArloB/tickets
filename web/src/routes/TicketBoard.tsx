@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { listTickets, updateTicketStatus } from '../api/tickets'
 import { ApiError } from '../api/client'
+import { useProjectChanged } from '../api/events'
 import { useAuth } from '../auth/AuthContext'
 import type { TicketCompact, WorkflowStatus } from '../api/types'
 
@@ -50,32 +51,46 @@ export default function TicketBoard() {
   // silently drops to the document body.
   const [moveAnnouncement, setMoveAnnouncement] = useState('')
 
+  const reload = useCallback(
+    (clear: boolean) => {
+      if (clear) {
+        setColumns(
+          Object.fromEntries(statuses.map((s) => [s, { tickets: null, error: null }])) as Record<
+            WorkflowStatus,
+            ColumnState
+          >,
+        )
+      }
+      for (const status of statuses) {
+        listTickets(key, 'priority_queue', { status }, undefined, COLUMN_PAGE_SIZE)
+          .then((page) => {
+            setColumns((prev) => ({
+              ...prev,
+              [status]: { tickets: page.tickets, nextCursor: page.next_cursor, error: null },
+            }))
+          })
+          .catch((err: unknown) => {
+            setColumns((prev) => ({
+              ...prev,
+              [status]: {
+                tickets: [],
+                error: err instanceof ApiError ? err.message : String(err),
+              },
+            }))
+          })
+      }
+    },
+    [key],
+  )
+
   useEffect(() => {
-    setColumns(
-      Object.fromEntries(statuses.map((s) => [s, { tickets: null, error: null }])) as Record<
-        WorkflowStatus,
-        ColumnState
-      >,
-    )
-    for (const status of statuses) {
-      listTickets(key, 'priority_queue', { status }, undefined, COLUMN_PAGE_SIZE)
-        .then((page) => {
-          setColumns((prev) => ({
-            ...prev,
-            [status]: { tickets: page.tickets, nextCursor: page.next_cursor, error: null },
-          }))
-        })
-        .catch((err: unknown) => {
-          setColumns((prev) => ({
-            ...prev,
-            [status]: {
-              tickets: [],
-              error: err instanceof ApiError ? err.message : String(err),
-            },
-          }))
-        })
-    }
-  }, [key])
+    reload(true)
+  }, [reload])
+
+  // Another browser's move/create/edit in this project — reload every
+  // column rather than trying to patch just the affected card, since
+  // the hint doesn't say which column it landed in (product spec §17).
+  useProjectChanged(key, useCallback(() => reload(false), [reload]))
 
   async function loadMore(status: WorkflowStatus) {
     const col = columns[status]

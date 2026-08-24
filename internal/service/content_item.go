@@ -140,6 +140,7 @@ func (s *Service) CreateContentItem(ctx context.Context, req CreateContentItemRe
 	}
 
 	var result domain.Reference
+	var notifiedIDs []int64
 	err = s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		if cached, found, err := checkIdempotency(ctx, tx, idemKey, actorID, fingerprint); err != nil {
 			return err
@@ -171,9 +172,11 @@ func (s *Service) CreateContentItem(ctx context.Context, req CreateContentItemRe
 		if err := store.InsertContentItem(ctx, tx, entityID, proj.ID, req.Kind, seq, title, fields); err != nil {
 			return fmt.Errorf("service: create content item: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, entityID, sourceOwnBody, req.ProjectKey, fields.Body, now, actorID); err != nil {
+		ids, err := rescanMentions(ctx, tx, entityID, sourceOwnBody, req.ProjectKey, fields.Body, now, actorID)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = ids
 
 		ref := domain.Reference{ProjectKey: req.ProjectKey, Kind: req.Kind, Seq: seq}
 		refStr, err := domain.Format(ref)
@@ -203,7 +206,13 @@ func (s *Service) CreateContentItem(ctx context.Context, req CreateContentItemRe
 	if err != nil {
 		return domain.ContentItem{}, err
 	}
-	return s.GetContentItem(ctx, result)
+	item, err := s.GetContentItem(ctx, result)
+	if err != nil {
+		return domain.ContentItem{}, err
+	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: item.Ref, Project: item.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
+	return item, nil
 }
 
 // GetContentItem looks up a plan or document by its parsed reference.
@@ -309,6 +318,7 @@ func (s *Service) UpdateContentItem(ctx context.Context, req UpdateContentItemRe
 	}
 
 	var result domain.ContentItem
+	var notifiedIDs []int64
 	err = s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetContentItemByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
@@ -336,9 +346,11 @@ func (s *Service) UpdateContentItem(ctx context.Context, req UpdateContentItemRe
 			}
 			return fmt.Errorf("service: update content item: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, fields.Body, now, actorID); err != nil {
+		ids, err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, fields.Body, now, actorID)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = ids
 
 		changes := auditChanges(map[string]any{"title": title})
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventContentItemUpdated, corrID, nil, changes, now); err != nil {
@@ -358,6 +370,8 @@ func (s *Service) UpdateContentItem(ctx context.Context, req UpdateContentItemRe
 	if err != nil {
 		return domain.ContentItem{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
 	return result, nil
 }
 

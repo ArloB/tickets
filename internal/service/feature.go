@@ -39,6 +39,7 @@ func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, a
 	}
 
 	var result domain.Reference
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		proj, err := store.GetProjectByKey(ctx, tx, req.ProjectKey)
 		if errors.Is(err, store.ErrNotFound) {
@@ -63,9 +64,11 @@ func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, a
 		if err := store.InsertFeature(ctx, tx, featureEntityID, proj.ID, seq, title, req.Description, string(priority), domain.TailPosition(maxPos)); err != nil {
 			return fmt.Errorf("service: create feature: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, featureEntityID, sourceOwnBody, req.ProjectKey, req.Description, now, actorID); err != nil {
+		ids, err := rescanMentions(ctx, tx, featureEntityID, sourceOwnBody, req.ProjectKey, req.Description, now, actorID)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = ids
 
 		ref := domain.Reference{ProjectKey: req.ProjectKey, Kind: domain.KindFeature, Seq: seq}
 		refStr, err := domain.Format(ref)
@@ -91,7 +94,13 @@ func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, a
 	if err != nil {
 		return domain.Feature{}, err
 	}
-	return s.GetFeature(ctx, result)
+	feature, err := s.GetFeature(ctx, result)
+	if err != nil {
+		return domain.Feature{}, err
+	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: feature.Ref, Project: feature.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
+	return feature, nil
 }
 
 // GetFeature looks up a feature by its parsed reference.
@@ -250,6 +259,7 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 	}
 
 	var result domain.Feature
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
@@ -277,7 +287,8 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 			}
 			return fmt.Errorf("service: update feature: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now, actorID); err != nil {
+		mentioned, err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now, actorID)
+		if err != nil {
 			return err
 		}
 
@@ -285,9 +296,11 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureUpdated, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
-		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+		subscribed, err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = append(mentioned, subscribed...)
 
 		updated, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if err != nil {
@@ -302,6 +315,8 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 	if err != nil {
 		return domain.Feature{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
 	return result, nil
 }
 
@@ -330,6 +345,7 @@ func (s *Service) UpdateFeatureStatus(ctx context.Context, req UpdateFeatureStat
 	}
 
 	var result domain.Feature
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
@@ -355,9 +371,11 @@ func (s *Service) UpdateFeatureStatus(ctx context.Context, req UpdateFeatureStat
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureStatusChanged, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
-		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+		ids, err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = ids
 
 		updated, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if err != nil {
@@ -372,6 +390,8 @@ func (s *Service) UpdateFeatureStatus(ctx context.Context, req UpdateFeatureStat
 	if err != nil {
 		return domain.Feature{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
+	s.publishNotified(ctx, notifiedIDs)
 	return result, nil
 }
 
@@ -470,6 +490,7 @@ func (s *Service) ReorderFeature(ctx context.Context, req ReorderFeatureRequest,
 	if err != nil {
 		return domain.Feature{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
 	return result, nil
 }
 
@@ -497,6 +518,7 @@ type DeleteFeatureRequest struct {
 // resolvable via a normal GetTicket(AnyDeletion) call instead.
 func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, actor domain.ActorRef, correlationID string) (int64, error) {
 	var newVersion int64
+	var hints []ChangeHint
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if errors.Is(err, store.ErrNotFound) {
@@ -534,6 +556,7 @@ func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, a
 			return fmt.Errorf("service: soft-delete feature: %w", err)
 		}
 		newVersion = v
+		hints = append(hints, ChangeHint{Kind: HintEntityChanged, Ref: row.Entity.Ref, Project: row.Entity.ProjectKey})
 
 		changes := auditChanges(map[string]any{"ref": row.Entity.Ref, "cascade": req.Cascade, "dependents": len(dependents)})
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureDeleted, corrID, nil, changes, now); err != nil {
@@ -567,11 +590,15 @@ func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, a
 			if err := removeEntitySearchDocs(ctx, tx, ticketEntityID); err != nil {
 				return err
 			}
+			hints = append(hints, ChangeHint{Kind: HintEntityChanged, Ref: ticketRefStr, Project: row.Entity.ProjectKey})
 		}
 		return nil
 	})
 	if err != nil {
 		return 0, err
+	}
+	for _, h := range hints {
+		s.broadcast(h)
 	}
 	return newVersion, nil
 }
@@ -629,5 +656,6 @@ func (s *Service) RestoreFeature(ctx context.Context, req RestoreFeatureRequest,
 	if err != nil {
 		return domain.Feature{}, err
 	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
 	return result, nil
 }

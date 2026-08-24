@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getDecision, getDecisionDiff, listDecisionVersions } from '../api/decisions'
 import { listLinks } from '../api/links'
@@ -7,6 +7,7 @@ import { listBacklinks } from '../api/backlinks'
 import { listAttachments } from '../api/attachments'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
+import { useEntityChanged } from '../api/events'
 import { Markdown } from '../components/Markdown'
 import { DecisionFieldsForm } from '../components/DecisionFieldsForm'
 import { AssociationsSection } from '../components/AssociationsSection'
@@ -158,14 +159,16 @@ export default function DecisionDetail() {
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
 
-  useEffect(() => {
-    setDecision(null)
-    setLinks(null)
-    setAssociated(null)
-    setBacklinks(null)
-    setAttachments(null)
-    setError(null)
-    setEditing(false)
+  const load = useCallback((clear: boolean) => {
+    if (clear) {
+      setDecision(null)
+      setLinks(null)
+      setAssociated(null)
+      setBacklinks(null)
+      setAttachments(null)
+      setError(null)
+      setEditing(false)
+    }
     Promise.all([
       getDecision(ref),
       listLinks(ref),
@@ -182,6 +185,15 @@ export default function DecisionDetail() {
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [ref])
+
+  useEffect(() => {
+    load(true)
+  }, [load])
+
+  // Suppressed while editing — see TicketDetail's identical guard doc.
+  useEntityChanged(decision?.ref, useCallback(() => {
+    if (!editing) load(false)
+  }, [editing, load]))
 
   if (error) return <p role="alert">{error}</p>
   if (!decision) return <p>Loading decision…</p>

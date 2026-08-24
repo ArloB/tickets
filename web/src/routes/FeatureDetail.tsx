@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getFeature } from '../api/features'
 import { listLinks } from '../api/links'
@@ -7,6 +7,7 @@ import { listBacklinks } from '../api/backlinks'
 import { listAttachments } from '../api/attachments'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
+import { useEntityChanged } from '../api/events'
 import { Markdown } from '../components/Markdown'
 import { FeatureFieldsForm } from '../components/FeatureFieldsForm'
 import { AssociationsSection } from '../components/AssociationsSection'
@@ -32,14 +33,16 @@ export default function FeatureDetail() {
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
 
-  useEffect(() => {
-    setFeature(null)
-    setLinks(null)
-    setAssociated(null)
-    setBacklinks(null)
-    setAttachments(null)
-    setError(null)
-    setEditing(false)
+  const load = useCallback((clear: boolean) => {
+    if (clear) {
+      setFeature(null)
+      setLinks(null)
+      setAssociated(null)
+      setBacklinks(null)
+      setAttachments(null)
+      setError(null)
+      setEditing(false)
+    }
     Promise.all([
       getFeature(ref),
       listLinks(ref),
@@ -56,6 +59,15 @@ export default function FeatureDetail() {
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [ref])
+
+  useEffect(() => {
+    load(true)
+  }, [load])
+
+  // Suppressed while editing — see TicketDetail's identical guard doc.
+  useEntityChanged(feature?.ref, useCallback(() => {
+    if (!editing) load(false)
+  }, [editing, load]))
 
   if (error) return <p role="alert">{error}</p>
   if (!feature) return <p>Loading feature…</p>

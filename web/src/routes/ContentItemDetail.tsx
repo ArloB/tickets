@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   CONTENT_ITEM_LABELS,
@@ -16,6 +16,7 @@ import { listBacklinks } from '../api/backlinks'
 import { listAttachments } from '../api/attachments'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
+import { useEntityChanged } from '../api/events'
 import { Markdown } from '../components/Markdown'
 import { MarkdownEditor } from '../components/MarkdownEditor'
 import { AssociationsSection } from '../components/AssociationsSection'
@@ -165,14 +166,16 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setItem(null)
-    setLinks(null)
-    setAssociated(null)
-    setBacklinks(null)
-    setAttachments(null)
-    setError(null)
-    setEditing(false)
+  const load = useCallback((clear: boolean) => {
+    if (clear) {
+      setItem(null)
+      setLinks(null)
+      setAssociated(null)
+      setBacklinks(null)
+      setAttachments(null)
+      setError(null)
+      setEditing(false)
+    }
     Promise.all([
       getContentItem(urlKind, ref),
       listLinks(ref),
@@ -189,6 +192,15 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [urlKind, ref])
+
+  useEffect(() => {
+    load(true)
+  }, [load])
+
+  // Suppressed while editing — see TicketDetail's identical guard doc.
+  useEntityChanged(item?.ref, useCallback(() => {
+    if (!editing) load(false)
+  }, [editing, load]))
 
   if (error) return <p role="alert">{error}</p>
   if (!item) return <p>Loading…</p>

@@ -39,15 +39,22 @@ func (s *Service) CreateProject(ctx context.Context, req CreateProjectRequest, a
 		return domain.Project{}, newValidationError("title", "title is required")
 	}
 
-	key, err := s.createProjectTx(ctx, req, title, actor, correlationID, idemKey, fingerprint)
+	key, notifiedIDs, err := s.createProjectTx(ctx, req, title, actor, correlationID, idemKey, fingerprint)
 	if err != nil {
 		return domain.Project{}, err
 	}
-	return s.GetProject(ctx, key)
+	proj, err := s.GetProject(ctx, key)
+	if err != nil {
+		return domain.Project{}, err
+	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: proj.Key, Project: proj.Key})
+	s.publishNotified(ctx, notifiedIDs)
+	return proj, nil
 }
 
-func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest, title string, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (string, error) {
+func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest, title string, actor domain.ActorRef, correlationID, idemKey, fingerprint string) (string, []int64, error) {
 	var result string
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		if cached, found, err := checkIdempotency(ctx, tx, idemKey, actorID, fingerprint); err != nil {
 			return err
@@ -69,9 +76,11 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 		if err := store.InsertProject(ctx, tx, projectEntityID, req.Key, title, req.Description); err != nil {
 			return fmt.Errorf("service: create project: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, projectEntityID, sourceOwnBody, req.Key, req.Description, now, actorID); err != nil {
+		ids, err := rescanMentions(ctx, tx, projectEntityID, sourceOwnBody, req.Key, req.Description, now, actorID)
+		if err != nil {
 			return err
 		}
+		notifiedIDs = ids
 
 		// Mandatory General feature (ADR 0001), created in the same
 		// transaction so a project never briefly exists without one.
@@ -114,9 +123,9 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return result, nil
+	return result, notifiedIDs, nil
 }
 
 // GetProject looks up a project by key.

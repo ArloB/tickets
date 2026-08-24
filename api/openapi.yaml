@@ -2802,6 +2802,34 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /events:
+    get:
+      operationId: streamEvents
+      summary: >
+        Server-Sent Events stream of change hints (product spec §6.4,
+        ADR 0020). Every event is an invalidation signal only — "ref"/
+        "project" (entity_changed) or nothing (notifications_changed,
+        delivered only to the connection's own authenticated actor) —
+        never the changed value itself; a client refetches through the
+        normal REST endpoints on receipt. Reachable anonymously when
+        anonymous read is enabled, like any other GET, but an
+        anonymous connection only ever receives entity_changed events.
+        Not response-schema-validated the way other endpoints are: an
+        indefinite text/event-stream body has no fixed JSON shape for
+        OpenAPI's response schema to describe.
+      responses:
+        '200':
+          description: >
+            An open text/event-stream connection. Each event's "event:"
+            field is entity_changed or notifications_changed; "data:"
+            is a small JSON object ({"ref", "project"} or {"actor"}).
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error'
+
   /tickets/{ref}/subscribe:
     post:
       operationId: subscribeTicket

@@ -74,7 +74,7 @@ func runServer(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return serve(ctx, srv, ln, logger, cfg.ShutdownTimeout)
+	return serve(ctx, srv, ln, logger, cfg.ShutdownTimeout, svc.CloseBroadcaster)
 }
 
 // serve runs srv on ln until ctx is cancelled, then performs a
@@ -88,7 +88,14 @@ func runServer(args []string) error {
 // context directly, rather than depending on OS signal delivery, which
 // behaves differently enough across platforms — notably Windows — to
 // make an in-process signal-based test unreliable.
-func serve(ctx context.Context, srv *http.Server, ln net.Listener, logger *slog.Logger, shutdownTimeout time.Duration) error {
+//
+// closeBroadcaster is called before srv.Shutdown, unblocking every
+// open SSE handler goroutine (internal/httpapi/events.go) so their
+// connections close and srv.Shutdown can complete within
+// shutdownTimeout instead of blocking on a stream that would
+// otherwise never end on its own — net/http's Shutdown does not
+// forcibly end a long-running handler by itself.
+func serve(ctx context.Context, srv *http.Server, ln net.Listener, logger *slog.Logger, shutdownTimeout time.Duration, closeBroadcaster func()) error {
 	serveErr := make(chan error, 1)
 	go func() {
 		err := srv.Serve(ln)
@@ -104,6 +111,7 @@ func serve(ctx context.Context, srv *http.Server, ln net.Listener, logger *slog.
 		return err
 	case <-ctx.Done():
 		logger.Info("shutting down", "timeout", shutdownTimeout)
+		closeBroadcaster()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {

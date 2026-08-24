@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { connectChangeHints } from '../api/events'
 
 /** Gate for every route except /login. `me === null` after `ready`
  * means a real 401 (anonymousRead off, no session) — redirect to
@@ -11,6 +12,14 @@ export default function Layout() {
   const { me, ready, bootstrapError, logout } = useAuth()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
+
+  // Opened once the shell actually renders (i.e. never for the
+  // sign-in page, which mounts SignIn directly, not Layout) — every
+  // authenticated route shares this one connection for as long as the
+  // tab is open (Phase 5 Step 8, ADR 0020).
+  useEffect(() => {
+    connectChangeHints()
+  }, [])
 
   if (!ready) return <p>Loading…</p>
   if (bootstrapError) return <p role="alert">Could not reach the server: {bootstrapError}</p>

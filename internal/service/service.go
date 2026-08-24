@@ -18,6 +18,8 @@ import (
 type Service struct {
 	store *store.Store
 	blobs *blobstore.Store
+	// events is optional — see SetBroadcaster (events.go).
+	events Broadcaster
 }
 
 // New builds a Service. blobs may be nil for callers that never touch

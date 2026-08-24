@@ -37,6 +37,8 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 	}
 
 	var commentID int64
+	var hint ChangeHint
+	var notifiedIDs []int64
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		if cached, found, err := checkIdempotency(ctx, tx, idemKey, actorID, fingerprint); err != nil {
 			return err
@@ -73,7 +75,8 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 		}
 		commentID = id
 
-		if err := rescanMentions(ctx, tx, ticket.ID, commentID, ticket.Entity.ProjectKey, body, now, actorID); err != nil {
+		mentioned, err := rescanMentions(ctx, tx, ticket.ID, commentID, ticket.Entity.ProjectKey, body, now, actorID)
+		if err != nil {
 			return err
 		}
 		if err := indexCommentSearchDoc(ctx, tx, commentID, ticket.ID, ticket.ProjectEntityID, ticket.Entity.Ref, body); err != nil {
@@ -82,11 +85,17 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 		if err := subscribe(ctx, tx, ticket.ID, actorID, now); err != nil {
 			return err
 		}
+		notifiedIDs = mentioned
 		for _, recipientID := range subscriberIDs {
-			if err := notify(ctx, tx, recipientID, notificationKindCommented, ticket.ID, commentID, actorID, now); err != nil {
+			ok, err := notify(ctx, tx, recipientID, notificationKindCommented, ticket.ID, commentID, actorID, now)
+			if err != nil {
 				return err
 			}
+			if ok {
+				notifiedIDs = append(notifiedIDs, recipientID)
+			}
 		}
+		hint = ChangeHint{Kind: HintEntityChanged, Ref: ticket.Entity.Ref, Project: ticket.Entity.ProjectKey}
 
 		cid := commentID
 		changes := auditChanges(map[string]any{"comment_id": commentID})
@@ -101,6 +110,8 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 	if err != nil {
 		return domain.Comment{}, err
 	}
+	s.broadcast(hint)
+	s.publishNotified(ctx, notifiedIDs)
 	return s.GetComment(ctx, commentID)
 }
 
@@ -172,6 +183,7 @@ func (s *Service) EditComment(ctx context.Context, req EditCommentRequest, actor
 		return domain.Comment{}, newValidationError("body", "body is required")
 	}
 
+	var hint ChangeHint
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetComment(ctx, tx, req.CommentID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -202,7 +214,7 @@ func (s *Service) EditComment(ctx context.Context, req EditCommentRequest, actor
 		if err != nil {
 			return fmt.Errorf("service: resolve comment's ticket: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.EntityID, req.CommentID, ticketRef.ProjectKey, body, now, actorID); err != nil {
+		if _, err := rescanMentions(ctx, tx, row.EntityID, req.CommentID, ticketRef.ProjectKey, body, now, actorID); err != nil {
 			return err
 		}
 		ticket, err := store.GetTicketByRef(ctx, tx, ticketRef)
@@ -212,6 +224,7 @@ func (s *Service) EditComment(ctx context.Context, req EditCommentRequest, actor
 		if err := indexCommentSearchDoc(ctx, tx, req.CommentID, row.EntityID, ticket.ProjectEntityID, ticket.Entity.Ref, body); err != nil {
 			return err
 		}
+		hint = ChangeHint{Kind: HintEntityChanged, Ref: ticket.Entity.Ref, Project: ticket.Entity.ProjectKey}
 
 		cid := req.CommentID
 		changes := auditChanges(map[string]any{"comment_id": req.CommentID})
@@ -223,6 +236,7 @@ func (s *Service) EditComment(ctx context.Context, req EditCommentRequest, actor
 	if err != nil {
 		return domain.Comment{}, err
 	}
+	s.broadcast(hint)
 	return s.GetComment(ctx, req.CommentID)
 }
 
@@ -239,7 +253,8 @@ type DeleteCommentRequest struct {
 // (contrast with a soft-deleted ticket/feature, where mentions are
 // filtered at read time instead, since those can be restored).
 func (s *Service) DeleteComment(ctx context.Context, req DeleteCommentRequest, actor domain.ActorRef, correlationID string) error {
-	return s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+	var hint ChangeHint
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		row, err := store.GetComment(ctx, tx, req.CommentID)
 		if errors.Is(err, store.ErrNotFound) {
 			return newNotFoundError("comment not found")
@@ -264,6 +279,16 @@ func (s *Service) DeleteComment(ctx context.Context, req DeleteCommentRequest, a
 			return fmt.Errorf("service: remove comment search document: %w", err)
 		}
 
+		ticketRef, err := store.GetTicketRefByEntityID(ctx, tx, row.EntityID)
+		if err != nil {
+			return fmt.Errorf("service: resolve comment's ticket: %w", err)
+		}
+		refStr, err := domain.Format(ticketRef)
+		if err != nil {
+			return fmt.Errorf("service: format comment's ticket ref: %w", err)
+		}
+		hint = ChangeHint{Kind: HintEntityChanged, Ref: refStr, Project: ticketRef.ProjectKey}
+
 		cid := req.CommentID
 		changes := auditChanges(map[string]any{"comment_id": req.CommentID})
 		if err := store.InsertAuditEvent(ctx, tx, row.EntityID, actorID, eventCommentDeleted, corrID, &cid, changes, now); err != nil {
@@ -271,4 +296,9 @@ func (s *Service) DeleteComment(ctx context.Context, req DeleteCommentRequest, a
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.broadcast(hint)
+	return nil
 }

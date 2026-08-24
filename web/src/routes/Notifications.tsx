@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listNotifications, markAllNotificationsRead, markNotificationsRead } from '../api/notifications'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
+import { useNotificationsChanged } from '../api/events'
 import type { Notification } from '../api/types'
 
 /** The notification inbox (§6.4/§6.5). */
@@ -13,7 +14,7 @@ export default function Notifications() {
   const [error, setError] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     setNotifications(null)
     setNextCursor(undefined)
     setError(null)
@@ -24,6 +25,15 @@ export default function Notifications() {
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [unreadOnly])
+
+  useEffect(() => {
+    reload()
+  }, [reload])
+
+  // A new notification arriving while this page is already open — the
+  // hint is scoped server-side to this actor already (ADR 0020), so
+  // any receipt here means "reload the inbox," full stop.
+  useNotificationsChanged(reload)
 
   async function loadMore() {
     if (!notifications || !nextCursor) return

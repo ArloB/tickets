@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { listFeatures, updateFeatureStatus } from '../api/features'
 import { ApiError } from '../api/client'
+import { useProjectChanged } from '../api/events'
 import { useAuth } from '../auth/AuthContext'
 import type { FeatureCompact, WorkflowStatus } from '../api/types'
 
@@ -43,29 +44,40 @@ export default function FeatureBoard() {
   // nothing else to tell a screen-reader user what happened.
   const [moveAnnouncement, setMoveAnnouncement] = useState('')
 
+  const reload = useCallback(
+    (clear: boolean) => {
+      if (clear) {
+        setColumns(
+          Object.fromEntries(statuses.map((s) => [s, { features: null, error: null }])) as Record<
+            WorkflowStatus,
+            ColumnState
+          >,
+        )
+      }
+      for (const status of statuses) {
+        listFeatures(key, { status }, undefined, COLUMN_PAGE_SIZE)
+          .then((page) => {
+            setColumns((prev) => ({
+              ...prev,
+              [status]: { features: page.features, nextCursor: page.next_cursor, error: null },
+            }))
+          })
+          .catch((err: unknown) => {
+            setColumns((prev) => ({
+              ...prev,
+              [status]: { features: [], error: err instanceof ApiError ? err.message : String(err) },
+            }))
+          })
+      }
+    },
+    [key],
+  )
+
   useEffect(() => {
-    setColumns(
-      Object.fromEntries(statuses.map((s) => [s, { features: null, error: null }])) as Record<
-        WorkflowStatus,
-        ColumnState
-      >,
-    )
-    for (const status of statuses) {
-      listFeatures(key, { status }, undefined, COLUMN_PAGE_SIZE)
-        .then((page) => {
-          setColumns((prev) => ({
-            ...prev,
-            [status]: { features: page.features, nextCursor: page.next_cursor, error: null },
-          }))
-        })
-        .catch((err: unknown) => {
-          setColumns((prev) => ({
-            ...prev,
-            [status]: { features: [], error: err instanceof ApiError ? err.message : String(err) },
-          }))
-        })
-    }
-  }, [key])
+    reload(true)
+  }, [reload])
+
+  useProjectChanged(key, useCallback(() => reload(false), [reload]))
 
   async function loadMore(status: WorkflowStatus) {
     const col = columns[status]
