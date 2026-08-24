@@ -152,6 +152,26 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodGet, "/api/v1/documents/{ref}/versions", routeViewer, s.listContentItemVersions(domain.KindDocument)},
 		{http.MethodGet, "/api/v1/documents/{ref}/diff", routeViewer, s.getContentItemDiff(domain.KindDocument)},
 
+		{http.MethodPost, "/api/v1/tickets/{ref}/attachments", routeEditor, s.addAttachment},
+		{http.MethodGet, "/api/v1/tickets/{ref}/attachments", routeViewer, s.listAttachments},
+		{http.MethodPost, "/api/v1/features/{ref}/attachments", routeEditor, s.addAttachment},
+		{http.MethodGet, "/api/v1/features/{ref}/attachments", routeViewer, s.listAttachments},
+		{http.MethodPost, "/api/v1/decisions/{ref}/attachments", routeEditor, s.addAttachment},
+		{http.MethodGet, "/api/v1/decisions/{ref}/attachments", routeViewer, s.listAttachments},
+		{http.MethodPost, "/api/v1/plans/{ref}/attachments", routeEditor, s.addAttachment},
+		{http.MethodGet, "/api/v1/plans/{ref}/attachments", routeViewer, s.listAttachments},
+		{http.MethodPost, "/api/v1/documents/{ref}/attachments", routeEditor, s.addAttachment},
+		{http.MethodGet, "/api/v1/documents/{ref}/attachments", routeViewer, s.listAttachments},
+		{http.MethodPost, "/api/v1/comments/{id}/attachments", routeEditor, s.addCommentAttachment},
+		{http.MethodGet, "/api/v1/comments/{id}/attachments", routeViewer, s.listCommentAttachments},
+
+		{http.MethodGet, "/api/v1/attachments/{id}", routeViewer, s.getAttachment},
+		{http.MethodPut, "/api/v1/attachments/{id}", routeEditor, s.replaceAttachment},
+		{http.MethodDelete, "/api/v1/attachments/{id}", routeEditor, s.deleteAttachment},
+		{http.MethodGet, "/api/v1/attachments/{id}/download", routeViewer, s.downloadAttachment},
+		{http.MethodGet, "/api/v1/attachments/{id}/versions", routeViewer, s.listAttachmentVersions},
+		{http.MethodGet, "/api/v1/attachments/{id}/versions/{version}/download", routeViewer, s.downloadAttachmentVersion},
+
 		{http.MethodGet, "/api/v1/projects/{key}/activity", routeViewer, s.listActivity},
 
 		{http.MethodPost, "/api/v1/agents", routeAdmin, s.createAgent},

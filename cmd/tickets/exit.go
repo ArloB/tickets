@@ -32,6 +32,8 @@ func exitCode(code domain.ErrorCode) int {
 		return 18
 	case domain.ErrThrottled:
 		return 19
+	case domain.ErrUploadTooLarge:
+		return 20
 	default:
 		return 1
 	}

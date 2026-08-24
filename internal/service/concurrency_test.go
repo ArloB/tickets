@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/store"
 )
@@ -227,7 +228,11 @@ func BenchmarkConcurrentTicketCreate(b *testing.B) {
 		b.Fatalf("store.Open: %v", err)
 	}
 	defer func() { _ = st.Close() }()
-	s := New(st)
+	blobs, err := blobstore.Open(b.TempDir())
+	if err != nil {
+		b.Fatalf("blobstore.Open: %v", err)
+	}
+	s := New(st, blobs)
 
 	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "BENCH", Title: "Bench"}, testActor, testCorrelationID, "", ""); err != nil {
 		b.Fatalf("create project: %v", err)

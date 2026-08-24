@@ -186,6 +186,25 @@ type AssociationType string
 
 const AssociationAssociatedWith AssociationType = "associated_with"
 
+// AttachmentKind distinguishes an uploaded blob from a path reference
+// (§5.11). There is deliberately no `url` kind here — external_links
+// stays the one mechanism for URL-shaped links (Phase 5 plan's
+// confirmed decision).
+type AttachmentKind string
+
+const (
+	AttachmentKindUpload AttachmentKind = "upload"
+	AttachmentKindPath   AttachmentKind = "path"
+)
+
+func (k AttachmentKind) Valid() bool {
+	switch k {
+	case AttachmentKindUpload, AttachmentKindPath:
+		return true
+	}
+	return false
+}
+
 func (a AssociationType) Valid() bool {
 	return a == AssociationAssociatedWith
 }

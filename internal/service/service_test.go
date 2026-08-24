@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/store"
 )
@@ -20,7 +21,11 @@ func newTestService(t *testing.T) *Service {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return New(st)
+	blobs, err := blobstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("blobstore.Open: %v", err)
+	}
+	return New(st, blobs)
 }
 
 // TestReferenceAllocation is Phase 0 verification gate 4's assertion,

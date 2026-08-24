@@ -191,6 +191,45 @@ type Comment struct {
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 }
 
+// Attachment is an uploaded or path-referenced file on a principal
+// entity or comment (§5.11), within ADR 0007's content-addressed
+// store / path-never-read boundary. Exactly one of OwnerRef (a
+// ticket/feature/decision/plan/document reference) or CommentID is
+// set, mirroring the store's attachments table constraint. FileHash
+// is deliberately not exposed here — it addresses the blobstore
+// internally; a client downloads by attachment id, never by hash.
+type Attachment struct {
+	ID             int64          `json:"id"`
+	OwnerRef       string         `json:"owner_ref,omitempty"`
+	CommentID      int64          `json:"comment_id,omitempty"`
+	Kind           AttachmentKind `json:"kind"`
+	Title          string         `json:"title"`
+	CurrentVersion int64          `json:"current_version"`
+	FileName       string         `json:"file_name,omitempty"`
+	FileSize       int64          `json:"file_size,omitempty"`
+	MediaType      string         `json:"media_type,omitempty"`
+	Checksum       string         `json:"checksum,omitempty"`
+	PathValue      string         `json:"path_value,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
+	Creator        ActorRef       `json:"creator"`
+	DeletedAt      *time.Time     `json:"deleted_at,omitempty"`
+}
+
+// AttachmentVersion is one archived prior state of an Attachment
+// (§5.11: "each edit saves a full snapshot" — no diff is attempted for
+// binary/path versions, unlike decision/content_item text fields).
+type AttachmentVersion struct {
+	Version    int64          `json:"version"`
+	Kind       AttachmentKind `json:"kind"`
+	FileName   string         `json:"file_name,omitempty"`
+	FileSize   int64          `json:"file_size,omitempty"`
+	MediaType  string         `json:"media_type,omitempty"`
+	Checksum   string         `json:"checksum,omitempty"`
+	PathValue  string         `json:"path_value,omitempty"`
+	UploadedBy ActorRef       `json:"uploaded_by"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
 // CommentVersion is one archived prior body of a Comment (§5.10:
 // "comment edits create versions"). EditedBy is the actor who made
 // the edit that superseded this body — not necessarily who originally

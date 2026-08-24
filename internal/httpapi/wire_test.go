@@ -87,12 +87,21 @@ func TestToTicketDetailFieldExposure(t *testing.T) {
 // feed row has no formatted reference or UUID of its own (`entity` is
 // the *described* record's reference, not this row's); id is the only
 // stable handle a client has for one activity event.
+//
+// Attachment: the same shape again, Phase 5 Step 4 — attachments
+// (migration 0010_attachments.sql) is also a dedicated
+// INTEGER PRIMARY KEY table outside the entities registry (an
+// attachment has no public reference of its own, §6.3's stable-
+// reference requirement is for principal record kinds only); id is
+// exactly what GET/PUT/DELETE /attachments/{id} and its
+// download/versions sub-routes name.
 var schemasWhereIDIsThePublicIdentity = map[string]bool{
 	"AgentTokenSummary": true,
 	"AgentTokenCreated": true,
 	"Comment":           true,
 	"ExternalLink":      true,
 	"ActivityEvent":     true,
+	"Attachment":        true,
 }
 
 // TestNoSchemaExposesABareIntegerID is ADR 0002's assigned Phase 1

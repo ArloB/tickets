@@ -11,15 +11,18 @@ import type { ContentItemUrlKind } from '../api/content-items'
 import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
 import { listBacklinks } from '../api/backlinks'
+import { listAttachments } from '../api/attachments'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
 import { MarkdownEditor } from '../components/MarkdownEditor'
 import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
+import { AttachmentList } from '../components/AttachmentList'
 import { DiffView } from '../components/DiffView'
 import { useAuth } from '../auth/AuthContext'
 import type {
+  Attachment,
   Backlink,
   ContentItemDetail as ContentItemDetailDto,
   ContentItemDiff,
@@ -148,6 +151,7 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
   const [links, setLinks] = useState<ExternalLink[] | null>(null)
   const [associated, setAssociated] = useState<string[] | null>(null)
   const [backlinks, setBacklinks] = useState<Backlink[] | null>(null)
+  const [attachments, setAttachments] = useState<Attachment[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
@@ -160,14 +164,22 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
     setLinks(null)
     setAssociated(null)
     setBacklinks(null)
+    setAttachments(null)
     setError(null)
     setEditing(false)
-    Promise.all([getContentItem(urlKind, ref), listLinks(ref), listAssociations(ref), listBacklinks(ref)])
-      .then(([d, l, a, b]) => {
+    Promise.all([
+      getContentItem(urlKind, ref),
+      listLinks(ref),
+      listAssociations(ref),
+      listBacklinks(ref),
+      listAttachments(ref),
+    ])
+      .then(([d, l, a, b, at]) => {
         setItem(d)
         setLinks(l.links)
         setAssociated(a.associated)
         setBacklinks(b.backlinks)
+        setAttachments(at.attachments)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [urlKind, ref])
@@ -250,6 +262,16 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
 
       <h2>Links</h2>
       {links && <LinksSection entityRef={item.ref} links={links} onChange={setLinks} canEdit={canEdit} />}
+
+      <h2>Attachments</h2>
+      {attachments && (
+        <AttachmentList
+          ownerRef={item.ref}
+          attachments={attachments}
+          onChange={setAttachments}
+          canEdit={canEdit}
+        />
+      )}
 
       <h2>Backlinks</h2>
       {!backlinks || backlinks.length === 0 ? (

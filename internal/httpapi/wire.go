@@ -555,3 +555,64 @@ type associationsPage struct {
 type deleteResponse struct {
 	Version int64 `json:"version"`
 }
+
+// attachmentView is every attachment-returning endpoint's response
+// shape (product spec §5.11). One shape, not a compact/detail split —
+// unlike decisions/tickets, an attachment carries no large text body
+// worth omitting from a list response.
+type attachmentView struct {
+	ID             int64      `json:"id"`
+	OwnerRef       string     `json:"owner_ref,omitempty"`
+	CommentID      int64      `json:"comment_id,omitempty"`
+	Kind           string     `json:"kind"`
+	Title          string     `json:"title"`
+	CurrentVersion int64      `json:"current_version"`
+	FileName       string     `json:"file_name,omitempty"`
+	FileSize       int64      `json:"file_size,omitempty"`
+	MediaType      string     `json:"media_type,omitempty"`
+	Checksum       string     `json:"checksum,omitempty"`
+	PathValue      string     `json:"path_value,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	Creator        string     `json:"creator"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+}
+
+func toAttachmentView(a domain.Attachment) attachmentView {
+	return attachmentView{
+		ID: a.ID, OwnerRef: a.OwnerRef, CommentID: a.CommentID, Kind: string(a.Kind), Title: a.Title,
+		CurrentVersion: a.CurrentVersion, FileName: a.FileName, FileSize: a.FileSize, MediaType: a.MediaType,
+		Checksum: a.Checksum, PathValue: a.PathValue, CreatedAt: a.CreatedAt, Creator: a.Creator.String(),
+		DeletedAt: a.DeletedAt,
+	}
+}
+
+type attachmentsPage struct {
+	Attachments []attachmentView `json:"attachments"`
+}
+
+// attachmentVersionEntry mirrors decisionVersionEntry's role for
+// attachments — one archived state, no diff (§5.11: binary/path
+// versions aren't line-diffed the way decision/content_item text is).
+type attachmentVersionEntry struct {
+	Version    int64     `json:"version"`
+	Kind       string    `json:"kind"`
+	FileName   string    `json:"file_name,omitempty"`
+	FileSize   int64     `json:"file_size,omitempty"`
+	MediaType  string    `json:"media_type,omitempty"`
+	Checksum   string    `json:"checksum,omitempty"`
+	PathValue  string    `json:"path_value,omitempty"`
+	UploadedBy string    `json:"uploaded_by"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+func toAttachmentVersionEntry(v domain.AttachmentVersion) attachmentVersionEntry {
+	return attachmentVersionEntry{
+		Version: v.Version, Kind: string(v.Kind), FileName: v.FileName, FileSize: v.FileSize,
+		MediaType: v.MediaType, Checksum: v.Checksum, PathValue: v.PathValue,
+		UploadedBy: v.UploadedBy.String(), CreatedAt: v.CreatedAt,
+	}
+}
+
+type attachmentVersionsPage struct {
+	Versions []attachmentVersionEntry `json:"versions"`
+}

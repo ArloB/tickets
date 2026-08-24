@@ -32,3 +32,14 @@ would turn a stored string into unintended file disclosure.
 - Attachments are not built in Phase 0's vertical slice (deferred per
   Step 5); this ADR fixes the boundary so Phase 5's implementation
   doesn't have to relitigate it.
+- **Implemented in Phase 5 Step 4.** `internal/blobstore` writes the
+  blob (via `Put`) before the enclosing `internal/service` transaction
+  commits, so a transaction rollback (e.g. the owning entity/comment
+  turns out not to exist) can leave an orphaned blob on disk with no
+  `attachments`/`attachment_versions` row pointing at it. This is
+  harmless under content-addressing (the same bytes uploaded again
+  later dedup onto the same orphaned file rather than writing a
+  second copy) and is not cleaned up automatically — an admin
+  reconciliation/GC pass is a reasonable future addition if orphaned
+  blobs ever become a real disk-usage concern, but isn't built
+  speculatively here.

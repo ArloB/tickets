@@ -58,6 +58,17 @@ externally.
   consume the result. `internal/mcpsrv`'s `withCallerActor` does the
   analogous thing for the MCP transport, reading
   `req.Extra.TokenInfo.UserID`.
+- **Phase 5 Step 4 widens what "viewer" grants.** Attachment
+  list/metadata/download routes (`GET /attachments/{id}/download` and
+  the versioned equivalent, `internal/httpapi/attachments.go`) are
+  `routeViewer` — consistent with every other read route, but new in
+  kind: an anonymous-read-enabled install now lets an anonymous viewer
+  pull uploaded file *bytes*, not just metadata/text. This is a
+  deliberate extension of this ADR's existing "anonymous read grants
+  viewer" rule, not a new permission tier — flagged here explicitly
+  per §10's warn-before-widening-anonymous-access requirement, rather
+  than left as an implicit consequence of "attachments are just
+  another readable resource."
 - **A documented exception to ADR 0005.** Permission-level checks
   (`requireEditor`/`requireAdmin` in `internal/httpapi/server.go`,
   driven by the route table's `routePermission` field) live in the

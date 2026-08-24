@@ -135,6 +135,7 @@ command failed:
 | 17 | `relationship_cycle` |
 | 18 | `has_dependents` |
 | 19 | `throttled` |
+| 20 | `upload_too_large` |
 | 1 | Anything else, including `internal_error` and non-domain errors (a network failure, an unparseable response). |
 | 2 | Usage error: unknown subcommand, flag parse failure, missing required flag/argument. |
 

@@ -55,6 +55,8 @@ func statusForCode(code domain.ErrorCode) int {
 		return http.StatusTooManyRequests
 	case domain.ErrForbidden:
 		return http.StatusForbidden
+	case domain.ErrUploadTooLarge:
+		return http.StatusRequestEntityTooLarge
 	default:
 		return http.StatusInternalServerError
 	}

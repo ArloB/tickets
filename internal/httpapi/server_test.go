@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/service"
 	"github.com/ArloB/tickets/internal/store"
 	"github.com/getkin/kin-openapi/openapi3"
@@ -48,7 +49,11 @@ func newTestServer(t *testing.T) *testServer {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	svc := service.New(st)
+	blobs, err := blobstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("blobstore.Open: %v", err)
+	}
+	svc := service.New(st, blobs)
 
 	ts := httptest.NewServer(NewHandler(svc, false))
 	t.Cleanup(ts.Close)

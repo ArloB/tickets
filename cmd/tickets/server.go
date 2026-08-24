@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/config"
 	"github.com/ArloB/tickets/internal/httpapi"
 	"github.com/ArloB/tickets/internal/logging"
@@ -55,7 +56,13 @@ func runServer(args []string) error {
 	}
 	defer func() { _ = st.Close() }()
 
-	svc := service.New(st)
+	blobs, err := blobstore.Open(cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("open blobstore at %s: %w", cfg.DataDir, err)
+	}
+
+	svc := service.New(st, blobs)
+	httpapi.SetMaxUploadBytes(cfg.MaxUploadBytes)
 	srv := &http.Server{Handler: newRootHandler(svc, cfg.AnonymousRead), ReadHeaderTimeout: 10 * time.Second}
 
 	ln, err := net.Listen("tcp", cfg.Addr())

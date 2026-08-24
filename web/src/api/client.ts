@@ -114,3 +114,40 @@ export async function apiFetch<T>(
 
   return payload as T
 }
+
+export async function apiFetchMultipart<T>(
+  path: string,
+  init: { method?: string; form: FormData; headers?: Record<string, string> },
+): Promise<T> {
+  const headers: Record<string, string> = { ...init.headers }
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken
+  }
+
+  const resp = await fetch(`/api/v1${path}`, {
+    method: init.method ?? 'POST',
+    headers,
+    body: init.form,
+    credentials: 'include',
+  })
+
+  if (resp.status === 204) {
+    return undefined as T
+  }
+
+  const contentType = resp.headers.get('Content-Type') ?? ''
+  const payload = contentType.includes('application/json') ? await resp.json() : undefined
+
+  if (!resp.ok) {
+    const errorBody: ErrorBody = payload?.error ?? {
+      code: 'internal_error',
+      message: `request failed with status ${resp.status}`,
+      field: null,
+      correlation_id: '',
+      current_version: null,
+    }
+    throw new ApiError(errorBody, resp.status)
+  }
+
+  return payload as T
+}

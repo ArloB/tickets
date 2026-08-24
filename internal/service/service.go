@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/store"
 	"github.com/google/uuid"
@@ -16,10 +17,15 @@ import (
 // internal/store directly.
 type Service struct {
 	store *store.Store
+	blobs *blobstore.Store
 }
 
-func New(s *store.Store) *Service {
-	return &Service{store: s}
+// New builds a Service. blobs may be nil for callers that never touch
+// attachments (nothing currently does; kept nilable rather than
+// requiring every call site — including test helpers that don't
+// exercise attachments — to construct one).
+func New(s *store.Store, blobs *blobstore.Store) *Service {
+	return &Service{store: s, blobs: blobs}
 }
 
 // Ping confirms the database is reachable, for /readyz (product spec

@@ -68,7 +68,23 @@ would directly complicate a client's conflict-handling logic, which
 already has to keep a ticket's version and a comment's version as two
 separate values per the exception above.
 
-## Idempotency keys
+**Phase 5 addendum — attachments version themselves independently,
+like comments.** An attachment's `current_version`
+(`attachments.current_version`) is its own conditional-update token,
+independent of its owning entity's `entities.version` — uploading a
+new version of a file attached to a ticket never bumps the ticket's
+own version. `PUT /attachments/{id}` (replace) and
+`DELETE /attachments/{id}` both require `If-Match: "<current_version>"`
+against that column, and a `version_conflict` from either carries the
+attachment's `current_version`, not the parent entity's — a third
+independent version-token type, alongside a ticket/feature/decision/
+content-item's `entities.version` and a comment's `comments.version`.
+Unlike decisions/content_items (which snapshot the *pre-update* row
+into `_versions` before overwriting it), `attachment_versions` holds
+every version including the current one — version 1 is archived
+immediately at creation, not deferred until a first edit — since a
+binary/path attachment version has nothing worth line-diffing against;
+the version list itself, not a diff, is the history (§5.11).
 
 - Any mutating request may carry `Idempotency-Key: <opaque client string>`.
 - The server stores `(key, request_fingerprint, ref_key, created_at)`,

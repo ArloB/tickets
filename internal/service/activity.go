@@ -50,6 +50,9 @@ var activityEventTypes = map[string]bool{
 	eventExternalLinkRemoved:  true,
 	eventContentItemCreated:   true,
 	eventContentItemUpdated:   true,
+	eventAttachmentAdded:      true,
+	eventAttachmentReplaced:   true,
+	eventAttachmentRemoved:    true,
 }
 
 // activityEventTypesList is activityEventTypes' keys, computed once —

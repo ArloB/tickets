@@ -7,6 +7,7 @@ import * as contentItemsApi from '../api/content-items'
 import * as linksApi from '../api/links'
 import * as associationsApi from '../api/associations'
 import * as backlinksApi from '../api/backlinks'
+import * as attachmentsApi from '../api/attachments'
 import { useAuth } from '../auth/AuthContext'
 import type {
   ContentItemDetail as ContentItemDetailDto,
@@ -27,6 +28,7 @@ vi.mock('../api/content-items', async () => {
 vi.mock('../api/links', () => ({ listLinks: vi.fn() }))
 vi.mock('../api/associations', () => ({ listAssociations: vi.fn() }))
 vi.mock('../api/backlinks', () => ({ listBacklinks: vi.fn() }))
+vi.mock('../api/attachments', () => ({ listAttachments: vi.fn() }))
 vi.mock('../auth/AuthContext', () => ({ useAuth: vi.fn() }))
 
 const getContentItem = vi.mocked(contentItemsApi.getContentItem)
@@ -35,6 +37,7 @@ const getContentItemDiff = vi.mocked(contentItemsApi.getContentItemDiff)
 const listLinks = vi.mocked(linksApi.listLinks)
 const listAssociations = vi.mocked(associationsApi.listAssociations)
 const listBacklinks = vi.mocked(backlinksApi.listBacklinks)
+const listAttachments = vi.mocked(attachmentsApi.listAttachments)
 const mockUseAuth = vi.mocked(useAuth)
 
 function item(overrides: Partial<ContentItemDetailDto> = {}): ContentItemDetailDto {
@@ -74,6 +77,7 @@ beforeEach(() => {
   listLinks.mockResolvedValue({ links: [] })
   listAssociations.mockResolvedValue({ associated: [] })
   listBacklinks.mockResolvedValue({ backlinks: [] })
+  listAttachments.mockResolvedValue({ attachments: [] })
 })
 
 describe('ContentItemDetail version history diff', () => {

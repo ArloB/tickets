@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ArloB/tickets/internal/apiclient"
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/httpapi"
 	"github.com/ArloB/tickets/internal/service"
@@ -26,7 +27,11 @@ func newTestAPIServerWithAgent(t *testing.T) (apiURL, token, ticketRef string) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	svc := service.New(st)
+	blobs, err := blobstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("blobstore.Open: %v", err)
+	}
+	svc := service.New(st, blobs)
 
 	ctx := context.Background()
 	human := domain.ActorRef{Kind: domain.ActorHuman, Name: "local"}

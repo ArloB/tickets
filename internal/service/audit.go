@@ -35,6 +35,9 @@ const (
 	eventExternalLinkRemoved  = "external_link_removed"
 	eventContentItemCreated   = "content_item_created"
 	eventContentItemUpdated   = "content_item_updated"
+	eventAttachmentAdded      = "attachment_added"
+	eventAttachmentReplaced   = "attachment_replaced"
+	eventAttachmentRemoved    = "attachment_removed"
 )
 
 // auditChanges marshals a small before/after or field-summary map into

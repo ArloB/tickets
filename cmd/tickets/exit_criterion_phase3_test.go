@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ArloB/tickets/internal/apiclient"
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/mcpsrv"
 	"github.com/ArloB/tickets/internal/service"
@@ -52,7 +53,11 @@ func TestExitCriterionPhase3Workflow(t *testing.T) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	svc := service.New(st)
+	blobs, err := blobstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("blobstore.Open: %v", err)
+	}
+	svc := service.New(st, blobs)
 
 	ctx := context.Background()
 	setupActor := domain.ActorRef{Kind: domain.ActorHuman, Name: "local"}

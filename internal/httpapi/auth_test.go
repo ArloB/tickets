@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ArloB/tickets/internal/auth"
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/service"
 	"github.com/ArloB/tickets/internal/store"
@@ -36,7 +37,11 @@ func newAuthTestServer(t *testing.T, anonymousRead bool) (*testServer, *service.
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	svc := service.New(st)
+	blobs, err := blobstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("blobstore.Open: %v", err)
+	}
+	svc := service.New(st, blobs)
 
 	ts := httptest.NewServer(NewHandler(svc, anonymousRead))
 	t.Cleanup(ts.Close)

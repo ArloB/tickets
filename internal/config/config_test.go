@@ -74,8 +74,40 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ShutdownTimeout != 10*time.Second {
 		t.Errorf("ShutdownTimeout = %v, want 10s", cfg.ShutdownTimeout)
 	}
+	if cfg.MaxUploadBytes != 25<<20 {
+		t.Errorf("MaxUploadBytes = %d, want %d (ADR 0007's 25 MiB default)", cfg.MaxUploadBytes, 25<<20)
+	}
 	if !cfg.AnonymousRead {
 		t.Errorf("AnonymousRead = false, want true (loopback host, no explicit override)")
+	}
+}
+
+func TestMaxUploadBytesOverride(t *testing.T) {
+	t.Setenv("TICKETS_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.json"))
+
+	t.Setenv("TICKETS_MAX_UPLOAD_BYTES", "1048576")
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MaxUploadBytes != 1<<20 {
+		t.Errorf("MaxUploadBytes = %d, want %d (env override)", cfg.MaxUploadBytes, 1<<20)
+	}
+
+	cfg, err = Load([]string{"--max-upload-bytes", "2097152"})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MaxUploadBytes != 2<<20 {
+		t.Errorf("MaxUploadBytes = %d, want %d (flag over env)", cfg.MaxUploadBytes, 2<<20)
+	}
+}
+
+func TestMaxUploadBytesInvalidEnv(t *testing.T) {
+	t.Setenv("TICKETS_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.json"))
+	t.Setenv("TICKETS_MAX_UPLOAD_BYTES", "not-a-number")
+	if _, err := Load(nil); err == nil {
+		t.Fatal("Load with invalid TICKETS_MAX_UPLOAD_BYTES: want error, got nil")
 	}
 }
 

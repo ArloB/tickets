@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/service"
 	"github.com/ArloB/tickets/internal/store"
@@ -35,7 +36,11 @@ func TestRootHandlerComposition(t *testing.T) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	defer func() { _ = st.Close() }()
-	svc := service.New(st)
+	blobs, err := blobstore.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("blobstore.Open: %v", err)
+	}
+	svc := service.New(st, blobs)
 
 	ctx := context.Background()
 	actor := domain.ActorRef{Kind: domain.ActorHuman, Name: "local"}

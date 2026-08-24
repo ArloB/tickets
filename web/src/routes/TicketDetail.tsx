@@ -4,6 +4,7 @@ import { getTicket } from '../api/tickets'
 import { listBacklinks } from '../api/backlinks'
 import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
+import { listAttachments } from '../api/attachments'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
@@ -13,8 +14,14 @@ import { CommentsSection } from '../components/CommentsSection'
 import { RelationshipsSection } from '../components/RelationshipsSection'
 import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
+import { AttachmentList } from '../components/AttachmentList'
 import { useAuth } from '../auth/AuthContext'
-import type { Backlink, ExternalLink, TicketDetail as TicketDetailDto } from '../api/types'
+import type {
+  Attachment,
+  Backlink,
+  ExternalLink,
+  TicketDetail as TicketDetailDto,
+} from '../api/types'
 
 export default function TicketDetail() {
   const { ref = '' } = useParams()
@@ -23,6 +30,7 @@ export default function TicketDetail() {
   const [links, setLinks] = useState<ExternalLink[] | null>(null)
   const [associated, setAssociated] = useState<string[] | null>(null)
   const [backlinks, setBacklinks] = useState<Backlink[] | null>(null)
+  const [attachments, setAttachments] = useState<Attachment[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
 
@@ -31,6 +39,7 @@ export default function TicketDetail() {
     setLinks(null)
     setAssociated(null)
     setBacklinks(null)
+    setAttachments(null)
     setError(null)
     setEditing(false)
     Promise.all([
@@ -38,12 +47,14 @@ export default function TicketDetail() {
       listLinks(ref),
       listAssociations(ref),
       listBacklinks(ref),
+      listAttachments(ref),
     ])
-      .then(([t, l, a, b]) => {
+      .then(([t, l, a, b, at]) => {
         setTicket(t)
         setLinks(l.links)
         setAssociated(a.associated)
         setBacklinks(b.backlinks)
+        setAttachments(at.attachments)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [ref])
@@ -119,6 +130,16 @@ export default function TicketDetail() {
       <h2>Links</h2>
       {links && (
         <LinksSection entityRef={ticket.ref} links={links} onChange={setLinks} canEdit={canEdit} />
+      )}
+
+      <h2>Attachments</h2>
+      {attachments && (
+        <AttachmentList
+          ownerRef={ticket.ref}
+          attachments={attachments}
+          onChange={setAttachments}
+          canEdit={canEdit}
+        />
       )}
 
       <h2>Backlinks</h2>

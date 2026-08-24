@@ -336,3 +336,42 @@ export interface Backlink {
 export interface BacklinksPage {
   backlinks: Backlink[]
 }
+
+export type AttachmentKind = 'upload' | 'path'
+
+export interface Attachment {
+  id: number
+  owner_ref?: string
+  comment_id?: number
+  kind: AttachmentKind
+  title: string
+  current_version: number
+  file_name?: string
+  file_size?: number
+  media_type?: string
+  checksum?: string
+  path_value?: string
+  created_at: string
+  creator: string
+  deleted_at?: string
+}
+
+export interface AttachmentsPage {
+  attachments: Attachment[]
+}
+
+export interface AttachmentVersionEntry {
+  version: number
+  kind: AttachmentKind
+  file_name?: string
+  file_size?: number
+  media_type?: string
+  checksum?: string
+  path_value?: string
+  uploaded_by: string
+  created_at: string
+}
+
+export interface AttachmentVersionsPage {
+  versions: AttachmentVersionEntry[]
+}

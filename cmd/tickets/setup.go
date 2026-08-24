@@ -57,7 +57,7 @@ func runSetup(args []string) error {
 	}
 	defer func() { _ = st.Close() }()
 
-	svc := service.New(st)
+	svc := service.New(st, nil)
 	actor, err := svc.CreateAdminAccount(context.Background(), *username, *password)
 	if err != nil {
 		return fmt.Errorf("create admin account: %w", err)

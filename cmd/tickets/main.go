@@ -44,6 +44,8 @@ func main() {
 		err = runDocument(os.Args[2:])
 	case "activity":
 		err = runActivity(os.Args[2:])
+	case "attachment":
+		err = runAttachment(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -93,5 +95,6 @@ commands:
   decision client commands against a running Tickets server (list, get, create, update, versions, diff)
   plan     client commands against a running Tickets server (list, get, create, update, versions, diff)
   document client commands against a running Tickets server (list, get, create, update, versions, diff)
-  activity client commands against a running Tickets server (list)`)
+  activity client commands against a running Tickets server (list)
+  attachment client commands against a running Tickets server (upload, path, list, get, versions, download, replace, delete)`)
 }

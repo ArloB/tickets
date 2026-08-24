@@ -15,7 +15,7 @@ var allKnownErrorCodes = []domain.ErrorCode{
 	domain.ErrValidationFailed, domain.ErrNotFound, domain.ErrAlreadyExists,
 	domain.ErrVersionConflict, domain.ErrIdempotencyKeyReused, domain.ErrUnauthorized,
 	domain.ErrInternal, domain.ErrRelationshipCycle, domain.ErrHasDependents,
-	domain.ErrThrottled, domain.ErrForbidden,
+	domain.ErrThrottled, domain.ErrForbidden, domain.ErrUploadTooLarge,
 }
 
 // TestExitCodeCoversEveryErrorCode proves every code exitCode

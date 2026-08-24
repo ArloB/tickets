@@ -77,7 +77,7 @@ func openAdminService(dataDir string) (*store.Store, *service.Service, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("open store at %s: %w", cfg.DataDir, err)
 	}
-	return st, service.New(st), nil
+	return st, service.New(st, nil), nil
 }
 
 // parseAsActor resolves --as into the domain.ActorRef these commands

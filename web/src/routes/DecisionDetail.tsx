@@ -4,15 +4,18 @@ import { getDecision, getDecisionDiff, listDecisionVersions } from '../api/decis
 import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
 import { listBacklinks } from '../api/backlinks'
+import { listAttachments } from '../api/attachments'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
 import { DecisionFieldsForm } from '../components/DecisionFieldsForm'
 import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
+import { AttachmentList } from '../components/AttachmentList'
 import { DiffView } from '../components/DiffView'
 import { useAuth } from '../auth/AuthContext'
 import type {
+  Attachment,
   Backlink,
   DecisionDiff,
   DecisionDetail as DecisionDetailDto,
@@ -150,6 +153,7 @@ export default function DecisionDetail() {
   const [links, setLinks] = useState<ExternalLink[] | null>(null)
   const [associated, setAssociated] = useState<string[] | null>(null)
   const [backlinks, setBacklinks] = useState<Backlink[] | null>(null)
+  const [attachments, setAttachments] = useState<Attachment[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
 
@@ -158,14 +162,22 @@ export default function DecisionDetail() {
     setLinks(null)
     setAssociated(null)
     setBacklinks(null)
+    setAttachments(null)
     setError(null)
     setEditing(false)
-    Promise.all([getDecision(ref), listLinks(ref), listAssociations(ref), listBacklinks(ref)])
-      .then(([d, l, a, b]) => {
+    Promise.all([
+      getDecision(ref),
+      listLinks(ref),
+      listAssociations(ref),
+      listBacklinks(ref),
+      listAttachments(ref),
+    ])
+      .then(([d, l, a, b, at]) => {
         setDecision(d)
         setLinks(l.links)
         setAssociated(a.associated)
         setBacklinks(b.backlinks)
+        setAttachments(at.attachments)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [ref])
@@ -235,6 +247,16 @@ export default function DecisionDetail() {
       <h2>Links</h2>
       {links && (
         <LinksSection entityRef={decision.ref} links={links} onChange={setLinks} canEdit={canEdit} />
+      )}
+
+      <h2>Attachments</h2>
+      {attachments && (
+        <AttachmentList
+          ownerRef={decision.ref}
+          attachments={attachments}
+          onChange={setAttachments}
+          canEdit={canEdit}
+        />
       )}
 
       <h2>Backlinks</h2>

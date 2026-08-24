@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/fixtures"
 	"github.com/ArloB/tickets/internal/store"
@@ -43,7 +44,12 @@ func fullFixtureSvc(b *testing.B) (*Service, fixtures.Summary) {
 			fullFixtureErr = err
 			return
 		}
-		fullFixtureService = New(st)
+		blobs, berr := blobstore.Open(dir)
+		if berr != nil {
+			fullFixtureErr = berr
+			return
+		}
+		fullFixtureService = New(st, blobs)
 		fullFixtureSummary = sum
 	})
 	if fullFixtureErr != nil {

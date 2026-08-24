@@ -41,13 +41,21 @@ const (
 	// property of the request, not of any entity a service method
 	// would inspect.
 	ErrForbidden ErrorCode = "forbidden"
+
+	// ErrUploadTooLarge is Phase 5 Step 4's addition (413): an
+	// attachment upload exceeded the configured size limit (ADR 0007,
+	// 25 MiB default). Distinct from ErrValidationFailed since a
+	// client needs to distinguish "this request is malformed" from
+	// "this request would be fine at a smaller size."
+	ErrUploadTooLarge ErrorCode = "upload_too_large"
 )
 
 func (c ErrorCode) Valid() bool {
 	switch c {
 	case ErrValidationFailed, ErrNotFound, ErrAlreadyExists, ErrVersionConflict,
 		ErrIdempotencyKeyReused, ErrUnauthorized, ErrInternal,
-		ErrRelationshipCycle, ErrHasDependents, ErrThrottled, ErrForbidden:
+		ErrRelationshipCycle, ErrHasDependents, ErrThrottled, ErrForbidden,
+		ErrUploadTooLarge:
 		return true
 	}
 	return false

@@ -93,6 +93,20 @@ permission-level checks live in the translation layer for Phase 2.
 `internal/service` stays the sole authorization/validation boundary
 for it.
 
+## Code catalogue (Phase 5 additions)
+
+| Code | HTTP status | Meaning |
+| --- | --- | --- |
+| `upload_too_large` | 413 | An attachment upload exceeded the configured size limit (ADR 0007, 25 MiB default per version). |
+
+`upload_too_large` is decided in `internal/httpapi`'s attachment
+upload handlers, before the handler body starts writing to storage
+(ADR 0007) — the one code in this catalogue enforced at the
+translation layer rather than `internal/service`, for the same
+mechanical reason streaming enforcement needs to happen before any
+service call: the request body is size-limited as it's read, not
+after it's fully buffered.
+
 ## OpenAPI's `code` field is a bare string, not an enum
 
 `api/openapi.yaml`'s `ErrorEnvelope` schema declares `error.code` as

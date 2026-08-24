@@ -33,6 +33,11 @@ type Config struct {
 	// ShutdownTimeout bounds how long graceful shutdown waits for
 	// in-flight requests to finish (product spec §11).
 	ShutdownTimeout time.Duration
+
+	// MaxUploadBytes is the per-version attachment upload size limit
+	// (ADR 0007), configurable per that ADR's "25 MiB default,
+	// configurable" line.
+	MaxUploadBytes int64
 }
 
 func (c Config) Addr() string { return c.Host + ":" + c.Port }
@@ -49,6 +54,7 @@ type fileConfig struct {
 	AnonymousRead   *bool   `json:"anonymous_read"`
 	LogFormat       *string `json:"log_format"`
 	ShutdownTimeout *string `json:"shutdown_timeout"`
+	MaxUploadBytes  *int64  `json:"max_upload_bytes"`
 }
 
 // overrides is what both the config file and the environment layer
@@ -63,15 +69,17 @@ type overrides struct {
 	anonymousRead   *bool
 	logFormat       *string
 	shutdownTimeout *time.Duration
+	maxUploadBytes  *int64
 }
 
 type resolvedDefaults struct {
-	dataDir       string
-	host          string
-	port          string
-	anonymousRead *bool // nil until the file or environment layer sets it explicitly
-	logFormat     string
-	shutdownTime  time.Duration
+	dataDir        string
+	host           string
+	port           string
+	anonymousRead  *bool // nil until the file or environment layer sets it explicitly
+	logFormat      string
+	shutdownTime   time.Duration
+	maxUploadBytes int64
 }
 
 func (r *resolvedDefaults) apply(o overrides) {
@@ -93,6 +101,9 @@ func (r *resolvedDefaults) apply(o overrides) {
 	if o.shutdownTimeout != nil {
 		r.shutdownTime = *o.shutdownTimeout
 	}
+	if o.maxUploadBytes != nil {
+		r.maxUploadBytes = *o.maxUploadBytes
+	}
 }
 
 // Load resolves Config from, in increasing priority: built-in
@@ -105,11 +116,12 @@ func (r *resolvedDefaults) apply(o overrides) {
 // prompts and never reads stdin (§7.3's non-interactive requirement).
 func Load(args []string) (Config, error) {
 	resolved := resolvedDefaults{
-		dataDir:      defaultDataDir(),
-		host:         "127.0.0.1",
-		port:         "8080",
-		logFormat:    "console",
-		shutdownTime: 10 * time.Second,
+		dataDir:        defaultDataDir(),
+		host:           "127.0.0.1",
+		port:           "8080",
+		logFormat:      "console",
+		shutdownTime:   10 * time.Second,
+		maxUploadBytes: 25 << 20,
 	}
 
 	fc, err := loadFileConfig(configFilePath())
@@ -130,6 +142,7 @@ func Load(args []string) (Config, error) {
 	port := fs.String("port", resolved.port, "port to listen on")
 	logFormat := fs.String("log-format", resolved.logFormat, `log output format: "console" or "json" (product spec §13)`)
 	shutdownTimeout := fs.Duration("shutdown-timeout", resolved.shutdownTime, "how long graceful shutdown waits for in-flight requests to finish")
+	maxUploadBytes := fs.Int64("max-upload-bytes", resolved.maxUploadBytes, "per-version attachment upload size limit in bytes (ADR 0007)")
 	anonymousReadDefault := false
 	if resolved.anonymousRead != nil {
 		anonymousReadDefault = *resolved.anonymousRead
@@ -151,6 +164,7 @@ func Load(args []string) (Config, error) {
 		Port:            *port,
 		LogFormat:       *logFormat,
 		ShutdownTimeout: *shutdownTimeout,
+		MaxUploadBytes:  *maxUploadBytes,
 	}
 	cfg.AnonymousRead = resolveAnonymousRead(fs, *anonymousRead, resolved.anonymousRead, cfg.Host)
 
@@ -228,11 +242,12 @@ func loadFileConfig(path string) (overrides, error) {
 	}
 
 	o := overrides{
-		dataDir:       fc.DataDir,
-		host:          fc.Host,
-		port:          fc.Port,
-		anonymousRead: fc.AnonymousRead,
-		logFormat:     fc.LogFormat,
+		dataDir:        fc.DataDir,
+		host:           fc.Host,
+		port:           fc.Port,
+		anonymousRead:  fc.AnonymousRead,
+		logFormat:      fc.LogFormat,
+		maxUploadBytes: fc.MaxUploadBytes,
 	}
 	if fc.ShutdownTimeout != nil {
 		d, err := time.ParseDuration(*fc.ShutdownTimeout)
@@ -275,6 +290,13 @@ func loadEnvConfig() (overrides, error) {
 			return overrides{}, fmt.Errorf("config: TICKETS_SHUTDOWN_TIMEOUT=%q: %w", v, err)
 		}
 		o.shutdownTimeout = &d
+	}
+	if v, ok := os.LookupEnv("TICKETS_MAX_UPLOAD_BYTES"); ok {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return overrides{}, fmt.Errorf("config: TICKETS_MAX_UPLOAD_BYTES=%q: %w", v, err)
+		}
+		o.maxUploadBytes = &n
 	}
 	return o, nil
 }

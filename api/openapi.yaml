@@ -1526,6 +1526,478 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /tickets/{ref}/attachments:
+    post:
+      operationId: addTicketAttachment
+      summary: >
+        Add an attachment to a ticket (product spec §5.11). Multipart
+        for an upload attachment, JSON for a path attachment (ADR
+        0007) — see requestBody's two content entries.
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPathAttachmentRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listTicketAttachments
+      summary: List a ticket's attachments
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}/attachments:
+    post:
+      operationId: addFeatureAttachment
+      summary: >
+        Add an attachment to a feature (product spec §5.11). Multipart
+        for an upload attachment, JSON for a path attachment (ADR
+        0007) — see requestBody's two content entries.
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPathAttachmentRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listFeatureAttachments
+      summary: List a feature's attachments
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /decisions/{ref}/attachments:
+    post:
+      operationId: addDecisionAttachment
+      summary: >
+        Add an attachment to a decision (product spec §5.11). Multipart
+        for an upload attachment, JSON for a path attachment (ADR
+        0007) — see requestBody's two content entries.
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPathAttachmentRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDecisionAttachments
+      summary: List a decision's attachments
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}/attachments:
+    post:
+      operationId: addPlanAttachment
+      summary: >
+        Add an attachment to a plan (product spec §5.11). Multipart
+        for an upload attachment, JSON for a path attachment (ADR
+        0007) — see requestBody's two content entries.
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPathAttachmentRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listPlanAttachments
+      summary: List a plan's attachments
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/attachments:
+    post:
+      operationId: addDocumentAttachment
+      summary: >
+        Add an attachment to a document (product spec §5.11). Multipart
+        for an upload attachment, JSON for a path attachment (ADR
+        0007) — see requestBody's two content entries.
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPathAttachmentRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDocumentAttachments
+      summary: List a document's attachments
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /comments/{id}/attachments:
+    post:
+      operationId: addCommentAttachment
+      summary: >
+        Add an attachment to a comment (product spec §5.11). Same
+        multipart/JSON dispatch as the entity-scoped attachment routes.
+      parameters:
+        - $ref: '#/components/parameters/CommentID'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddPathAttachmentRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                title: { type: string }
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listCommentAttachments
+      summary: List a comment's attachments
+      parameters:
+        - $ref: '#/components/parameters/CommentID'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /attachments/{id}:
+    get:
+      operationId: getAttachment
+      summary: Get one attachment's metadata
+      parameters:
+        - $ref: '#/components/parameters/AttachmentID'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '404':
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: replaceAttachment
+      summary: >
+        Replace an attachment's content, storing a new version as the
+        current state (product spec §5.11) — not an in-place edit.
+      parameters:
+        - $ref: '#/components/parameters/AttachmentID'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplacePathAttachmentRequest'
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                media_type: { type: string }
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attachment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteAttachment
+      summary: Soft-delete an attachment (tombstone stays visible in history)
+      parameters:
+        - $ref: '#/components/parameters/AttachmentID'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /attachments/{id}/download:
+    get:
+      operationId: downloadAttachment
+      summary: >
+        Download an upload attachment's current bytes, streamed. A
+        path attachment has no downloadable content (ADR 0007) and
+        this returns 400 for one.
+      parameters:
+        - $ref: '#/components/parameters/AttachmentID'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /attachments/{id}/versions:
+    get:
+      operationId: listAttachmentVersions
+      summary: List an attachment's archived versions, oldest first (includes the current one)
+      parameters:
+        - $ref: '#/components/parameters/AttachmentID'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentVersionsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /attachments/{id}/versions/{version}/download:
+    get:
+      operationId: downloadAttachmentVersion
+      summary: Download one archived version's bytes, streamed
+      parameters:
+        - $ref: '#/components/parameters/AttachmentID'
+        - $ref: '#/components/parameters/AttachmentVersion'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /tickets/{ref}/backlinks:
     get:
       operationId: listTicketBacklinks
@@ -2463,6 +2935,18 @@ components:
       required: true
       schema:
         type: integer
+    AttachmentID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    AttachmentVersion:
+      name: version
+      in: path
+      required: true
+      schema:
+        type: integer
     RelationshipType:
       name: type
       in: path
@@ -3218,6 +3702,81 @@ components:
         without a second read.
       properties:
         version: { type: integer }
+
+    AddPathAttachmentRequest:
+      type: object
+      required: [title, path]
+      description: >
+        A path-reference attachment (product spec §5.11, ADR 0007) — an
+        upload attachment is created via multipart/form-data instead
+        (see the same operation's other requestBody content entry).
+      properties:
+        title: { type: string }
+        path:
+          type: string
+          description: >
+            A path string only — never resolved or read by the server
+            (ADR 0007's fixed boundary).
+        media_type: { type: string }
+
+    ReplacePathAttachmentRequest:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string }
+        media_type: { type: string }
+
+    Attachment:
+      type: object
+      required: [id, kind, title, current_version, created_at, creator]
+      additionalProperties: false
+      description: >
+        Exactly one of owner_ref/comment_id is present, mirroring
+        internal/domain.Attachment.
+      properties:
+        id: { type: integer }
+        owner_ref: { type: string, example: ABC-123 }
+        comment_id: { type: integer }
+        kind: { type: string, enum: [upload, path] }
+        title: { type: string }
+        current_version: { type: integer }
+        file_name: { type: string }
+        file_size: { type: integer }
+        media_type: { type: string }
+        checksum: { type: string }
+        path_value: { type: string }
+        created_at: { type: string, format: date-time }
+        creator: { type: string, example: "human:alice" }
+        deleted_at: { type: string, format: date-time }
+
+    AttachmentsPage:
+      type: object
+      properties:
+        attachments:
+          type: array
+          items: { $ref: '#/components/schemas/Attachment' }
+
+    AttachmentVersionEntry:
+      type: object
+      required: [version, kind, uploaded_by, created_at]
+      additionalProperties: false
+      properties:
+        version: { type: integer }
+        kind: { type: string, enum: [upload, path] }
+        file_name: { type: string }
+        file_size: { type: integer }
+        media_type: { type: string }
+        checksum: { type: string }
+        path_value: { type: string }
+        uploaded_by: { type: string, example: "human:alice" }
+        created_at: { type: string, format: date-time }
+
+    AttachmentVersionsPage:
+      type: object
+      properties:
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/AttachmentVersionEntry' }
 
     ErrorEnvelope:
       type: object
