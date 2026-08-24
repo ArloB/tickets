@@ -38,6 +38,8 @@ func main() {
 		err = runComment(os.Args[2:])
 	case "decision":
 		err = runDecision(os.Args[2:])
+	case "activity":
+		err = runActivity(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -84,5 +86,6 @@ commands:
   feature  client commands against a running Tickets server (list, get, create, update)
   ticket   client commands against a running Tickets server (list, get, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
   comment  client commands against a running Tickets server (add, list, edit, delete)
-  decision client commands against a running Tickets server (list, get, create, update)`)
+  decision client commands against a running Tickets server (list, get, create, update)
+  activity client commands against a running Tickets server (list)`)
 }

@@ -121,6 +121,8 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodGet, "/api/v1/decisions/{ref}", routeViewer, s.getDecision},
 		{http.MethodPatch, "/api/v1/decisions/{ref}", routeEditor, s.updateDecision},
 
+		{http.MethodGet, "/api/v1/projects/{key}/activity", routeViewer, s.listActivity},
+
 		{http.MethodPost, "/api/v1/agents", routeAdmin, s.createAgent},
 		{http.MethodGet, "/api/v1/agents", routeAdmin, s.listAgents},
 		{http.MethodPost, "/api/v1/agents/{name}/tokens", routeAdmin, s.createAgentToken},

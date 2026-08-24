@@ -180,3 +180,31 @@ func GetTicketRefByEntityID(ctx context.Context, q Querier, entityID int64) (dom
 	}
 	return domain.Reference{ProjectKey: projectKey, Kind: domain.KindTicket, Seq: seq}, nil
 }
+
+// GetTicketRefByEntityIDAnyDeletion is GetTicketRefByEntityID without
+// the deleted_at IS NULL filter — the activity feed (§5.10) needs a
+// soft-deleted ticket's reference to keep rendering its
+// ticket_deleted/ticket_restored audit events, since §5.12 requires
+// audit history to stay visible regardless of ordinary application
+// operations on the entity it describes (see GetTicketByRefAnyDeletion's
+// doc for the same reasoning applied to Restore).
+func GetTicketRefByEntityIDAnyDeletion(ctx context.Context, q Querier, entityID int64) (domain.Reference, error) {
+	var (
+		projectKey string
+		seq        int64
+	)
+	err := q.QueryRowContext(ctx,
+		`SELECT p.key, t.seq
+		 FROM tickets t
+		 JOIN projects p ON p.id = t.project_id
+		 WHERE t.id = ?`,
+		entityID,
+	).Scan(&projectKey, &seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Reference{}, ErrNotFound
+	}
+	if err != nil {
+		return domain.Reference{}, fmt.Errorf("get ticket ref (any deletion) for entity %d: %w", entityID, err)
+	}
+	return domain.Reference{ProjectKey: projectKey, Kind: domain.KindTicket, Seq: seq}, nil
+}

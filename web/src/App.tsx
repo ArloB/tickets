@@ -11,6 +11,7 @@ import TicketDetail from './routes/TicketDetail'
 import FeatureDetail from './routes/FeatureDetail'
 import DecisionRegister from './routes/DecisionRegister'
 import DecisionDetail from './routes/DecisionDetail'
+import ActivityFeed from './routes/ActivityFeed'
 import AdminAgents from './routes/AdminAgents'
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/projects/:key/board" element={<TicketBoard />} />
           <Route path="/projects/:key/features/board" element={<FeatureBoard />} />
           <Route path="/projects/:key/decisions" element={<DecisionRegister />} />
+          <Route path="/projects/:key/activity" element={<ActivityFeed />} />
           <Route path="/tickets/:ref" element={<TicketDetail />} />
           <Route path="/features/:ref" element={<FeatureDetail />} />
           <Route path="/decisions/:ref" element={<DecisionDetail />} />

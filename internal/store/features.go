@@ -308,6 +308,31 @@ func GetFeatureRefByEntityID(ctx context.Context, q Querier, entityID int64) (do
 	return domain.Reference{ProjectKey: projectKey, Kind: domain.KindFeature, Seq: seq}, nil
 }
 
+// GetFeatureRefByEntityIDAnyDeletion is GetFeatureRefByEntityID without
+// the deleted_at IS NULL filter — see
+// GetTicketRefByEntityIDAnyDeletion's doc (relationships.go) for why the
+// activity feed needs this.
+func GetFeatureRefByEntityIDAnyDeletion(ctx context.Context, q Querier, entityID int64) (domain.Reference, error) {
+	var (
+		projectKey string
+		seq        int64
+	)
+	err := q.QueryRowContext(ctx,
+		`SELECT p.key, f.seq
+		 FROM features f
+		 JOIN projects p ON p.id = f.project_id
+		 WHERE f.id = ?`,
+		entityID,
+	).Scan(&projectKey, &seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Reference{}, ErrNotFound
+	}
+	if err != nil {
+		return domain.Reference{}, fmt.Errorf("get feature ref (any deletion) for entity %d: %w", entityID, err)
+	}
+	return domain.Reference{ProjectKey: projectKey, Kind: domain.KindFeature, Seq: seq}, nil
+}
+
 // UpdateFeatureFields applies a conditional update to a feature's
 // title/description/priority/position (ADR 0008's version-guard
 // pattern via bumpEntityVersion). position mirrors

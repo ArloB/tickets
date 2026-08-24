@@ -1423,6 +1423,50 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
 
+  /projects/{key}/activity:
+    get:
+      operationId: listActivity
+      summary: >
+        A project's activity feed (product spec §5.10): comments merged
+        with selected audit events, newest first, cursor-paginated.
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: actor
+          in: query
+          description: An actor reference wire form, e.g. "human:alice"
+          schema:
+            type: string
+        - name: entity_kind
+          in: query
+          schema:
+            type: string
+            enum: [project, ticket, feature, decision, plan, document]
+        - name: event_type
+          in: query
+          schema:
+            $ref: '#/components/schemas/ActivityEventType'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityPage'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /setup:
     post:
       operationId: setup
@@ -2069,6 +2113,77 @@ components:
         decisions:
           type: array
           items: { $ref: '#/components/schemas/DecisionCompact' }
+        next_cursor:
+          type: string
+          description: Opaque pagination cursor. Absent on the last page.
+
+    ActivityEventType:
+      type: string
+      description: >
+        The "selected" audit event types the activity feed shows
+        (product spec §5.10) — internal/service/activity.go's
+        activityEventTypes allowlist is this enum's single source of
+        truth; keep the two in lockstep.
+      enum:
+        - project_created
+        - ticket_created
+        - ticket_status_changed
+        - relationship_added
+        - relationship_removed
+        - feature_created
+        - feature_updated
+        - feature_status_changed
+        - ticket_updated
+        - ticket_assigned
+        - ticket_moved
+        - comment_added
+        - comment_edited
+        - comment_deleted
+        - ticket_reordered
+        - feature_reordered
+        - ticket_deleted
+        - ticket_restored
+        - feature_deleted
+        - feature_restored
+        - association_added
+        - association_removed
+        - decision_created
+        - decision_updated
+        - external_link_added
+        - external_link_removed
+
+    ActivityEvent:
+      type: object
+      required: [id, entity_kind, actor, event_type, created_at]
+      additionalProperties: false
+      description: >
+        One row of a project's activity feed (§5.10): comments merged
+        with selected audit events, newest first. `entity` is absent
+        only for a project-level event (project_created/
+        project_updated) — a project has no seq-numbered reference
+        token (see the Decision schema's sibling reasoning).
+      properties:
+        id: { type: integer }
+        entity: { type: string, example: ABC-123 }
+        entity_kind:
+          type: string
+          enum: [project, ticket, feature, decision, plan, document]
+        actor: { type: string, example: 'human:alice' }
+        event_type: { $ref: '#/components/schemas/ActivityEventType' }
+        comment_id: { type: integer }
+        comment_excerpt:
+          type: string
+          description: >
+            The first 200 characters of the comment's live body, present
+            only when comment_id is set.
+        created_at: { type: string, format: date-time }
+
+    ActivityPage:
+      type: object
+      properties:
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityEvent' }
         next_cursor:
           type: string
           description: Opaque pagination cursor. Absent on the last page.

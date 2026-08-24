@@ -80,11 +80,19 @@ func TestToTicketDetailFieldExposure(t *testing.T) {
 // (migration 0006_external_links.sql) is also a dedicated
 // INTEGER PRIMARY KEY table outside the entities registry, and its id
 // is exactly what DELETE .../links/{id} names to remove one link.
+//
+// ActivityEvent: the same shape again, Phase 5 — audit_events
+// (migration 0002_core_domain.sql) is also a dedicated
+// INTEGER PRIMARY KEY table outside the entities registry, and a single
+// feed row has no formatted reference or UUID of its own (`entity` is
+// the *described* record's reference, not this row's); id is the only
+// stable handle a client has for one activity event.
 var schemasWhereIDIsThePublicIdentity = map[string]bool{
 	"AgentTokenSummary": true,
 	"AgentTokenCreated": true,
 	"Comment":           true,
 	"ExternalLink":      true,
+	"ActivityEvent":     true,
 }
 
 // TestNoSchemaExposesABareIntegerID is ADR 0002's assigned Phase 1

@@ -152,6 +152,29 @@ export interface DecisionsPage {
   next_cursor?: string
 }
 
+// -- Activity --
+
+export type EntityKind = 'project' | 'ticket' | 'feature' | 'decision' | 'plan' | 'document'
+
+/** One row of a project's activity feed (§5.10): comments merged with
+ * selected audit events, newest first. `entity` is absent only for a
+ * project-level event (project_created/project_updated). */
+export interface ActivityEvent {
+  id: number
+  entity?: string
+  entity_kind: EntityKind
+  actor: string
+  event_type: string
+  comment_id?: number
+  comment_excerpt?: string
+  created_at: string
+}
+
+export interface ActivityPage {
+  events: ActivityEvent[]
+  next_cursor?: string
+}
+
 // -- Comments --
 // A comment's `version` is independent of its parent entity's
 // (docs/contracts/concurrency.md) — never conflate the two as a

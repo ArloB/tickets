@@ -173,6 +173,36 @@ func GetDecisionRefByEntityID(ctx context.Context, q Querier, entityID int64) (d
 	return domain.Reference{ProjectKey: projectKey, Kind: domain.KindDecision, Seq: seq}, nil
 }
 
+// GetDecisionRefByEntityIDAnyDeletion is GetDecisionRefByEntityID
+// without the deleted_at IS NULL filter — see
+// GetTicketRefByEntityIDAnyDeletion's doc (relationships.go) for why
+// the activity feed needs this. Decisions have no soft-delete surface
+// yet (no DELETE route), so this is currently equivalent to
+// GetDecisionRefByEntityID; it exists for symmetry with the
+// ticket/feature variants so the activity feed's resolution path
+// doesn't need a kind-specific special case, and so it's already
+// correct whenever decision soft-delete is added.
+func GetDecisionRefByEntityIDAnyDeletion(ctx context.Context, q Querier, entityID int64) (domain.Reference, error) {
+	var (
+		projectKey string
+		seq        int64
+	)
+	err := q.QueryRowContext(ctx,
+		`SELECT p.key, d.seq
+		 FROM decisions d
+		 JOIN projects p ON p.id = d.project_id
+		 WHERE d.id = ?`,
+		entityID,
+	).Scan(&projectKey, &seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Reference{}, ErrNotFound
+	}
+	if err != nil {
+		return domain.Reference{}, fmt.Errorf("get decision ref (any deletion) for entity %d: %w", entityID, err)
+	}
+	return domain.Reference{ProjectKey: projectKey, Kind: domain.KindDecision, Seq: seq}, nil
+}
+
 // InsertDecision creates a decision row. Called inside the same
 // transaction as InsertEntity/AllocateReference, mirroring
 // InsertFeature's contract.
