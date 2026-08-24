@@ -63,7 +63,7 @@ func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, a
 		if err := store.InsertFeature(ctx, tx, featureEntityID, proj.ID, seq, title, req.Description, string(priority), domain.TailPosition(maxPos)); err != nil {
 			return fmt.Errorf("service: create feature: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, featureEntityID, sourceOwnBody, req.ProjectKey, req.Description, now); err != nil {
+		if err := rescanMentions(ctx, tx, featureEntityID, sourceOwnBody, req.ProjectKey, req.Description, now, actorID); err != nil {
 			return err
 		}
 
@@ -71,6 +71,14 @@ func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, a
 		refStr, err := domain.Format(ref)
 		if err != nil {
 			return fmt.Errorf("service: format created feature ref: %w", err)
+		}
+		if err := indexFeatureSearchDoc(ctx, tx, featureEntityID, proj.ID, domain.Feature{
+			Ref: refStr, Status: domain.WorkflowStatusBacklog, Title: title, Description: req.Description,
+		}); err != nil {
+			return err
+		}
+		if err := subscribe(ctx, tx, featureEntityID, actorID, now); err != nil {
+			return err
 		}
 
 		changes := auditChanges(map[string]any{"ref": refStr, "title": title})
@@ -269,7 +277,7 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 			}
 			return fmt.Errorf("service: update feature: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now); err != nil {
+		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now, actorID); err != nil {
 			return err
 		}
 
@@ -277,10 +285,16 @@ func (s *Service) UpdateFeature(ctx context.Context, req UpdateFeatureRequest, a
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureUpdated, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
+		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+			return err
+		}
 
 		updated, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if err != nil {
 			return fmt.Errorf("service: reload updated feature: %w", err)
+		}
+		if err := indexFeatureSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity); err != nil {
+			return err
 		}
 		result = updated.Entity
 		return nil
@@ -341,10 +355,16 @@ func (s *Service) UpdateFeatureStatus(ctx context.Context, req UpdateFeatureStat
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureStatusChanged, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
+		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+			return err
+		}
 
 		updated, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if err != nil {
 			return fmt.Errorf("service: reload updated feature: %w", err)
+		}
+		if err := indexFeatureSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity); err != nil {
+			return err
 		}
 		result = updated.Entity
 		return nil
@@ -519,6 +539,9 @@ func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, a
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventFeatureDeleted, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
+		if err := removeEntitySearchDocs(ctx, tx, row.ID); err != nil {
+			return err
+		}
 
 		for _, ticketEntityID := range dependents {
 			// Resolve the ref before deleting: GetTicketRefByEntityID
@@ -540,6 +563,9 @@ func (s *Service) DeleteFeature(ctx context.Context, req DeleteFeatureRequest, a
 			ticketChanges := auditChanges(map[string]any{"ref": ticketRefStr, "cascade_from": row.Entity.Ref})
 			if err := store.InsertAuditEvent(ctx, tx, ticketEntityID, actorID, eventTicketDeleted, corrID, nil, ticketChanges, now); err != nil {
 				return fmt.Errorf("service: record cascade audit event: %w", err)
+			}
+			if err := removeEntitySearchDocs(ctx, tx, ticketEntityID); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -593,6 +619,9 @@ func (s *Service) RestoreFeature(ctx context.Context, req RestoreFeatureRequest,
 		updated, err := store.GetFeatureByRef(ctx, tx, req.Ref)
 		if err != nil {
 			return fmt.Errorf("service: reload restored feature: %w", err)
+		}
+		if err := indexFeatureSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity); err != nil {
+			return err
 		}
 		result = updated.Entity
 		return nil

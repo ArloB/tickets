@@ -437,6 +437,43 @@ func (b *HTTPBackend) AddAssociation(ctx context.Context, sourceRef, targetRef s
 	return nil
 }
 
+func (b *HTTPBackend) Search(ctx context.Context, in SearchInput) (SearchOutput, error) {
+	page, err := b.Client.Search(ctx, in.Query, apiclient.SearchOptions{
+		Project: in.Project, Kinds: in.Kind, Status: in.Status,
+	}, in.Limit, in.Cursor)
+	if err != nil {
+		return SearchOutput{}, toServiceError(err)
+	}
+	out := SearchOutput{Hits: make([]SearchHit, len(page.Hits)), NextCursor: page.NextCursor}
+	for i, h := range page.Hits {
+		out.Hits[i] = SearchHit{Kind: h.Kind, Ref: h.Ref, CommentID: h.CommentID, Title: h.Title, Snippet: h.Snippet}
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) ListNotifications(ctx context.Context, unreadOnly bool, limit int, cursor string) (NotificationsListOutput, error) {
+	page, err := b.Client.ListNotifications(ctx, unreadOnly, limit, cursor)
+	if err != nil {
+		return NotificationsListOutput{}, toServiceError(err)
+	}
+	out := NotificationsListOutput{Notifications: make([]NotificationCompact, len(page.Notifications)), NextCursor: page.NextCursor}
+	for i, n := range page.Notifications {
+		out.Notifications[i] = NotificationCompact{
+			ID: n.ID, Kind: n.Kind, Entity: n.Entity, EntityKind: n.EntityKind,
+			CommentID: n.CommentID, TriggeredBy: n.TriggeredBy, CreatedAt: n.CreatedAt, ReadAt: n.ReadAt,
+		}
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) MarkNotificationsRead(ctx context.Context, ids []int64, all bool) (int64, error) {
+	n, err := b.Client.MarkNotificationsRead(ctx, ids, all)
+	if err != nil {
+		return 0, toServiceError(err)
+	}
+	return n, nil
+}
+
 func (b *HTTPBackend) CreateTicket(ctx context.Context, in CreateTicketInput) (domain.Ticket, error) {
 	projectKey := in.ProjectKey
 	if projectKey == "" {

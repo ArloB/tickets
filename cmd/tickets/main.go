@@ -44,6 +44,14 @@ func main() {
 		err = runDocument(os.Args[2:])
 	case "activity":
 		err = runActivity(os.Args[2:])
+	case "search":
+		err = runSearch(os.Args[2:])
+	case "subscribe":
+		err = runSubscribe(os.Args[2:])
+	case "unsubscribe":
+		err = runUnsubscribe(os.Args[2:])
+	case "notifications":
+		err = runNotifications(os.Args[2:])
 	case "attachment":
 		err = runAttachment(os.Args[2:])
 	case "-h", "--help", "help":
@@ -96,5 +104,9 @@ commands:
   plan     client commands against a running Tickets server (list, get, create, update, versions, diff, download)
   document client commands against a running Tickets server (list, get, create, update, versions, diff, download)
   activity client commands against a running Tickets server (list)
-  attachment client commands against a running Tickets server (upload, path, list, get, versions, download, replace, delete)`)
+  attachment client commands against a running Tickets server (upload, path, list, get, versions, download, replace, delete)
+  search   client command against a running Tickets server: full-text search
+  subscribe   client command against a running Tickets server: subscribe to a reference
+  unsubscribe client command against a running Tickets server: unsubscribe from a reference
+  notifications client commands against a running Tickets server (list, read)`)
 }

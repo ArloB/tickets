@@ -2745,6 +2745,346 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /search:
+    get:
+      operationId: search
+      summary: >
+        Unified full-text search (product spec §5.12) over tickets,
+        features, decisions, plans, documents, and comments, ranked by
+        relevance. q is required; project/kind/status narrow an
+        otherwise cross-project search. Pagination is offset-based (not
+        the (created_at, id) cursor most list endpoints use) and capped
+        at 500 results — see ADR 0018.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: project
+          in: query
+          description: Restrict to one project's key; omitted searches every project.
+          schema:
+            type: string
+        - name: kind
+          in: query
+          description: Comma-separated kinds to filter to.
+          schema:
+            type: string
+            example: ticket,comment
+        - name: status
+          in: query
+          description: >
+            A single status value (workflow status for tickets/
+            features, decision status for decisions); plans/documents/
+            comments have no status, so this never matches them.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchPage'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /tickets/{ref}/subscribe:
+    post:
+      operationId: subscribeTicket
+      summary: Subscribe the calling actor to ticket (product spec §6.4)
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: unsubscribeTicket
+      summary: Unsubscribe the calling actor from ticket
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: getTicketSubscription
+      summary: Whether the calling actor is currently subscribed to ticket
+      parameters:
+        - $ref: '#/components/parameters/TicketRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /features/{ref}/subscribe:
+    post:
+      operationId: subscribeFeature
+      summary: Subscribe the calling actor to feature (product spec §6.4)
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: unsubscribeFeature
+      summary: Unsubscribe the calling actor from feature
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: getFeatureSubscription
+      summary: Whether the calling actor is currently subscribed to feature
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /decisions/{ref}/subscribe:
+    post:
+      operationId: subscribeDecision
+      summary: Subscribe the calling actor to decision (product spec §6.4)
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: unsubscribeDecision
+      summary: Unsubscribe the calling actor from decision
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: getDecisionSubscription
+      summary: Whether the calling actor is currently subscribed to decision
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}/subscribe:
+    post:
+      operationId: subscribePlan
+      summary: Subscribe the calling actor to plan (product spec §6.4)
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: unsubscribePlan
+      summary: Unsubscribe the calling actor from plan
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: getPlanSubscription
+      summary: Whether the calling actor is currently subscribed to plan
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/subscribe:
+    post:
+      operationId: subscribeDocument
+      summary: Subscribe the calling actor to document (product spec §6.4)
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: unsubscribeDocument
+      summary: Unsubscribe the calling actor from document
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: getDocumentSubscription
+      summary: Whether the calling actor is currently subscribed to document
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '404':
+          $ref: '#/components/responses/Error'
+  /notifications:
+    get:
+      operationId: listNotifications
+      summary: >
+        The calling actor's own notifications, newest first (§6.4/
+        §6.5's inbox).
+      parameters:
+        - name: unread
+          in: query
+          schema:
+            type: string
+            enum: ['true']
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationsPage'
+        '400':
+          $ref: '#/components/responses/Error'
+
+  /notifications/read:
+    post:
+      operationId: markNotificationsRead
+      summary: Mark the calling actor's own notifications read, by id or all.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkNotificationsReadRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkNotificationsReadResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+
   /setup:
     post:
       operationId: setup
@@ -3854,6 +4194,95 @@ components:
         backlinks:
           type: array
           items: { $ref: '#/components/schemas/Backlink' }
+
+    Subscription:
+      type: object
+      required: [subscribed]
+      additionalProperties: false
+      properties:
+        subscribed: { type: boolean }
+
+    Notification:
+      type: object
+      required: [id, kind, entity, entity_kind, created_at]
+      additionalProperties: false
+      description: >
+        One delivered notification (§6.4): assignment, an @actor
+        mention, a reply/comment on subscribed work, or a meaningful
+        change to a subscribed ticket/feature/decision. entity always
+        names the subject record (the owning ticket for a comment-
+        sourced notification, not the comment itself).
+      properties:
+        id: { type: integer }
+        kind:
+          type: string
+          enum: [assigned, mentioned, commented, changed]
+        entity: { type: string, example: ABC-123 }
+        entity_kind:
+          type: string
+          enum: [ticket, feature, decision, plan, document]
+        comment_id: { type: integer }
+        triggered_by: { type: string, example: 'human:alice' }
+        created_at: { type: string, format: date-time }
+        read_at: { type: string, format: date-time }
+
+    NotificationsPage:
+      type: object
+      properties:
+        notifications:
+          type: array
+          items: { $ref: '#/components/schemas/Notification' }
+        next_cursor: { type: string }
+
+    MarkNotificationsReadRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        Either ids (mark exactly those, already-read ones left alone)
+        or all: true (mark every currently-unread notification read).
+      properties:
+        ids:
+          type: array
+          items: { type: integer }
+        all: { type: boolean }
+
+    MarkNotificationsReadResponse:
+      type: object
+      required: [marked]
+      additionalProperties: false
+      properties:
+        marked: { type: integer }
+
+    SearchHit:
+      type: object
+      required: [kind, ref, snippet]
+      additionalProperties: false
+      description: >
+        One ranked row of a search result (§5.12). comment_id is
+        present only for a comment hit — ref then names the comment's
+        owning ticket, the same ref+comment_id shape Backlink uses.
+        title is absent for a comment hit (a comment has no title of
+        its own).
+      properties:
+        kind:
+          type: string
+          enum: [ticket, feature, decision, plan, document, comment]
+        ref:
+          type: string
+          example: ABC-123
+        comment_id: { type: integer }
+        title: { type: string }
+        snippet:
+          type: string
+          description: A short excerpt of the matched text, for display.
+
+    SearchPage:
+      type: object
+      properties:
+        hits:
+          type: array
+          items: { $ref: '#/components/schemas/SearchHit' }
+        next_cursor: { type: string }
 
     DeleteResponse:
       type: object

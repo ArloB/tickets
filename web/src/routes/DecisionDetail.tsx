@@ -13,6 +13,7 @@ import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
 import { AttachmentList } from '../components/AttachmentList'
 import { DiffView } from '../components/DiffView'
+import { SubscribeButton } from '../components/SubscribeButton'
 import { useAuth } from '../auth/AuthContext'
 import type {
   Attachment,
@@ -221,6 +222,7 @@ export default function DecisionDetail() {
         </p>
       )}
       {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
+      <SubscribeButton targetRef={decision.ref} canEdit={canEdit} />
 
       <h2>Context</h2>
       <Markdown>{decision.context}</Markdown>

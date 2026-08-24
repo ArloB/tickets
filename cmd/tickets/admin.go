@@ -20,11 +20,13 @@ import (
 // runAdminAgent's doc comment.
 func runAdmin(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("admin: expected a subcommand (purge-idempotency-keys, agent, token)")
+		return fmt.Errorf("admin: expected a subcommand (purge-idempotency-keys, search-reindex, agent, token)")
 	}
 	switch args[0] {
 	case "purge-idempotency-keys":
 		return runAdminPurgeIdempotencyKeys(args[1:])
+	case "search-reindex":
+		return runAdminSearchReindex(args[1:])
 	case "agent":
 		return runAdminAgent(args[1:])
 	case "token":
@@ -32,6 +34,56 @@ func runAdmin(args []string) error {
 	default:
 		return fmt.Errorf("admin: unknown subcommand %q", args[0])
 	}
+}
+
+// runAdminSearchReindex clears and rebuilds the search index from
+// scratch (store.RebuildSearchIndex) — the documented recovery path
+// for anything the incremental UpsertSearchDocument call sites miss
+// or get wrong (Phase 5 Step 6, ADR 0018).
+func runAdminSearchReindex(args []string) error {
+	fs := flag.NewFlagSet("admin search-reindex", flag.ContinueOnError)
+	dataDir := fs.String("data-dir", "", "directory for the SQLite database (defaults to the same resolution `tickets server` uses)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	var cfgArgs []string
+	if *dataDir != "" {
+		cfgArgs = []string{"--data-dir", *dataDir}
+	}
+	cfg, err := config.Load(cfgArgs)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("open store at %s: %w", cfg.DataDir, err)
+	}
+	defer func() { _ = st.Close() }()
+
+	tx, err := st.DB().BeginTx(context.Background(), nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	count, err := store.RebuildSearchIndex(context.Background(), tx)
+	if err != nil {
+		return fmt.Errorf("rebuild search index: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	committed = true
+
+	_, _ = fmt.Fprintf(os.Stdout, "reindexed %d search document(s)\n", count)
+	return nil
 }
 
 // runAdminPurgeIdempotencyKeys closes the gap ADR 0008 flagged from

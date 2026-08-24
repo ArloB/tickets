@@ -110,7 +110,7 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 			string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr, domain.TailPosition(maxPos)); err != nil {
 			return fmt.Errorf("service: create ticket: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, ticketEntityID, sourceOwnBody, req.ProjectKey, req.Description, now); err != nil {
+		if err := rescanMentions(ctx, tx, ticketEntityID, sourceOwnBody, req.ProjectKey, req.Description, now, actorID); err != nil {
 			return err
 		}
 
@@ -118,6 +118,14 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 		refStr, err := domain.Format(ref)
 		if err != nil {
 			return fmt.Errorf("service: format created ticket ref: %w", err)
+		}
+		if err := indexTicketSearchDoc(ctx, tx, ticketEntityID, proj.ID, domain.Ticket{
+			Ref: refStr, Status: domain.WorkflowStatusBacklog, Title: title, Description: req.Description,
+		}); err != nil {
+			return err
+		}
+		if err := subscribe(ctx, tx, ticketEntityID, actorID, now); err != nil {
+			return err
 		}
 
 		changes := auditChanges(map[string]any{"ref": refStr, "type": string(req.Type), "title": title})
@@ -196,10 +204,16 @@ func (s *Service) UpdateTicketStatus(ctx context.Context, req UpdateTicketStatus
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketStatusChanged, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
+		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+			return err
+		}
 
 		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if err != nil {
 			return fmt.Errorf("service: reload updated ticket: %w", err)
+		}
+		if err := indexTicketSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity); err != nil {
+			return err
 		}
 		result = updated.Entity
 		return nil
@@ -279,7 +293,7 @@ func (s *Service) UpdateTicketFields(ctx context.Context, req UpdateTicketFields
 			}
 			return fmt.Errorf("service: update ticket: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now); err != nil {
+		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Description, now, actorID); err != nil {
 			return err
 		}
 
@@ -287,10 +301,16 @@ func (s *Service) UpdateTicketFields(ctx context.Context, req UpdateTicketFields
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketUpdated, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
+		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+			return err
+		}
 
 		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if err != nil {
 			return fmt.Errorf("service: reload updated ticket: %w", err)
+		}
+		if err := indexTicketSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity); err != nil {
+			return err
 		}
 		result = updated.Entity
 		return nil
@@ -352,6 +372,11 @@ func (s *Service) AssignTicket(ctx context.Context, req AssignTicketRequest, act
 		changes := auditChanges(map[string]any{"assignee": changesVal})
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketAssigned, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
+		}
+		if assigneeID != nil {
+			if err := notify(ctx, tx, *assigneeID, notificationKindAssigned, row.ID, sourceOwnBody, actorID, now); err != nil {
+				return err
+			}
 		}
 
 		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
@@ -582,6 +607,9 @@ func (s *Service) DeleteTicket(ctx context.Context, req DeleteTicketRequest, act
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventTicketDeleted, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
+		if err := removeEntitySearchDocs(ctx, tx, row.ID); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -648,6 +676,12 @@ func (s *Service) RestoreTicket(ctx context.Context, req RestoreTicketRequest, a
 		updated, err := store.GetTicketByRef(ctx, tx, req.Ref)
 		if err != nil {
 			return fmt.Errorf("service: reload restored ticket: %w", err)
+		}
+		if err := indexTicketSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity); err != nil {
+			return err
+		}
+		if err := reindexCommentsForEntity(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity.Ref); err != nil {
+			return err
 		}
 		result = updated.Entity
 		return nil

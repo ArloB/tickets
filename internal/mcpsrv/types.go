@@ -25,6 +25,43 @@ type ProjectCompact struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// SearchHit is one ranked search result (product spec §5.12) — mirrors
+// internal/httpapi/search.go's searchHit and internal/apiclient's
+// SearchHit field-for-field, the same three-DTOs-at-three-boundaries
+// convention ProjectCompact's doc comment explains.
+type SearchHit struct {
+	Kind      string `json:"kind"`
+	Ref       string `json:"ref"`
+	CommentID *int64 `json:"comment_id,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Snippet   string `json:"snippet"`
+}
+
+type SearchOutput struct {
+	Hits       []SearchHit `json:"hits"`
+	NextCursor string      `json:"next_cursor,omitempty"`
+}
+
+// NotificationCompact mirrors internal/httpapi/notifications.go's
+// notificationView and internal/apiclient's Notification field-for-
+// field, the same three-DTOs-at-three-boundaries convention
+// ProjectCompact's doc comment explains.
+type NotificationCompact struct {
+	ID          int64      `json:"id"`
+	Kind        string     `json:"kind"`
+	Entity      string     `json:"entity"`
+	EntityKind  string     `json:"entity_kind"`
+	CommentID   *int64     `json:"comment_id,omitempty"`
+	TriggeredBy string     `json:"triggered_by,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ReadAt      *time.Time `json:"read_at,omitempty"`
+}
+
+type NotificationsListOutput struct {
+	Notifications []NotificationCompact `json:"notifications"`
+	NextCursor    string                `json:"next_cursor,omitempty"`
+}
+
 type ProjectsListOutput struct {
 	Projects   []ProjectCompact `json:"projects"`
 	NextCursor string           `json:"next_cursor,omitempty"`

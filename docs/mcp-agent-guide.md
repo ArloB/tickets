@@ -122,6 +122,8 @@ writing:
 | `ticket_associations` | Read back a ticket or feature's `associated_with` links. |
 | `feature_get` / `features_list` / `feature_create` / `feature_update` | Feature CRUD, plus a compact paginated list. |
 | `record_get` / `record_create` / `record_update` | Decision/plan/document CRUD via a `kind` discriminator (see instructions text). |
+| `search` | Full-text search over tickets/features/decisions/plans/documents/comments, ranked by relevance (Phase 5 Step 6, ADR 0018). Named `search`, not the plan's original working name `work_search`. |
+| `notifications_list` / `notifications_mark_read` | Read and clear the calling actor's own notification inbox (Phase 5 Step 7, ADR 0019): assignment, an `@kind:name` mention, a reply/comment, or a change to subscribed work. There is no subscribe/unsubscribe tool — that's HTTP/CLI-only (`tickets subscribe`/`tickets unsubscribe <ref>`), the same reasoning agent/token management is CLI-only. |
 
 `project_create`, `features_list`, `ticket_relationships`, and
 `ticket_associations` were added after Phase 3's live dogfood step
@@ -133,8 +135,9 @@ surfaced. `project_create` also closes the matching CLI gap
 
 Not present in Phase 3:
 
-- `work_search` and any full-text search — Phase 5 (needs real FTS5).
-- `notifications_list`/`notifications_mark_read` — Phase 5.
+- Full-text search — landed in Phase 5 Step 6 as the `search` tool
+  (see the table above), not the plan's placeholder name `work_search`.
+- ~~`notifications_list`/`notifications_mark_read`~~ — landed in Phase 5 Step 7 (see the table above).
 - Any `agent_*`/`token_*` tool — not coming as an MCP tool at all. See
   `cmd/tickets/admin_agent.go`'s package doc comment: `InProcessBackend`
   calls `*internal/service.Service` directly, bypassing
@@ -145,7 +148,8 @@ Not present in Phase 3:
   (`docs/contracts/cli.md`'s `admin agent`/`admin token`).
 - A project-brief view — deferred to Phase 5 (a useful brief wants
   decisions/plans in a more complete form than Phase 3's minimal
-  decisions slice provides).
+  decisions slice provides). Not yet scoped into any Phase 5 step —
+  see `docs/phase5-close-out.md`.
 
 ## Representative workflow
 

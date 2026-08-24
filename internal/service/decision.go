@@ -65,7 +65,7 @@ func (s *Service) CreateDecision(ctx context.Context, req CreateDecisionRequest,
 		if err := store.InsertDecision(ctx, tx, decisionEntityID, proj.ID, seq, title, req.Context, req.Decision, req.Rationale, req.Consequences, string(domain.DecisionStatusProposed)); err != nil {
 			return fmt.Errorf("service: create decision: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, decisionEntityID, sourceOwnBody, req.ProjectKey, req.Context+"\n"+req.Decision+"\n"+req.Rationale+"\n"+req.Consequences, now); err != nil {
+		if err := rescanMentions(ctx, tx, decisionEntityID, sourceOwnBody, req.ProjectKey, req.Context+"\n"+req.Decision+"\n"+req.Rationale+"\n"+req.Consequences, now, actorID); err != nil {
 			return err
 		}
 
@@ -73,6 +73,15 @@ func (s *Service) CreateDecision(ctx context.Context, req CreateDecisionRequest,
 		refStr, err := domain.Format(ref)
 		if err != nil {
 			return fmt.Errorf("service: format created decision ref: %w", err)
+		}
+		if err := indexDecisionSearchDoc(ctx, tx, decisionEntityID, proj.ID, domain.Decision{
+			Ref: refStr, Status: domain.DecisionStatusProposed, Title: title,
+			Context: req.Context, Decision: req.Decision, Rationale: req.Rationale, Consequences: req.Consequences,
+		}); err != nil {
+			return err
+		}
+		if err := subscribe(ctx, tx, decisionEntityID, actorID, now); err != nil {
+			return err
 		}
 
 		changes := auditChanges(map[string]any{"ref": refStr, "title": title})
@@ -250,13 +259,16 @@ func (s *Service) UpdateDecision(ctx context.Context, req UpdateDecisionRequest,
 			}
 			return fmt.Errorf("service: update decision: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Context+"\n"+req.Decision+"\n"+req.Rationale+"\n"+req.Consequences, now); err != nil {
+		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, req.Context+"\n"+req.Decision+"\n"+req.Rationale+"\n"+req.Consequences, now, actorID); err != nil {
 			return err
 		}
 
 		changes := auditChanges(map[string]any{"title": title, "status": string(req.Status)})
 		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventDecisionUpdated, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
+		}
+		if err := notifySubscribers(ctx, tx, row.ID, notificationKindChanged, sourceOwnBody, actorID, now); err != nil {
+			return err
 		}
 
 		updated, err := store.GetDecisionByRef(ctx, tx, req.Ref)
@@ -265,6 +277,9 @@ func (s *Service) UpdateDecision(ctx context.Context, req UpdateDecisionRequest,
 		}
 		result, err = resolveDecisionEntity(ctx, tx, updated)
 		if err != nil {
+			return err
+		}
+		if err := indexDecisionSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, result); err != nil {
 			return err
 		}
 		return nil

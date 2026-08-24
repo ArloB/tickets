@@ -22,6 +22,7 @@ import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
 import { AttachmentList } from '../components/AttachmentList'
 import { DiffView } from '../components/DiffView'
+import { SubscribeButton } from '../components/SubscribeButton'
 import { useAuth } from '../auth/AuthContext'
 import type {
   Attachment,
@@ -294,6 +295,7 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
         Project: <Link to={`/projects/${item.project}`}>{item.project}</Link> · {singular}
       </p>
       {canEdit && <button onClick={startEditing}>Edit</button>}
+      <SubscribeButton targetRef={item.ref} canEdit={canEdit} />
 
       {item.representation === 'markdown' && (
         <>

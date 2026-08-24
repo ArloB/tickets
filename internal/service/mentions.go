@@ -18,20 +18,25 @@ const sourceOwnBody = 0
 
 // rescanMentions deletes and reinserts derived_mentions rows for one
 // (sourceEntityID, sourceCommentID) body from the Markdown references
-// domain.ScanReferences finds in body (ADR 0015, product spec §5.2).
-// scopeProjectKey resolves the project-scoped #123 short form — pass
-// the project the body's owning entity belongs to. Must run inside
-// the same transaction as the body write it describes: the delete-
-// and-reinsert has to be atomic with the edit, or a reader could
-// briefly observe stale or missing edges.
+// domain.ScanReferences finds in body (ADR 0015, product spec §5.2),
+// and — since ADR 0019 — does the same delete-and-reinsert pass for
+// actor_mentions from domain.ScanActorMentions, emitting a "mentioned"
+// notification for each newly-mentioned actor. One function, two
+// scans, in the same transaction as the body write both describe,
+// rather than a parallel rescanActorMentions called from every one of
+// this function's own call sites a second time. scopeProjectKey
+// resolves the project-scoped #123 short form — pass the project the
+// body's owning entity belongs to. actorID is who wrote this body
+// (the withTx closure's own resolved actor), needed to suppress a
+// self-mention notification and to attribute the ones that fire.
 //
-// A well-formed reference to a specific record that doesn't exist is
-// silently skipped, not an error — "well-formed but unresolvable
-// references are simply not stored as edges" (the Phase 1 plan's Step
-// 4). A self-mention is also skipped; the primary key doesn't reject
-// target_entity_id == source_entity_id on its own, so this is a real
-// guard.
-func rescanMentions(ctx context.Context, tx *sql.Tx, sourceEntityID, sourceCommentID int64, scopeProjectKey, body, now string) error {
+// A well-formed reference to a specific record (or actor) that
+// doesn't exist is silently skipped, not an error — "well-formed but
+// unresolvable references are simply not stored as edges" (the Phase
+// 1 plan's Step 4). A self-mention is also skipped for both scans;
+// neither table's primary key rejects a self-loop on its own, so this
+// is a real guard, not defensive insurance.
+func rescanMentions(ctx context.Context, tx *sql.Tx, sourceEntityID, sourceCommentID int64, scopeProjectKey, body, now string, actorID int64) error {
 	if err := store.DeleteMentionsFromSource(ctx, tx, sourceEntityID, sourceCommentID); err != nil {
 		return fmt.Errorf("service: clear mentions: %w", err)
 	}
@@ -50,14 +55,39 @@ func rescanMentions(ctx context.Context, tx *sql.Tx, sourceEntityID, sourceComme
 			return fmt.Errorf("service: insert mention: %w", err)
 		}
 	}
+
+	if err := store.DeleteActorMentionsFromSource(ctx, tx, sourceEntityID, sourceCommentID); err != nil {
+		return fmt.Errorf("service: clear actor mentions: %w", err)
+	}
+	for _, actorRef := range domain.ScanActorMentions(body) {
+		mentionedID, err := store.GetActorIDByRef(ctx, tx, actorRef.Kind, actorRef.Name)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("service: resolve actor mention: %w", err)
+		}
+		if mentionedID == actorID {
+			continue
+		}
+		if err := store.InsertActorMention(ctx, tx, sourceEntityID, sourceCommentID, mentionedID, now); err != nil {
+			return fmt.Errorf("service: insert actor mention: %w", err)
+		}
+		if err := notify(ctx, tx, mentionedID, notificationKindMentioned, sourceEntityID, sourceCommentID, actorID, now); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 // resolveMentionTarget resolves a scanned reference to its internal
 // entity id, or store.ErrNotFound for an unresolvable kind (KindProject
 // has no reference token to scan in the first place) or a specific
-// record that doesn't exist.
-func resolveMentionTarget(ctx context.Context, tx *sql.Tx, ref domain.Reference) (int64, error) {
+// record that doesn't exist. Takes store.Querier, not *sql.Tx: called
+// both from rescanMentions (inside a write transaction) and, since
+// ADR 0019, from Service.Subscribe's read-only resolution path — an
+// interface-typed parameter is what lets one function serve both.
+func resolveMentionTarget(ctx context.Context, tx store.Querier, ref domain.Reference) (int64, error) {
 	switch ref.Kind {
 	case domain.KindTicket:
 		row, err := store.GetTicketByRef(ctx, tx, ref)

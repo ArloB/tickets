@@ -12,6 +12,7 @@ import { FeatureFieldsForm } from '../components/FeatureFieldsForm'
 import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
 import { AttachmentList } from '../components/AttachmentList'
+import { SubscribeButton } from '../components/SubscribeButton'
 import { useAuth } from '../auth/AuthContext'
 import type {
   Attachment,
@@ -91,6 +92,7 @@ export default function FeatureDetail() {
         {feature.status} · {feature.priority}
       </p>
       {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
+      <SubscribeButton targetRef={feature.ref} canEdit={canEdit} />
 
       <h2>Description</h2>
       <Markdown>{feature.description}</Markdown>

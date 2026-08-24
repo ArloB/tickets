@@ -290,6 +290,53 @@ export interface ActivityPage {
   next_cursor?: string
 }
 
+// -- Search --
+
+export type SearchKind = 'ticket' | 'feature' | 'decision' | 'plan' | 'document' | 'comment'
+
+/** One ranked search result (§5.12). `comment_id` is present only for
+ * a comment hit — `ref` then names the comment's owning ticket, the
+ * same ref+comment_id shape `Backlink` uses. */
+export interface SearchHit {
+  kind: SearchKind
+  ref: string
+  comment_id?: number
+  title?: string
+  snippet: string
+}
+
+export interface SearchPage {
+  hits: SearchHit[]
+  next_cursor?: string
+}
+
+// -- Subscriptions and notifications --
+
+export interface Subscription {
+  subscribed: boolean
+}
+
+export type NotificationKind = 'assigned' | 'mentioned' | 'commented' | 'changed'
+
+/** One delivered notification (§6.4). entity always names the subject
+ * record (the owning ticket for a comment-sourced notification, not
+ * the comment itself). */
+export interface Notification {
+  id: number
+  kind: NotificationKind
+  entity: string
+  entity_kind: EntityKind
+  comment_id?: number
+  triggered_by?: string
+  created_at: string
+  read_at?: string
+}
+
+export interface NotificationsPage {
+  notifications: Notification[]
+  next_cursor?: string
+}
+
 // -- Comments --
 // A comment's `version` is independent of its parent entity's
 // (docs/contracts/concurrency.md) — never conflate the two as a

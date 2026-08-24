@@ -403,6 +403,51 @@ func (b *InProcessBackend) UpdateContentItem(ctx context.Context, in UpdateConte
 	return toContentItemWriteResult(c), nil
 }
 
+func (b *InProcessBackend) Search(ctx context.Context, in SearchInput) (SearchOutput, error) {
+	result, err := b.Svc.Search(ctx, service.SearchRequest{
+		Query: in.Query, ProjectKey: in.Project, Kinds: in.Kind, Status: in.Status, Limit: in.Limit, Cursor: in.Cursor,
+	})
+	if err != nil {
+		return SearchOutput{}, err
+	}
+	out := SearchOutput{Hits: make([]SearchHit, len(result.Hits)), NextCursor: result.NextCursor}
+	for i, h := range result.Hits {
+		out.Hits[i] = SearchHit{Kind: h.Kind, Ref: h.Ref, CommentID: h.CommentID, Title: h.Title, Snippet: h.Snippet}
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) ListNotifications(ctx context.Context, unreadOnly bool, limit int, cursor string) (NotificationsListOutput, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return NotificationsListOutput{}, err
+	}
+	result, err := b.Svc.ListNotifications(ctx, actor, unreadOnly, limit, cursor)
+	if err != nil {
+		return NotificationsListOutput{}, err
+	}
+	out := NotificationsListOutput{Notifications: make([]NotificationCompact, len(result.Notifications)), NextCursor: result.NextCursor}
+	for i, n := range result.Notifications {
+		nc := NotificationCompact{
+			ID: n.ID, Kind: n.Kind, Entity: n.Entity, EntityKind: string(n.EntityKind),
+			CommentID: n.CommentID, CreatedAt: n.CreatedAt, ReadAt: n.ReadAt,
+		}
+		if n.TriggeredBy != nil {
+			nc.TriggeredBy = n.TriggeredBy.String()
+		}
+		out.Notifications[i] = nc
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) MarkNotificationsRead(ctx context.Context, ids []int64, all bool) (int64, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return b.Svc.MarkNotificationsRead(ctx, service.MarkNotificationsReadRequest{IDs: ids, All: all}, actor, service.NewCorrelationID())
+}
+
 func (b *InProcessBackend) CreateTicket(ctx context.Context, in CreateTicketInput) (domain.Ticket, error) {
 	actor, err := mcpActor(ctx)
 	if err != nil {

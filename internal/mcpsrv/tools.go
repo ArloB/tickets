@@ -345,6 +345,42 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 		}
 		return nil, ticket, nil
 	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:         "search",
+		Description:  "Full-text search over tickets, features, decisions, plans, documents, and comments, ranked by relevance. project/kind/status narrow an otherwise cross-project search. Paginated — pass the previous call's next_cursor to continue.",
+		OutputSchema: outputSchemaFor[SearchOutput](),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, SearchOutput, error) {
+		out, err := backend.Search(ctx, SearchInput(in))
+		if err != nil {
+			return nil, SearchOutput{}, toolError(err)
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:         "notifications_list",
+		Description:  "List the calling actor's own notifications (product spec §6.4), newest first. Paginated — pass the previous call's next_cursor to continue.",
+		OutputSchema: outputSchemaFor[NotificationsListOutput](),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in notificationsListInput) (*mcp.CallToolResult, NotificationsListOutput, error) {
+		out, err := backend.ListNotifications(withCallerActor(ctx, req), in.Unread, in.Limit, in.Cursor)
+		if err != nil {
+			return nil, NotificationsListOutput{}, toolError(err)
+		}
+		return nil, out, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:         "notifications_mark_read",
+		Description:  "Mark the calling actor's own notifications read, by id or (all: true) every currently-unread one.",
+		OutputSchema: outputSchemaFor[notificationsMarkReadOutput](),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in notificationsMarkReadInput) (*mcp.CallToolResult, notificationsMarkReadOutput, error) {
+		n, err := backend.MarkNotificationsRead(withCallerActor(ctx, req), in.IDs, in.All)
+		if err != nil {
+			return nil, notificationsMarkReadOutput{}, toolError(err)
+		}
+		return nil, notificationsMarkReadOutput{Marked: n}, nil
+	})
 }
 
 // withCallerActor attaches the calling agent's Principal to ctx, based
@@ -389,6 +425,30 @@ type projectCreateInput struct {
 
 type ticketGetInput struct {
 	Ref string `json:"ref" jsonschema:"the ticket's public reference, e.g. ABC-123"`
+}
+
+type searchInput struct {
+	Query   string   `json:"query" jsonschema:"the search text"`
+	Project string   `json:"project,omitempty" jsonschema:"restrict to one project's key; omitted searches every project"`
+	Kind    []string `json:"kind,omitempty" jsonschema:"restrict to these kinds: ticket, feature, decision, plan, document, comment; omitted searches every kind"`
+	Status  string   `json:"status,omitempty" jsonschema:"restrict to one status value (workflow status for tickets/features, decision status for decisions); plans/documents/comments have no status, so this never matches them"`
+	Limit   int      `json:"limit,omitempty" jsonschema:"max rows to return (server default 20, max 100)"`
+	Cursor  string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor from a previous call's next_cursor; never construct or parse this yourself"`
+}
+
+type notificationsListInput struct {
+	Unread bool   `json:"unread,omitempty" jsonschema:"only return unread notifications"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"max rows to return (server default 20, max 100)"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"opaque pagination cursor from a previous call's next_cursor; never construct or parse this yourself"`
+}
+
+type notificationsMarkReadInput struct {
+	IDs []int64 `json:"ids,omitempty" jsonschema:"notification ids to mark read"`
+	All bool    `json:"all,omitempty" jsonschema:"mark every currently-unread notification read, ignoring ids"`
+}
+
+type notificationsMarkReadOutput struct {
+	Marked int64 `json:"marked"`
 }
 
 type ticketsListInput struct {

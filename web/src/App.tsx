@@ -14,6 +14,8 @@ import DecisionDetail from './routes/DecisionDetail'
 import ContentLibrary from './routes/ContentLibrary'
 import ContentItemDetail from './routes/ContentItemDetail'
 import ActivityFeed from './routes/ActivityFeed'
+import Search from './routes/Search'
+import Notifications from './routes/Notifications'
 import AdminAgents from './routes/AdminAgents'
 
 export default function App() {
@@ -31,6 +33,8 @@ export default function App() {
           <Route path="/projects/:key/plans" element={<ContentLibrary kind="plans" />} />
           <Route path="/projects/:key/documents" element={<ContentLibrary kind="documents" />} />
           <Route path="/projects/:key/activity" element={<ActivityFeed />} />
+          <Route path="/search" element={<Search />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route path="/tickets/:ref" element={<TicketDetail />} />
           <Route path="/features/:ref" element={<FeatureDetail />} />
           <Route path="/decisions/:ref" element={<DecisionDetail />} />

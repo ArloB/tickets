@@ -61,4 +61,9 @@ cross-compilation to both target platforms from one machine.
   pooled connection (not just the one active at open time) goes
   through the same DSN mechanism, not a post-open `Exec`.
 - FTS5 schema in Phase 5 follows the external-content + trigger
-  pattern proven in the spike, joined via `entities.id` per ADR 0002.
+  pattern proven in the spike. It is **not** joined via `entities.id`
+  as this line originally anticipated: a searchable comment has no
+  `entities.id` of its own (ADR 0002's registry only covers principal
+  records), so the real Step 6 schema joins through a synthetic
+  `search_documents.id` instead — see ADR 0018, which records why and
+  amends this consequence.

@@ -57,14 +57,35 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 			return fmt.Errorf("service: look up ticket: %w", err)
 		}
 
+		// Loaded before this comment's own auto-subscribe below so the
+		// commenter can never appear in their own "commented" fan-out —
+		// though notify() also self-excludes by actor id regardless, so
+		// this ordering documents the intent rather than being load-
+		// bearing on its own.
+		subscriberIDs, err := store.ListSubscriberActorIDs(ctx, tx, ticket.ID)
+		if err != nil {
+			return fmt.Errorf("service: list subscribers: %w", err)
+		}
+
 		id, err := store.InsertComment(ctx, tx, ticket.ID, actorID, body, now)
 		if err != nil {
 			return fmt.Errorf("service: insert comment: %w", err)
 		}
 		commentID = id
 
-		if err := rescanMentions(ctx, tx, ticket.ID, commentID, ticket.Entity.ProjectKey, body, now); err != nil {
+		if err := rescanMentions(ctx, tx, ticket.ID, commentID, ticket.Entity.ProjectKey, body, now, actorID); err != nil {
 			return err
+		}
+		if err := indexCommentSearchDoc(ctx, tx, commentID, ticket.ID, ticket.ProjectEntityID, ticket.Entity.Ref, body); err != nil {
+			return err
+		}
+		if err := subscribe(ctx, tx, ticket.ID, actorID, now); err != nil {
+			return err
+		}
+		for _, recipientID := range subscriberIDs {
+			if err := notify(ctx, tx, recipientID, notificationKindCommented, ticket.ID, commentID, actorID, now); err != nil {
+				return err
+			}
 		}
 
 		cid := commentID
@@ -181,7 +202,14 @@ func (s *Service) EditComment(ctx context.Context, req EditCommentRequest, actor
 		if err != nil {
 			return fmt.Errorf("service: resolve comment's ticket: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.EntityID, req.CommentID, ticketRef.ProjectKey, body, now); err != nil {
+		if err := rescanMentions(ctx, tx, row.EntityID, req.CommentID, ticketRef.ProjectKey, body, now, actorID); err != nil {
+			return err
+		}
+		ticket, err := store.GetTicketByRef(ctx, tx, ticketRef)
+		if err != nil {
+			return fmt.Errorf("service: reload comment's ticket for indexing: %w", err)
+		}
+		if err := indexCommentSearchDoc(ctx, tx, req.CommentID, row.EntityID, ticket.ProjectEntityID, ticket.Entity.Ref, body); err != nil {
 			return err
 		}
 
@@ -231,6 +259,9 @@ func (s *Service) DeleteComment(ctx context.Context, req DeleteCommentRequest, a
 		}
 		if err := store.DeleteMentionsFromSource(ctx, tx, row.EntityID, req.CommentID); err != nil {
 			return fmt.Errorf("service: clear comment's mentions: %w", err)
+		}
+		if err := store.DeleteSearchDocumentForComment(ctx, tx, req.CommentID); err != nil {
+			return fmt.Errorf("service: remove comment search document: %w", err)
 		}
 
 		cid := req.CommentID

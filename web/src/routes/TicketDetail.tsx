@@ -15,6 +15,7 @@ import { RelationshipsSection } from '../components/RelationshipsSection'
 import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
 import { AttachmentList } from '../components/AttachmentList'
+import { SubscribeButton } from '../components/SubscribeButton'
 import { useAuth } from '../auth/AuthContext'
 import type {
   Attachment,
@@ -105,6 +106,7 @@ export default function TicketDetail() {
       </p>
       {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
       {canEdit && <TicketActions ticket={ticket} onUpdated={setTicket} />}
+      <SubscribeButton targetRef={ticket.ref} canEdit={canEdit} />
 
       <h2>Description</h2>
       <Markdown>{ticket.description}</Markdown>

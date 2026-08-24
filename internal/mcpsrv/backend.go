@@ -48,6 +48,24 @@ type Backend interface {
 	GetContentItem(ctx context.Context, ref string) (domain.ContentItem, error)
 	CreateContentItem(ctx context.Context, in CreateContentItemInput) (ContentItemWriteResult, error)
 	UpdateContentItem(ctx context.Context, in UpdateContentItemInput) (ContentItemWriteResult, error)
+
+	Search(ctx context.Context, in SearchInput) (SearchOutput, error)
+
+	ListNotifications(ctx context.Context, unreadOnly bool, limit int, cursor string) (NotificationsListOutput, error)
+	MarkNotificationsRead(ctx context.Context, ids []int64, all bool) (int64, error)
+}
+
+// SearchInput is Search's input — Kind is a slice of kind strings, not
+// a single comma-joined one: an MCP tool call's input is validated
+// JSON, not a URL query string, so there's no wire-format reason to
+// flatten it the way internal/httpapi's ?kind=a,b does.
+type SearchInput struct {
+	Query   string
+	Project string
+	Kind    []string
+	Status  string
+	Limit   int
+	Cursor  string
 }
 
 // CreateProjectInput mirrors CreateTicketInput's shape/reasoning.

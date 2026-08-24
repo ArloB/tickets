@@ -131,6 +131,25 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodGet, "/api/v1/plans/{ref}/backlinks", routeViewer, s.listBacklinks},
 		{http.MethodGet, "/api/v1/documents/{ref}/backlinks", routeViewer, s.listBacklinks},
 
+		{http.MethodPost, "/api/v1/tickets/{ref}/subscribe", routeEditor, s.subscribe},
+		{http.MethodDelete, "/api/v1/tickets/{ref}/subscribe", routeEditor, s.unsubscribe},
+		{http.MethodGet, "/api/v1/tickets/{ref}/subscribe", routeEditor, s.getSubscription},
+		{http.MethodPost, "/api/v1/features/{ref}/subscribe", routeEditor, s.subscribe},
+		{http.MethodDelete, "/api/v1/features/{ref}/subscribe", routeEditor, s.unsubscribe},
+		{http.MethodGet, "/api/v1/features/{ref}/subscribe", routeEditor, s.getSubscription},
+		{http.MethodPost, "/api/v1/decisions/{ref}/subscribe", routeEditor, s.subscribe},
+		{http.MethodDelete, "/api/v1/decisions/{ref}/subscribe", routeEditor, s.unsubscribe},
+		{http.MethodGet, "/api/v1/decisions/{ref}/subscribe", routeEditor, s.getSubscription},
+		{http.MethodPost, "/api/v1/plans/{ref}/subscribe", routeEditor, s.subscribe},
+		{http.MethodDelete, "/api/v1/plans/{ref}/subscribe", routeEditor, s.unsubscribe},
+		{http.MethodGet, "/api/v1/plans/{ref}/subscribe", routeEditor, s.getSubscription},
+		{http.MethodPost, "/api/v1/documents/{ref}/subscribe", routeEditor, s.subscribe},
+		{http.MethodDelete, "/api/v1/documents/{ref}/subscribe", routeEditor, s.unsubscribe},
+		{http.MethodGet, "/api/v1/documents/{ref}/subscribe", routeEditor, s.getSubscription},
+
+		{http.MethodGet, "/api/v1/notifications", routeEditor, s.listNotifications},
+		{http.MethodPost, "/api/v1/notifications/read", routeEditor, s.markNotificationsRead},
+
 		{http.MethodPost, "/api/v1/projects/{key}/decisions", routeEditor, s.createDecision},
 		{http.MethodGet, "/api/v1/projects/{key}/decisions", routeViewer, s.listDecisions},
 		{http.MethodGet, "/api/v1/decisions/{ref}", routeViewer, s.getDecision},
@@ -177,6 +196,8 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodGet, "/api/v1/attachments/{id}/versions/{version}/download", routeViewer, s.downloadAttachmentVersion},
 
 		{http.MethodGet, "/api/v1/projects/{key}/activity", routeViewer, s.listActivity},
+
+		{http.MethodGet, "/api/v1/search", routeViewer, s.search},
 
 		{http.MethodPost, "/api/v1/agents", routeAdmin, s.createAgent},
 		{http.MethodGet, "/api/v1/agents", routeAdmin, s.listAgents},

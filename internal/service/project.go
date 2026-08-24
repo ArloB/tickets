@@ -69,7 +69,7 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 		if err := store.InsertProject(ctx, tx, projectEntityID, req.Key, title, req.Description); err != nil {
 			return fmt.Errorf("service: create project: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, projectEntityID, sourceOwnBody, req.Key, req.Description, now); err != nil {
+		if err := rescanMentions(ctx, tx, projectEntityID, sourceOwnBody, req.Key, req.Description, now, actorID); err != nil {
 			return err
 		}
 
@@ -91,6 +91,15 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 		}
 		if err := store.SetProjectGeneralFeature(ctx, tx, projectEntityID, featureEntityID); err != nil {
 			return fmt.Errorf("service: link general feature: %w", err)
+		}
+		generalFeatureRef, err := domain.Format(domain.Reference{ProjectKey: req.Key, Kind: domain.KindFeature, Seq: featureSeq})
+		if err != nil {
+			return fmt.Errorf("service: format general feature ref: %w", err)
+		}
+		if err := indexFeatureSearchDoc(ctx, tx, featureEntityID, projectEntityID, domain.Feature{
+			Ref: generalFeatureRef, Status: domain.WorkflowStatusBacklog, Title: generalFeatureTitle,
+		}); err != nil {
+			return err
 		}
 
 		changes := auditChanges(map[string]any{"key": req.Key, "title": title})

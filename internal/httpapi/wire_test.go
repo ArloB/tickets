@@ -95,6 +95,10 @@ func TestToTicketDetailFieldExposure(t *testing.T) {
 // reference requirement is for principal record kinds only); id is
 // exactly what GET/PUT/DELETE /attachments/{id} and its
 // download/versions sub-routes name.
+//
+// Notification: notifications has no uuid column either (same
+// outside-the-entities-registry reasoning), and its id is exactly
+// what POST /notifications/read's ids array names.
 var schemasWhereIDIsThePublicIdentity = map[string]bool{
 	"AgentTokenSummary": true,
 	"AgentTokenCreated": true,
@@ -102,6 +106,7 @@ var schemasWhereIDIsThePublicIdentity = map[string]bool{
 	"ExternalLink":      true,
 	"ActivityEvent":     true,
 	"Attachment":        true,
+	"Notification":      true,
 }
 
 // TestNoSchemaExposesABareIntegerID is ADR 0002's assigned Phase 1

@@ -61,7 +61,24 @@ ticket_comment and record_create accept an optional idempotency_key:
 reusing the same key with identical arguments returns the original
 result instead of creating a duplicate, and reusing it with different
 content is rejected as idempotency_key_reused — useful when retrying
-after a dropped connection.`
+after a dropped connection.
+
+search is a full-text search over tickets, features, decisions, plans,
+documents, and comments, ranked by relevance — use it to find a record
+when you don't already have its reference, rather than paging through
+tickets_list/features_list. project/kind/status narrow an otherwise
+cross-project search; a comment hit's ref names its owning ticket, not
+the comment itself. Attachment file names and external link titles/
+URLs are not indexed.
+
+Creating or commenting on a record subscribes you to it automatically;
+you are notified (assignment, an @kind:name mention, a reply/comment,
+or a status/field change) on anything you're subscribed to, unless you
+caused the change yourself. notifications_list/notifications_mark_read
+read and clear your own notification inbox. There is no
+subscribe/unsubscribe tool — manage subscriptions over HTTP or the CLI
+(tickets subscribe / tickets unsubscribe <ref>) if you need to opt in
+or out of something you didn't create or comment on.`
 
 // newServer builds an *mcp.Server with the shared tool set registered
 // against backend. Both entry points below call this — no tool is ever

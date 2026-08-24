@@ -152,3 +152,41 @@ func ScanReferences(text, scopeProjectKey string) []Reference {
 
 	return refs
 }
+
+// actorMentionPattern matches ActorRef's own "kind:name" wire form
+// (ActorRef.String) prefixed with '@' — explicit kind only, no bare
+// "@alice" shorthand. actors.idx_actors_kind_name is unique on
+// (kind, name), not name alone, so a human and an agent can share a
+// name; a bare-name form would be ambiguous about which one was
+// meant. Name characters mirror the actual seeded/created actor names
+// in this codebase (letters, digits, '.', '_', '-') — wider than
+// strictly necessary is safer here than narrower, since an
+// unrecognized actor name is simply unresolvable later (ADR 0019),
+// not a scanning error.
+var actorMentionPattern = regexp.MustCompile(`@(human|agent|system):([A-Za-z0-9._-]+)`)
+
+// ScanActorMentions finds every "@kind:name" actor mention in free
+// Markdown text (product spec §6.4), the @actor-mention counterpart to
+// ScanReferences — same code-fence/inline-code exclusion and boundary
+// rules, same dedup/first-occurrence-order contract. Does not validate
+// that the named actor actually exists; internal/service resolves that
+// the same way it resolves a ScanReferences candidate (silently
+// skipped if unresolvable), keeping both scanners equally best-effort.
+func ScanActorMentions(text string) []ActorRef {
+	clean := stripCodeRegions(text)
+
+	seen := make(map[ActorRef]bool)
+	var refs []ActorRef
+	for _, m := range actorMentionPattern.FindAllStringSubmatchIndex(clean, -1) {
+		start, end := m[0], m[1]
+		if !isBoundaryOK(clean, start, end) {
+			continue
+		}
+		ref := ActorRef{Kind: ActorKind(clean[m[2]:m[3]]), Name: clean[m[4]:m[5]]}
+		if !seen[ref] {
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}

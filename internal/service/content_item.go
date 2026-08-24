@@ -171,7 +171,7 @@ func (s *Service) CreateContentItem(ctx context.Context, req CreateContentItemRe
 		if err := store.InsertContentItem(ctx, tx, entityID, proj.ID, req.Kind, seq, title, fields); err != nil {
 			return fmt.Errorf("service: create content item: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, entityID, sourceOwnBody, req.ProjectKey, fields.Body, now); err != nil {
+		if err := rescanMentions(ctx, tx, entityID, sourceOwnBody, req.ProjectKey, fields.Body, now, actorID); err != nil {
 			return err
 		}
 
@@ -179,6 +179,15 @@ func (s *Service) CreateContentItem(ctx context.Context, req CreateContentItemRe
 		refStr, err := domain.Format(ref)
 		if err != nil {
 			return fmt.Errorf("service: format created content item ref: %w", err)
+		}
+		if err := indexContentItemSearchDoc(ctx, tx, entityID, proj.ID, domain.ContentItem{
+			Ref: refStr, Kind: req.Kind, Title: title, Representation: string(representation),
+			Body: fields.Body, FileName: derefStr(fields.FileName), PathValue: derefStr(fields.PathValue), URLValue: derefStr(fields.URLValue),
+		}); err != nil {
+			return err
+		}
+		if err := subscribe(ctx, tx, entityID, actorID, now); err != nil {
+			return err
 		}
 
 		changes := auditChanges(map[string]any{"ref": refStr, "title": title})
@@ -327,7 +336,7 @@ func (s *Service) UpdateContentItem(ctx context.Context, req UpdateContentItemRe
 			}
 			return fmt.Errorf("service: update content item: %w", err)
 		}
-		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, fields.Body, now); err != nil {
+		if err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, row.Entity.ProjectKey, fields.Body, now, actorID); err != nil {
 			return err
 		}
 
@@ -339,6 +348,9 @@ func (s *Service) UpdateContentItem(ctx context.Context, req UpdateContentItemRe
 		updated, err := store.GetContentItemByRef(ctx, tx, req.Ref)
 		if err != nil {
 			return fmt.Errorf("service: reload updated content item: %w", err)
+		}
+		if err := indexContentItemSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity); err != nil {
+			return err
 		}
 		result = updated.Entity
 		return nil

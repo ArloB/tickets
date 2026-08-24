@@ -1,4 +1,5 @@
-import { Link, Navigate, Outlet } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
 /** Gate for every route except /login. `me === null` after `ready`
@@ -8,6 +9,8 @@ import { useAuth } from '../auth/AuthContext'
  * are Milestone 3's concern, not this milestone's. */
 export default function Layout() {
   const { me, ready, bootstrapError, logout } = useAuth()
+  const navigate = useNavigate()
+  const [query, setQuery] = useState('')
 
   if (!ready) return <p>Loading…</p>
   if (bootstrapError) return <p role="alert">Could not reach the server: {bootstrapError}</p>
@@ -17,7 +20,26 @@ export default function Layout() {
     <div>
       <nav>
         <Link to="/">Projects</Link>
+        {me.actor && <Link to="/notifications">Notifications</Link>}
         {me.is_admin && <Link to="/admin/agents">Agents</Link>}
+        <form
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const q = query.trim()
+            if (q) navigate(`/search?q=${encodeURIComponent(q)}`)
+          }}
+        >
+          <label>
+            Search
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search tickets, features, decisions…"
+            />
+          </label>
+        </form>
         <span>
           {me.permission}
           {me.actor ? ` (${me.actor})` : ' (anonymous)'}

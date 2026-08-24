@@ -77,6 +77,15 @@ wrong-shape cursor is already rejected) is a reasonable future
 tightening if this proves confusing in practice; it was not built
 speculatively here.
 
+`GET /search` (Phase 5 Step 6, ADR 0018) is the one exception to the
+`(created_at, id)`/rank-tuple cursor shape this doc otherwise
+describes: bm25 relevance rank has no stable seekable key, so its
+cursor is a capped, base64-encoded literal offset instead
+(`store.EncodeSearchOffsetCursor`/`DecodeSearchOffsetCursor`), capped
+at 500 results. Its `project`/`kind`/`status` filters follow the same
+"resupply on every page, not encoded into the cursor" rule as
+everything else on this page.
+
 ## Index coverage
 
 `idx_tickets_priority_queue` and `idx_tickets_issue_register` cover
