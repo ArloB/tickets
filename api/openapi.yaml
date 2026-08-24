@@ -2749,8 +2749,9 @@ paths:
     get:
       operationId: search
       summary: >
-        Unified full-text search (product spec §5.12) over tickets,
-        features, decisions, plans, documents, and comments, ranked by
+        Unified full-text search (product spec §5.12/§6.3) over
+        tickets, features, decisions, plans, documents, comments,
+        attachment names, and external link titles/URLs, ranked by
         relevance. q is required; project/kind/status narrow an
         otherwise cross-project search. Pagination is offset-based (not
         the (created_at, id) cursor most list endpoints use) and capped
@@ -2768,7 +2769,9 @@ paths:
             type: string
         - name: kind
           in: query
-          description: Comma-separated kinds to filter to.
+          description: >
+            Comma-separated kinds to filter to: ticket, feature,
+            decision, plan, document, comment, attachment, link.
           schema:
             type: string
             example: ticket,comment
@@ -4286,15 +4289,18 @@ components:
       required: [kind, ref, snippet]
       additionalProperties: false
       description: >
-        One ranked row of a search result (§5.12). comment_id is
+        One ranked row of a search result (§5.12/§6.3). comment_id is
         present only for a comment hit — ref then names the comment's
-        owning ticket, the same ref+comment_id shape Backlink uses.
-        title is absent for a comment hit (a comment has no title of
-        its own).
+        owning ticket, the same ref+comment_id shape Backlink uses. An
+        attachment or link hit's ref names its owning
+        ticket/feature/decision/plan/document instead (never a
+        comment_id, even when the attachment is itself attached to a
+        comment — see ADR 0018's amendment). title is absent for a
+        comment hit (a comment has no title of its own).
       properties:
         kind:
           type: string
-          enum: [ticket, feature, decision, plan, document, comment]
+          enum: [ticket, feature, decision, plan, document, comment, attachment, link]
         ref:
           type: string
           example: ABC-123

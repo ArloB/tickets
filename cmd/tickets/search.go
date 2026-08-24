@@ -22,7 +22,7 @@ func runSearch(args []string) error {
 	if err != nil {
 		return err
 	}
-	kind := fs.String("kind", "", "comma-separated kinds to filter to: ticket,feature,decision,plan,document,comment")
+	kind := fs.String("kind", "", "comma-separated kinds to filter to: ticket,feature,decision,plan,document,comment,attachment,link")
 	status := fs.String("status", "", "filter to one status value (workflow status for tickets/features, decision status for decisions)")
 	limit := fs.Int("limit", 0, "max rows to return (server default 20, max 100)")
 	cursor := fs.String("cursor", "", "opaque pagination cursor from a previous call's next_cursor")

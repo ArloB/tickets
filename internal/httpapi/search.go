@@ -29,10 +29,11 @@ func toSearchHit(h service.SearchHit) searchHit {
 	return searchHit{Kind: h.Kind, Ref: h.Ref, CommentID: h.CommentID, Title: h.Title, Snippet: h.Snippet}
 }
 
-// search handles GET /api/v1/search (product spec §5.12): a unified
-// full-text search over tickets/features/decisions/plans/documents and
-// comments. q is required; project/kind/status/limit/cursor all
-// narrow or paginate an otherwise-global search.
+// search handles GET /api/v1/search (product spec §5.12/§6.3): a
+// unified full-text search over tickets/features/decisions/plans/
+// documents, comments, attachment names, and external link titles/
+// URLs. q is required; project/kind/status/limit/cursor all narrow or
+// paginate an otherwise-global search.
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 

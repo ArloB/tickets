@@ -508,6 +508,27 @@ func UpdateTicketStatus(ctx context.Context, q Querier, entityID int64, newStatu
 	return newVersion, nil
 }
 
+// EntityProjectID returns entityID's owning project's own entity id
+// (entities.project_id — self-referential onto another entities row,
+// ADR 0002) for any principal kind: ticket/feature/decision/plan/
+// document all share this one column, so a caller that already knows
+// it has a live entity id (attachment/link indexing, in particular)
+// never needs a kind-specific lookup to learn its project.
+func EntityProjectID(ctx context.Context, q Querier, entityID int64) (int64, error) {
+	var projectID sql.NullInt64
+	err := q.QueryRowContext(ctx, `SELECT project_id FROM entities WHERE id = ?`, entityID).Scan(&projectID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("entity project id: %w", err)
+	}
+	if !projectID.Valid {
+		return 0, fmt.Errorf("entity %d has no project_id (data integrity)", entityID)
+	}
+	return projectID.Int64, nil
+}
+
 // CurrentEntityVersion is used to populate current_version on a 409
 // version_conflict response (docs/contracts/errors.md).
 func CurrentEntityVersion(ctx context.Context, q Querier, entityID int64) (int64, error) {

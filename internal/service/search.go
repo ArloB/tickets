@@ -17,6 +17,7 @@ import (
 var searchKinds = map[string]bool{
 	"ticket": true, "feature": true, "decision": true,
 	"plan": true, "document": true, "comment": true,
+	"attachment": true, "link": true,
 }
 
 // SearchRequest is Search's input. ProjectKey "" searches every
@@ -113,12 +114,8 @@ func (s *Service) Search(ctx context.Context, req SearchRequest) (SearchResult, 
 // RebuildSearchIndex clears and reindexes the entire search index from
 // scratch (store.RebuildSearchIndex) — the administrative recovery
 // path for anything the incremental UpsertSearchDocument call sites
-// (ticket.go, feature.go, decision.go, content_item.go, comment.go)
-// miss or get wrong. Attachment file names and external link titles/
-// URLs are not indexed here either — Step 6 deliberately doesn't fold
-// either into the index yet, incrementally or on rebuild, so results
-// are consistent regardless of when a project was last reindexed (see
-// ADR 0018's Consequences).
+// (ticket.go, feature.go, decision.go, content_item.go, comment.go,
+// attachment.go, link.go) miss or get wrong.
 func (s *Service) RebuildSearchIndex(ctx context.Context) (int, error) {
 	tx, err := s.store.DB().BeginTx(ctx, nil)
 	if err != nil {

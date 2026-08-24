@@ -64,12 +64,13 @@ content is rejected as idempotency_key_reused — useful when retrying
 after a dropped connection.
 
 search is a full-text search over tickets, features, decisions, plans,
-documents, and comments, ranked by relevance — use it to find a record
-when you don't already have its reference, rather than paging through
+documents, comments, attachment names, and external link titles/URLs,
+ranked by relevance — use it to find a record when you don't already
+have its reference, rather than paging through
 tickets_list/features_list. project/kind/status narrow an otherwise
-cross-project search; a comment hit's ref names its owning ticket, not
-the comment itself. Attachment file names and external link titles/
-URLs are not indexed.
+cross-project search; a comment, attachment, or link hit's ref names
+its owning ticket/feature/decision/plan/document, not the comment or
+attachment/link itself.
 
 Creating or commenting on a record subscribes you to it automatically;
 you are notified (assignment, an @kind:name mention, a reply/comment,

@@ -96,16 +96,35 @@ can't be FTS5's `content_rowid` for a schema that needs to index both.
   `UpsertSearchDocument` — none of them change indexed text
   (title/description/status), so re-indexing on them would be a
   no-op write on every drag-and-drop.
-- **Attachment file names and external link titles/URLs are not
-  folded into the index**, incrementally or by
-  `RebuildSearchIndex` — deferred out of this step's scope rather than
-  implemented halfway. Folding them into `RebuildSearchIndex` only
-  (and not the incremental path) was considered and rejected: search
-  results would then differ depending on when a project was last
-  reindexed, which is worse than not indexing them at all. `tickets
-  admin search-reindex` is the eventual home for this if it's ever
-  added, not a workaround for its absence today. Tracked for a
-  decision at Phase 5 close-out — see `docs/phase5-close-out.md`.
+- **Amendment (Phase 5 Step 9 close-out): attachment file names and
+  external link titles/URLs are indexed, as `"attachment"`/`"link"`
+  `search_documents.kind` values.** Product spec §6.3 lists "attachment
+  names and link metadata" as in-scope for search ("but not arbitrary
+  binary file contents in the MVP") — this was missed when Step 6
+  originally scoped the index, caught by Step 9's close-out audit, and
+  is now indexed both incrementally
+  (`internal/service/attachment.go`'s Create/ReplaceAttachment,
+  `internal/service/link.go`'s AddExternalLink) and by
+  `RebuildSearchIndex`, so results no longer differ by when a project
+  was last reindexed. `comment_id` stays `NULL` for both new kinds
+  even when an attachment is itself attached to a comment — a
+  `search_documents.comment_id` means "this hit *is* a comment"
+  (`toSearchHit` renders it as "comment #N"), and an attachment is
+  never that; `ref` (the owning principal entity's formatted
+  reference) is the whole navigation story for these two kinds, the
+  same as any entity hit. `RebuildSearchIndex` resolves an
+  attachment's or link's owner via a `map[entity_id]{ref,
+  project_id}` built while its own ticket/feature/decision/content-item
+  passes already load exactly that, rather than a sixth per-kind SQL
+  join — an owner missing from that map means it was soft-deleted
+  (filtered by each earlier pass's own `deleted_at IS NULL`), which is
+  how the rebuild honors the owner's deletion without attachments/
+  links carrying a `deleted_at` join of their own. A comment-attached
+  attachment's search row deliberately survives that comment's own
+  soft-delete (mirrors `DeleteSearchDocumentForComment`'s doc): the
+  attachment record itself is still live and still reachable via `GET
+  /comments/{id}/attachments`, so removing it from search because its
+  *comment* was tombstoned would hide a still-reachable record.
 - A content item's `file`/`path`/`url` representations have no
   Markdown body to index (`ContentItemFields.Body` is empty for all
   three) — their identifying value (file name, path, URL) is indexed

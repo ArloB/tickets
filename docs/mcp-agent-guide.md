@@ -122,7 +122,7 @@ writing:
 | `ticket_associations` | Read back a ticket or feature's `associated_with` links. |
 | `feature_get` / `features_list` / `feature_create` / `feature_update` | Feature CRUD, plus a compact paginated list. |
 | `record_get` / `record_create` / `record_update` | Decision/plan/document CRUD via a `kind` discriminator (see instructions text). |
-| `search` | Full-text search over tickets/features/decisions/plans/documents/comments, ranked by relevance (Phase 5 Step 6, ADR 0018). Named `search`, not the plan's original working name `work_search`. |
+| `search` | Full-text search over tickets/features/decisions/plans/documents/comments/attachment names/link titles and URLs, ranked by relevance (Phase 5 Step 6, ADR 0018; attachment/link indexing added at Step 9 close-out). Named `search`, not the plan's original working name `work_search`. |
 | `notifications_list` / `notifications_mark_read` | Read and clear the calling actor's own notification inbox (Phase 5 Step 7, ADR 0019): assignment, an `@kind:name` mention, a reply/comment, or a change to subscribed work. There is no subscribe/unsubscribe tool — that's HTTP/CLI-only (`tickets subscribe`/`tickets unsubscribe <ref>`), the same reasoning agent/token management is CLI-only. |
 
 `project_create`, `features_list`, `ticket_relationships`, and
@@ -146,10 +146,14 @@ Not present in Phase 3:
   endpoint and simply broken over stdio (no admin session exists
   there). Agent/token management is CLI-only
   (`docs/contracts/cli.md`'s `admin agent`/`admin token`).
-- A project-brief view — deferred to Phase 5 (a useful brief wants
-  decisions/plans in a more complete form than Phase 3's minimal
-  decisions slice provides). Not yet scoped into any Phase 5 step —
-  see `docs/phase5-close-out.md`.
+- A project-brief view — a useful brief wants decisions/plans in a
+  more complete form than Phase 3's minimal decisions slice provides.
+  Checked against `plan.md` §14's Phase 5 bullet list and all nine
+  Phase 5 steps at Step 9 close-out: it appears in neither, so this is
+  corrected from an earlier "deferred to Phase 5" note (written during
+  Phase 3, before Phase 5's actual scope was decided) to what's
+  actually true — still unscheduled, not deferred to any committed
+  phase or step.
 
 ## Representative workflow
 

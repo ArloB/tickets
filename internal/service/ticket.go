@@ -715,6 +715,12 @@ func (s *Service) RestoreTicket(ctx context.Context, req RestoreTicketRequest, a
 		if err := reindexCommentsForEntity(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity.Ref); err != nil {
 			return err
 		}
+		if err := reindexAttachmentsForEntity(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity.Ref); err != nil {
+			return err
+		}
+		if err := reindexLinksForEntity(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity.Ref); err != nil {
+			return err
+		}
 		result = updated.Entity
 		return nil
 	})

@@ -348,7 +348,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "search",
-		Description:  "Full-text search over tickets, features, decisions, plans, documents, and comments, ranked by relevance. project/kind/status narrow an otherwise cross-project search. Paginated — pass the previous call's next_cursor to continue.",
+		Description:  "Full-text search over tickets, features, decisions, plans, documents, comments, attachment names, and external link titles/URLs, ranked by relevance. project/kind/status narrow an otherwise cross-project search. Paginated — pass the previous call's next_cursor to continue.",
 		OutputSchema: outputSchemaFor[SearchOutput](),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, SearchOutput, error) {
 		out, err := backend.Search(ctx, SearchInput(in))
@@ -430,7 +430,7 @@ type ticketGetInput struct {
 type searchInput struct {
 	Query   string   `json:"query" jsonschema:"the search text"`
 	Project string   `json:"project,omitempty" jsonschema:"restrict to one project's key; omitted searches every project"`
-	Kind    []string `json:"kind,omitempty" jsonschema:"restrict to these kinds: ticket, feature, decision, plan, document, comment; omitted searches every kind"`
+	Kind    []string `json:"kind,omitempty" jsonschema:"restrict to these kinds: ticket, feature, decision, plan, document, comment, attachment, link; omitted searches every kind"`
 	Status  string   `json:"status,omitempty" jsonschema:"restrict to one status value (workflow status for tickets/features, decision status for decisions); plans/documents/comments have no status, so this never matches them"`
 	Limit   int      `json:"limit,omitempty" jsonschema:"max rows to return (server default 20, max 100)"`
 	Cursor  string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor from a previous call's next_cursor; never construct or parse this yourself"`

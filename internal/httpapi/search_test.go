@@ -40,6 +40,46 @@ func TestSearchOverHTTP(t *testing.T) {
 	}
 }
 
+// TestSearchFindsAttachmentAndLinkOverHTTP is Step 9 close-out's
+// route-wiring check for product spec §6.3's "attachment names and
+// link metadata" requirement — validated against api/openapi.yaml by
+// ts.do the same way TestSearchOverHTTP is, so a SearchHit.kind enum
+// that forgot "attachment"/"link" would fail this on the response
+// side, not just silently pass a Go-only test.
+func TestSearchFindsAttachmentAndLinkOverHTTP(t *testing.T) {
+	ts := newTestServer(t)
+	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "Host ticket"}))
+	ts.do(http.MethodPost, "/tickets/ABC-1/attachments", nil, mustJSON(t, map[string]string{"title": "gronkulator spec", "path": "/docs/gronkulator.pdf"}))
+	ts.do(http.MethodPost, "/tickets/ABC-1/links", nil, mustJSON(t, map[string]string{"title": "gronkulator tracker", "url": "https://example.com/gronkulator"}))
+
+	resp, body := ts.do(http.MethodGet, "/search?q=gronkulator", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("search status = %d, body=%s", resp.StatusCode, body)
+	}
+	var page struct {
+		Hits []map[string]any `json:"hits"`
+	}
+	if err := json.Unmarshal(body, &page); err != nil {
+		t.Fatalf("unmarshal search page: %v", err)
+	}
+	kinds := map[string]bool{}
+	for _, h := range page.Hits {
+		kinds[h["kind"].(string)] = true
+		if h["ref"] != "ABC-1" {
+			t.Errorf("hit ref = %v, want ABC-1 (the owning ticket) for every hit here: %+v", h["ref"], h)
+		}
+		if h["comment_id"] != nil {
+			t.Errorf("attachment/link hit has a comment_id: %+v", h)
+		}
+	}
+	for _, want := range []string{"attachment", "link"} {
+		if !kinds[want] {
+			t.Errorf("hits missing kind %q: %+v", want, page.Hits)
+		}
+	}
+}
+
 // TestSearchRequiresQuery proves a request with no q at all is
 // rejected — OpenAPI's own required-parameter check catches this
 // before the handler runs, so this goes through doUnvalidated (a

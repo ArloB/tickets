@@ -68,6 +68,7 @@ The MVP is successful when:
 - Native mobile or desktop applications.
 - Time tracking, sprints, estimates, billing, or analytics dashboards.
 - Hard deletion through ordinary user workflows. Records are archived or soft-deleted.
+- Deleting or archiving a project's last (`General`) feature — see ADR 0001.
 - Docker as the primary distribution method. It may be added after the executable release is stable.
 
 ## 4. Users, identity, and access

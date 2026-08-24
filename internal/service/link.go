@@ -52,6 +52,13 @@ func (s *Service) AddExternalLink(ctx context.Context, req AddExternalLinkReques
 		if err != nil {
 			return fmt.Errorf("service: insert external link: %w", err)
 		}
+		projectID, err := store.EntityProjectID(ctx, tx, endpoint.EntityID)
+		if err != nil {
+			return fmt.Errorf("service: resolve link owner project for indexing: %w", err)
+		}
+		if err := indexLinkSearchDoc(ctx, tx, id, endpoint.EntityID, projectID, endpoint.Ref, title, req.URL); err != nil {
+			return err
+		}
 		changes := auditChanges(map[string]any{"title": title, "url": req.URL})
 		if err := store.InsertAuditEvent(ctx, tx, endpoint.EntityID, actorID, eventExternalLinkAdded, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
@@ -86,6 +93,9 @@ func (s *Service) RemoveExternalLink(ctx context.Context, req RemoveExternalLink
 		}
 		if !deleted {
 			return newNotFoundError("link not found")
+		}
+		if err := store.DeleteSearchDocumentForLink(ctx, tx, req.LinkID); err != nil {
+			return fmt.Errorf("service: remove link search document: %w", err)
 		}
 		changes := auditChanges(map[string]any{"link_id": req.LinkID})
 		if err := store.InsertAuditEvent(ctx, tx, endpoint.EntityID, actorID, eventExternalLinkRemoved, corrID, nil, changes, now); err != nil {

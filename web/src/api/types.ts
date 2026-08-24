@@ -292,11 +292,21 @@ export interface ActivityPage {
 
 // -- Search --
 
-export type SearchKind = 'ticket' | 'feature' | 'decision' | 'plan' | 'document' | 'comment'
+export type SearchKind =
+  | 'ticket'
+  | 'feature'
+  | 'decision'
+  | 'plan'
+  | 'document'
+  | 'comment'
+  | 'attachment'
+  | 'link'
 
-/** One ranked search result (§5.12). `comment_id` is present only for
- * a comment hit — `ref` then names the comment's owning ticket, the
- * same ref+comment_id shape `Backlink` uses. */
+/** One ranked search result (§5.12/§6.3). `comment_id` is present only
+ * for a comment hit — `ref` then names the comment's owning ticket,
+ * the same ref+comment_id shape `Backlink` uses. An attachment/link
+ * hit's `ref` names its owning ticket/feature/decision/plan/document
+ * instead, never a `comment_id`. */
 export interface SearchHit {
   kind: SearchKind
   ref: string

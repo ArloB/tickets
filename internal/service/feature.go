@@ -650,6 +650,12 @@ func (s *Service) RestoreFeature(ctx context.Context, req RestoreFeatureRequest,
 		if err := indexFeatureSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity); err != nil {
 			return err
 		}
+		if err := reindexAttachmentsForEntity(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity.Ref); err != nil {
+			return err
+		}
+		if err := reindexLinksForEntity(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity.Ref); err != nil {
+			return err
+		}
 		result = updated.Entity
 		return nil
 	})

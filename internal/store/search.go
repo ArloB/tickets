@@ -145,20 +145,38 @@ func Search(ctx context.Context, q Querier, ftsQuery string, filters SearchFilte
 	return SearchPage{Hits: hits, NextCursor: nextCursor}, nil
 }
 
+// rebuildOwnerRef is one live principal entity's formatted reference
+// and owning project entity id, keyed by its own entity id — captured
+// while RebuildSearchIndex's ticket/feature/decision/content-item
+// passes already load exactly this, then reused by the
+// attachment/link passes below instead of a second per-kind lookup.
+// Only ever populated for entities that passed the "e.deleted_at IS
+// NULL" filter each of those passes already applies, so an
+// attachment/link whose owner isn't in this map has a deleted owner —
+// skipping it there is how the owner's own deleted_at is honored
+// without a repeated join.
+type rebuildOwnerRef struct {
+	Ref       string
+	ProjectID int64
+}
+
 // RebuildSearchIndex clears search_documents and reindexes every
-// non-deleted ticket/feature/decision/plan/document and every
-// non-tombstoned comment from scratch, in one transaction (atomicity
-// — never a half-rebuilt index — outweighs lock duration for an
-// offline admin command). It is the documented recovery path for
-// anything the incremental UpsertSearchDocument call sites miss or
-// get wrong, and for content this step deliberately does not index
-// incrementally (attachment file names, external link titles/URLs —
-// see ADR 0018's Consequences).
+// non-deleted ticket/feature/decision/plan/document, every
+// non-tombstoned comment, every non-deleted attachment (uploaded or
+// path, whether on a principal entity or on a comment — even a
+// tombstoned one; see store.DeleteSearchDocumentForComment's doc for
+// why a comment's own soft-delete doesn't remove its attachments'
+// search rows), and every external link, from scratch, in one
+// transaction (atomicity — never a half-rebuilt index — outweighs
+// lock duration for an offline admin command). It is the documented
+// recovery path for anything the incremental UpsertSearchDocument
+// call sites miss or get wrong.
 func RebuildSearchIndex(ctx context.Context, q Querier) (int, error) {
 	if err := DeleteAllSearchDocuments(ctx, q); err != nil {
 		return 0, err
 	}
 	count := 0
+	owners := make(map[int64]rebuildOwnerRef)
 
 	tRows, err := q.QueryContext(ctx, `SELECT`+ticketSelectColumns+`
 		FROM tickets t
@@ -185,6 +203,7 @@ func RebuildSearchIndex(ctx context.Context, q Querier) (int, error) {
 			_ = tRows.Close()
 			return 0, fmt.Errorf("rebuild: index ticket %s: %w", row.Entity.Ref, err)
 		}
+		owners[row.ID] = rebuildOwnerRef{Ref: row.Entity.Ref, ProjectID: row.ProjectEntityID}
 		count++
 	}
 	tErr := tRows.Err()
@@ -216,6 +235,7 @@ func RebuildSearchIndex(ctx context.Context, q Querier) (int, error) {
 			_ = fRows.Close()
 			return 0, fmt.Errorf("rebuild: index feature %s: %w", row.Entity.Ref, err)
 		}
+		owners[row.ID] = rebuildOwnerRef{Ref: row.Entity.Ref, ProjectID: row.ProjectEntityID}
 		count++
 	}
 	fErr := fRows.Err()
@@ -247,6 +267,7 @@ func RebuildSearchIndex(ctx context.Context, q Querier) (int, error) {
 			_ = dRows.Close()
 			return 0, fmt.Errorf("rebuild: index decision %s: %w", row.Entity.Ref, err)
 		}
+		owners[row.ID] = rebuildOwnerRef{Ref: row.Entity.Ref, ProjectID: row.ProjectEntityID}
 		count++
 	}
 	dErr := dRows.Err()
@@ -278,6 +299,7 @@ func RebuildSearchIndex(ctx context.Context, q Querier) (int, error) {
 			_ = ciRows.Close()
 			return 0, fmt.Errorf("rebuild: index content item %s: %w", row.Entity.Ref, err)
 		}
+		owners[row.ID] = rebuildOwnerRef{Ref: row.Entity.Ref, ProjectID: row.ProjectEntityID}
 		count++
 	}
 	ciErr := ciRows.Err()
@@ -325,6 +347,93 @@ func RebuildSearchIndex(ctx context.Context, q Querier) (int, error) {
 	if cErr != nil {
 		return 0, fmt.Errorf("rebuild: iterate comments: %w", cErr)
 	}
+
+	// LEFT JOIN comments c: a comment-attached attachment (a.entity_id
+	// NULL) needs its comment's *parent* entity id — c.entity_id — to
+	// resolve an owner the same way indexAttachmentSearchDoc's callers
+	// do incrementally. Deliberately no c.deleted_at filter here (see
+	// this function's own doc): a soft-deleted comment's attachments
+	// stay indexed as long as the owning ticket itself is live.
+	aRows, err := q.QueryContext(ctx, `
+		SELECT a.id, a.entity_id, a.title, a.file_name, a.path_value, c.entity_id
+		FROM attachments a
+		LEFT JOIN comments c ON c.id = a.comment_id
+		WHERE a.deleted_at IS NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("rebuild: list attachments: %w", err)
+	}
+	for aRows.Next() {
+		var (
+			id                                        int64
+			directOwnerEntityID, commentOwnerEntityID sql.NullInt64
+			title, fileName, pathValue                sql.NullString
+		)
+		if err := aRows.Scan(&id, &directOwnerEntityID, &title, &fileName, &pathValue, &commentOwnerEntityID); err != nil {
+			_ = aRows.Close()
+			return 0, fmt.Errorf("rebuild: scan attachment: %w", err)
+		}
+		ownerEntityID := directOwnerEntityID.Int64
+		if !directOwnerEntityID.Valid {
+			ownerEntityID = commentOwnerEntityID.Int64
+		}
+		owner, ok := owners[ownerEntityID]
+		if !ok {
+			continue // owner soft-deleted — see this function's doc
+		}
+		body := fileName.String
+		if pathValue.String != "" {
+			if body != "" {
+				body += "\n"
+			}
+			body += pathValue.String
+		}
+		if err := UpsertSearchDocument(ctx, q, "attachment", id, SearchDocumentFields{
+			EntityID: ownerEntityID, Kind: "attachment", ProjectID: owner.ProjectID,
+			Ref: owner.Ref, Title: title.String, Body: body,
+		}); err != nil {
+			_ = aRows.Close()
+			return 0, fmt.Errorf("rebuild: index attachment %d: %w", id, err)
+		}
+		count++
+	}
+	aErr := aRows.Err()
+	_ = aRows.Close()
+	if aErr != nil {
+		return 0, fmt.Errorf("rebuild: iterate attachments: %w", aErr)
+	}
+
+	lRows, err := q.QueryContext(ctx, `SELECT id, entity_id, title, url FROM external_links`)
+	if err != nil {
+		return 0, fmt.Errorf("rebuild: list external links: %w", err)
+	}
+	for lRows.Next() {
+		var (
+			id, ownerEntityID int64
+			title, url        string
+		)
+		if err := lRows.Scan(&id, &ownerEntityID, &title, &url); err != nil {
+			_ = lRows.Close()
+			return 0, fmt.Errorf("rebuild: scan external link: %w", err)
+		}
+		owner, ok := owners[ownerEntityID]
+		if !ok {
+			continue // owner soft-deleted
+		}
+		if err := UpsertSearchDocument(ctx, q, "link", id, SearchDocumentFields{
+			EntityID: ownerEntityID, Kind: "link", ProjectID: owner.ProjectID,
+			Ref: owner.Ref, Title: title, Body: url,
+		}); err != nil {
+			_ = lRows.Close()
+			return 0, fmt.Errorf("rebuild: index external link %d: %w", id, err)
+		}
+		count++
+	}
+	lErr := lRows.Err()
+	_ = lRows.Close()
+	if lErr != nil {
+		return 0, fmt.Errorf("rebuild: iterate external links: %w", lErr)
+	}
+
 	return count, nil
 }
 

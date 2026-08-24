@@ -124,6 +124,12 @@ func (s *Service) CreateAttachment(ctx context.Context, req CreateAttachmentRequ
 		}
 		attachmentID = id
 
+		if err := indexAttachmentOwnedByEntity(ctx, tx, id, owner.AuditEntityID, domain.Attachment{
+			Title: title, FileName: derefStr(fields.FileName), PathValue: derefStr(fields.PathValue),
+		}); err != nil {
+			return err
+		}
+
 		changes := auditChanges(map[string]any{"attachment_id": id, "title": title, "kind": string(req.Kind)})
 		if err := store.InsertAuditEvent(ctx, tx, owner.AuditEntityID, actorID, eventAttachmentAdded, corrID, owner.CommentID, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
@@ -374,6 +380,11 @@ func (s *Service) ReplaceAttachment(ctx context.Context, req ReplaceAttachmentRe
 		if err != nil {
 			return err
 		}
+		if err := indexAttachmentOwnedByEntity(ctx, tx, req.ID, auditEntityID, domain.Attachment{
+			Title: existing.Entity.Title, FileName: derefStr(fields.FileName), PathValue: derefStr(fields.PathValue),
+		}); err != nil {
+			return err
+		}
 		changes := auditChanges(map[string]any{"attachment_id": req.ID, "version": newVersion})
 		if err := store.InsertAuditEvent(ctx, tx, auditEntityID, actorID, eventAttachmentReplaced, corrID, existing.CommentID, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
@@ -415,6 +426,9 @@ func (s *Service) DeleteAttachment(ctx context.Context, req DeleteAttachmentRequ
 				return newVersionConflictError(existing.Entity.CurrentVersion)
 			}
 			return fmt.Errorf("service: delete attachment: %w", err)
+		}
+		if err := store.DeleteSearchDocumentForAttachment(ctx, tx, req.ID); err != nil {
+			return fmt.Errorf("service: remove attachment search document: %w", err)
 		}
 
 		auditEntityID, err := s.attachmentAuditEntityID(ctx, tx, existing)

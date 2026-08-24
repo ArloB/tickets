@@ -59,11 +59,20 @@ func nullableString(s string) any {
 }
 
 // DeleteSearchDocumentsForEntity removes an entity's own search row
-// plus every comment search row scoped to it (entity_id, not
-// source_id — see the migration's doc comment). Called from every
-// soft-delete path, including DeleteFeature's cascade-delete-tickets
-// loop: a cascade-deleted ticket's comments must leave the index too,
-// or a deleted ticket's comments keep surfacing as search hits.
+// plus every comment/attachment/link search row scoped to it
+// (entity_id, not source_id — see the migration's doc comment).
+// Called from every soft-delete path, including DeleteFeature's
+// cascade-delete-tickets loop: a cascade-deleted ticket's comments,
+// attachments, and links must all leave the index too, or a deleted
+// ticket's content keeps surfacing as search hits.
+//
+// A comment-attached attachment is scoped by entity_id the same as a
+// comment itself: entity_id on that row is the comment's *parent*
+// entity (indexAttachmentSearchDoc's doc), so this still reaches it
+// even though the comment doing the attaching is never itself
+// soft-deleted by an entity delete (comments are excluded from the
+// index while their ticket is gone, not deleted outright — see
+// reindexCommentsForEntity).
 func DeleteSearchDocumentsForEntity(ctx context.Context, q Querier, entityID int64) error {
 	if _, err := q.ExecContext(ctx, `DELETE FROM search_documents WHERE source_kind = 'entity' AND source_id = ?`, entityID); err != nil {
 		return fmt.Errorf("delete entity search document: %w", err)
@@ -71,15 +80,47 @@ func DeleteSearchDocumentsForEntity(ctx context.Context, q Querier, entityID int
 	if _, err := q.ExecContext(ctx, `DELETE FROM search_documents WHERE source_kind = 'comment' AND entity_id = ?`, entityID); err != nil {
 		return fmt.Errorf("delete comment search documents for entity: %w", err)
 	}
+	if _, err := q.ExecContext(ctx, `DELETE FROM search_documents WHERE source_kind = 'attachment' AND entity_id = ?`, entityID); err != nil {
+		return fmt.Errorf("delete attachment search documents for entity: %w", err)
+	}
+	if _, err := q.ExecContext(ctx, `DELETE FROM search_documents WHERE source_kind = 'link' AND entity_id = ?`, entityID); err != nil {
+		return fmt.Errorf("delete link search documents for entity: %w", err)
+	}
 	return nil
 }
 
 // DeleteSearchDocumentForComment removes one comment's search row —
 // used by DeleteComment, which (unlike a ticket/feature) has no
-// restore path, so the row is simply gone rather than filtered.
+// restore path, so the row is simply gone rather than filtered. Does
+// NOT remove that comment's own attachments' search rows: a
+// soft-deleted comment's attachments are still live records, still
+// reachable via GET /comments/{id}/attachments (§5.11's tombstone
+// convention applies to the comment, not to what was attached to it),
+// so they deliberately stay indexed and searchable.
 func DeleteSearchDocumentForComment(ctx context.Context, q Querier, commentID int64) error {
 	if _, err := q.ExecContext(ctx, `DELETE FROM search_documents WHERE source_kind = 'comment' AND source_id = ?`, commentID); err != nil {
 		return fmt.Errorf("delete comment search document: %w", err)
+	}
+	return nil
+}
+
+// DeleteSearchDocumentForAttachment removes one attachment's search
+// row — used by DeleteAttachment, which (like a comment) has no
+// restore path.
+func DeleteSearchDocumentForAttachment(ctx context.Context, q Querier, attachmentID int64) error {
+	if _, err := q.ExecContext(ctx, `DELETE FROM search_documents WHERE source_kind = 'attachment' AND source_id = ?`, attachmentID); err != nil {
+		return fmt.Errorf("delete attachment search document: %w", err)
+	}
+	return nil
+}
+
+// DeleteSearchDocumentForLink removes one external link's search row
+// — used by RemoveExternalLink, which hard-deletes the link row
+// itself (no tombstone at all — docs/contracts/concurrency.md: "change
+// a link by removing and re-adding it").
+func DeleteSearchDocumentForLink(ctx context.Context, q Querier, linkID int64) error {
+	if _, err := q.ExecContext(ctx, `DELETE FROM search_documents WHERE source_kind = 'link' AND source_id = ?`, linkID); err != nil {
+		return fmt.Errorf("delete link search document: %w", err)
 	}
 	return nil
 }
