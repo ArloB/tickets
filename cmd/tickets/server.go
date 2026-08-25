@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ArloB/tickets/internal/blobstore"
+	"github.com/ArloB/tickets/internal/buildinfo"
 	"github.com/ArloB/tickets/internal/config"
 	"github.com/ArloB/tickets/internal/httpapi"
 	"github.com/ArloB/tickets/internal/logging"
@@ -70,7 +71,8 @@ func runServer(args []string) error {
 		return fmt.Errorf("listen on %s: %w", cfg.Addr(), err)
 	}
 	logger.Info("tickets server listening",
-		"addr", ln.Addr().String(), "data_dir", cfg.DataDir, "anonymous_read", cfg.AnonymousRead)
+		"addr", ln.Addr().String(), "data_dir", cfg.DataDir, "anonymous_read", cfg.AnonymousRead,
+		"version", buildinfo.Version, "commit", buildinfo.Commit)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

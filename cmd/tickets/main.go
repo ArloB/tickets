@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/ArloB/tickets/internal/apiclient"
+	"github.com/ArloB/tickets/internal/buildinfo"
 	"github.com/ArloB/tickets/internal/service"
 )
 
@@ -57,6 +58,9 @@ func main() {
 	case "-h", "--help", "help":
 		usage()
 		return
+	case "-v", "--version", "version":
+		fmt.Println(buildinfo.String())
+		return
 	default:
 		fmt.Fprintf(os.Stderr, "tickets: unknown command %q\n", os.Args[1])
 		usage()
@@ -95,7 +99,7 @@ commands:
   server   run the Tickets HTTP server (API and MCP Streamable HTTP)
   setup    first-run administrative setup
   mcp      run the MCP stdio bridge against a configured Tickets server
-  admin    maintenance operations (purge-idempotency-keys, agent, token)
+  admin    maintenance operations (purge-idempotency-keys, search-reindex, integrity, agent, token)
   project  client commands against a running Tickets server (list, create)
   feature  client commands against a running Tickets server (list, get, create, update)
   ticket   client commands against a running Tickets server (list, get, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
@@ -108,5 +112,8 @@ commands:
   search   client command against a running Tickets server: full-text search
   subscribe   client command against a running Tickets server: subscribe to a reference
   unsubscribe client command against a running Tickets server: unsubscribe from a reference
-  notifications client commands against a running Tickets server (list, read)`)
+  notifications client commands against a running Tickets server (list, read)
+
+  -h, --help, help        show this usage text
+  -v, --version, version  print the build version and exit`)
 }

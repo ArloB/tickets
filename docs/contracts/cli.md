@@ -143,6 +143,14 @@ command failed:
 this table is derived from — a new code added there needs a row here
 too, or it silently falls through to exit 1.
 
+This table covers commands that go through `apiclient`/`service.Error`.
+`tickets admin integrity` doesn't return a `domain.ErrorCode` — it
+returns exit 1 for a plain `error` whenever it finds a genuine problem
+(a failed `PRAGMA` check, a foreign-key violation, a corrupted blob, or
+a `--gc` removal failure), the same generic-error exit code as anything
+else in the "Anything else" row above. An orphan report without `--gc`
+is informational and does not affect the exit code.
+
 ## Idempotency keys
 
 `tickets comment add`/`tickets decision create`/`tickets project

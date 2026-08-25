@@ -278,7 +278,17 @@ func TestHealthAndReady(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("/healthz status = %d, want 200", resp.StatusCode)
 	}
+	var health struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		t.Fatalf("decode /healthz body: %v", err)
+	}
 	_ = resp.Body.Close()
+	if health.Version == "" {
+		t.Error("/healthz version = \"\", want buildinfo.Version (Phase 6 Step 3)")
+	}
 
 	resp = ts.rawGet(t, "/readyz")
 	if resp.StatusCode != http.StatusOK {

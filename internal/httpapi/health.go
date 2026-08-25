@@ -1,11 +1,21 @@
 package httpapi
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/ArloB/tickets/internal/buildinfo"
+)
 
 // healthz reports process liveness only — it never touches the
 // database (product spec §9: liveness and readiness are distinct).
+// version/commit aren't sensitive configuration (§9's "without
+// exposing sensitive configuration" concerns things like data
+// directory paths or credentials, not the build identity), and
+// knowing which server version answered is useful for an operator
+// probing an installation from outside — the backup manifest (Phase 6
+// Step 4) records the same buildinfo.Version for the same reason.
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": buildinfo.Version})
 }
 
 // readyz reports whether the database is actually reachable. Returning

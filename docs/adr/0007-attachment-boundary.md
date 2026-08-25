@@ -39,7 +39,26 @@ would turn a stored string into unintended file disclosure.
   `attachments`/`attachment_versions` row pointing at it. This is
   harmless under content-addressing (the same bytes uploaded again
   later dedup onto the same orphaned file rather than writing a
-  second copy) and is not cleaned up automatically — an admin
-  reconciliation/GC pass is a reasonable future addition if orphaned
-  blobs ever become a real disk-usage concern, but isn't built
-  speculatively here.
+  second copy).
+  **The reconciliation/GC pass landed in Phase 6 Step 3**, as
+  `tickets admin integrity --gc`: `store.ListReferencedBlobHashes`
+  unions `file_hash` across `attachments`/`attachment_versions`/
+  `content_items`/`content_versions` (every current and historical
+  version, since a prior version's blob must stay reachable through
+  its own `.../versions/{version}/download` route), diffed against
+  `blobstore.Store.Hashes`' on-disk inventory. Deliberately still an
+  operator-run command, not an automatic background sweep — matching
+  this ADR's original reasoning that orphaned blobs are harmless, not
+  urgent. `--gc` also leaves alone any orphan written within the last
+  hour (`gcMinOrphanAge`, `cmd/tickets/admin_integrity.go`): `Put`
+  writes a blob's bytes before its enclosing `internal/service`
+  transaction commits, so a blob that's merely mid-upload — its
+  `attachments` row hasn't committed yet — looks identical to a
+  genuine orphan for the seconds between `Put` and commit, and this
+  command has no way to tell the two apart other than age. A corrupted blob (content that no longer hashes to its own
+  content-addressed filename — `blobstore.Store.Verify`) is reported
+  by the same command but never auto-removed by `--gc`, even though
+  it's also unreferenced-or-not: corruption might be partially
+  recoverable, which a genuine orphan never needs to be, so the two
+  findings stay distinct rather than collapsing into one
+  "delete anything --gc doesn't like" behavior.

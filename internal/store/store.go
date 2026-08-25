@@ -60,7 +60,7 @@ func Open(dataDir string) (*Store, error) {
 	}
 
 	s := &Store{db: db}
-	if err := s.migrate(context.Background()); err != nil {
+	if err := s.migrate(context.Background(), dataDir); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: migrate: %w", err)
 	}
@@ -200,12 +200,32 @@ func migrationVersion(path string) (int, error) {
 	return version, nil
 }
 
-func (s *Store) migrate(ctx context.Context) error {
+// migrate applies any pending embedded migration, taking a pre-
+// migration backup first (product spec §10) if this database already
+// has schema history worth protecting — see backupBeforeMigration's
+// doc for why a brand-new database skips that step entirely.
+func (s *Store) migrate(ctx context.Context, dataDir string) error {
 	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,
 		applied_at TEXT NOT NULL
 	)`); err != nil {
 		return fmt.Errorf("bootstrap schema_migrations: %w", err)
+	}
+
+	var maxApplied int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`,
+	).Scan(&maxApplied); err != nil {
+		return fmt.Errorf("check current schema version: %w", err)
+	}
+	highest, err := highestEmbeddedMigrationVersion()
+	if err != nil {
+		return err
+	}
+	if maxApplied > 0 && maxApplied < highest {
+		if err := backupBeforeMigration(ctx, s.db, dataDir, maxApplied); err != nil {
+			return fmt.Errorf("pre-migration backup: %w", err)
+		}
 	}
 
 	entries, err := fs.Glob(migrationsFS, "migrations/*.sql")

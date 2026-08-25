@@ -19,6 +19,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 // Store is a content-addressed blob store rooted at a directory under
@@ -96,4 +98,107 @@ func (s *Store) path(hash string) string {
 		return filepath.Join(s.root, hash)
 	}
 	return filepath.Join(s.root, hash[:2], hash)
+}
+
+// Hashes lists every blob currently on disk, by walking the sharded
+// directory tree — the on-disk inventory `tickets admin integrity`
+// (Phase 6 Step 3) cross-references against every file_hash/checksum
+// referenced from attachments/attachment_versions/content_items/
+// content_versions to find orphans (ADR 0007's open item: a blob
+// written just before its enclosing transaction rolled back has no
+// referencing row and is never cleaned up automatically).
+func (s *Store) Hashes() ([]string, error) {
+	var hashes []string
+	err := filepath.WalkDir(s.root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), "upload-") && strings.HasSuffix(d.Name(), ".tmp") {
+			return nil // an in-progress Put's temp file, not a committed blob
+		}
+		hashes = append(hashes, d.Name())
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("blobstore: walk blobs: %w", err)
+	}
+	return hashes, nil
+}
+
+// VerifyResult is one stored blob's integrity check outcome —
+// `tickets admin integrity`'s per-blob finding.
+type VerifyResult struct {
+	Hash string
+	// Err is nil when the blob's actual content hashes to Hash — a
+	// content-addressed store's own name for a file IS its declared
+	// checksum, so no separate stored checksum is needed to detect
+	// corruption, only a re-hash.
+	Err error
+}
+
+// Verify re-hashes every blob Hashes lists and reports any whose
+// content no longer matches its filename — bit rot or an on-disk
+// tamper, not something an application-level bug could produce, since
+// nothing in this codebase ever writes to a blob's path a second time
+// (Put's rename-into-place is the only writer, and it skips an
+// already-existing destination).
+func (s *Store) Verify() ([]VerifyResult, error) {
+	hashes, err := s.Hashes()
+	if err != nil {
+		return nil, err
+	}
+	results := make([]VerifyResult, 0, len(hashes))
+	for _, hash := range hashes {
+		results = append(results, VerifyResult{Hash: hash, Err: s.verifyOne(hash)})
+	}
+	return results, nil
+}
+
+func (s *Store) verifyOne(hash string) error {
+	f, err := os.Open(s.path(hash))
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("read: %w", err)
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != hash {
+		return fmt.Errorf("content hashes to %s, filename claims %s", got, hash)
+	}
+	return nil
+}
+
+// ModTime returns the on-disk modification time of the blob named by
+// hash — `tickets admin integrity --gc` uses this to skip
+// recently-written blobs, since CreateAttachment's blobstore.Put
+// happens before its enclosing internal/service transaction commits
+// (this package's doc comment, ADR 0007's Consequences): a blob that's
+// merely mid-upload, not yet referenced because its owning row hasn't
+// committed, looks identical to a genuine orphan for the seconds
+// between Put and commit.
+func (s *Store) ModTime(hash string) (time.Time, error) {
+	info, err := os.Stat(s.path(hash))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("blobstore: stat blob %s: %w", hash, err)
+	}
+	return info.ModTime(), nil
+}
+
+// Remove deletes one blob by hash — `tickets admin integrity --gc`'s
+// only write operation, and the first thing in this package that ever
+// deletes a blob (content-addressing gives every other caller a
+// reason never to: the same bytes uploaded again just dedups onto
+// whatever's already there). hash must already be confirmed orphaned
+// by the caller; this does not re-check.
+func (s *Store) Remove(hash string) error {
+	if err := os.Remove(s.path(hash)); err != nil {
+		return fmt.Errorf("blobstore: remove blob %s: %w", hash, err)
+	}
+	return nil
 }

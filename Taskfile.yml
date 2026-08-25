@@ -2,6 +2,22 @@ version: "3"
 
 vars:
   WSL_REPO: ~/tickets
+  # Build identity (internal/buildinfo), shared by build and release
+  # (Phase 6 Step 10). VERSION falls back to "dev" with no tags yet in
+  # this repo (`--always` still yields a short commit hash, and the
+  # `|| echo dev` only fires if git itself is unavailable); COMMIT
+  # falls back to "none" the same way. Computed with `sh:` rather than
+  # Task's `now`/git template funcs so the same expression works
+  # identically in `task build` (Windows or WSL) and a future CI job.
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo none
+  DATE: '{{now.UTC.Format "2006-01-02T15:04:05Z"}}'
+  LDFLAGS: >-
+    -X github.com/ArloB/tickets/internal/buildinfo.Version={{.VERSION}}
+    -X github.com/ArloB/tickets/internal/buildinfo.Commit={{.COMMIT}}
+    -X github.com/ArloB/tickets/internal/buildinfo.Date={{.DATE}}
 
 tasks:
   fmt:
@@ -38,12 +54,15 @@ tasks:
       UI embedded — depends on web:build so `task build`/`task ci`
       never ship the empty-dist placeholder by accident. A bare
       `go build ./cmd/tickets` (no Task, no Node) still works on
-      whatever's already in web/dist/ — see ADR 0010.
+      whatever's already in web/dist/ — see ADR 0010 — but reports
+      internal/buildinfo's "dev"/"none"/"unknown" defaults instead of
+      this task's real version/commit/date, since ldflags only get set
+      here.
     vars:
       OUT: '{{if eq OS "windows"}}bin/tickets.exe{{else}}bin/tickets{{end}}'
     deps: [web:build]
     cmds:
-      - go build -o {{.OUT}} ./cmd/tickets
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.OUT}} ./cmd/tickets
 
   web:install:
     desc: Install the web UI's npm dependencies.

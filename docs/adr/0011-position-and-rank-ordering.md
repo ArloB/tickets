@@ -84,8 +84,23 @@ all).
   immediately (`low` before `medium`).
 - §10's pre-migration backup (out of scope for this ADR, named here so
   it isn't silently forgotten) has no bearing on renumbering — a
-  renumber is a normal transaction, not a schema migration. Backup
-  tooling itself remains unbuilt until Phase 6.
+  renumber is a normal transaction, not a schema migration. **Built in
+  Phase 6 Step 3**: `internal/store/premigration_backup.go`'s
+  `backupBeforeMigration`, called from `Store.migrate` via
+  `VACUUM INTO` before any pending migration is applied, but only when
+  the database already has schema history worth protecting
+  (`schema_migrations`' max applied version is > 0 and below what this
+  build's embedded migrations support) — a brand-new database has
+  nothing to lose, so every `store.Open(t.TempDir())` call across this
+  codebase's test suite never pays the cost, and no separate
+  disable-for-tests flag was needed. Snapshots land in
+  `<data-dir>/backups/`, bounded to the 5 most recent
+  (`preMigrationBackupsKept`).
+  `TestOpenTakesPreMigrationBackupWhenUpgradingExistingDatabase`
+  (`internal/store/premigration_backup_test.go`) drives a database
+  stuck one migration behind through the real `Store.Open` and
+  confirms the snapshot's schema predates the migration that follows
+  it, not just that a file appeared.
 - Features and tickets each get their own near-identical set of store
   functions (`TicketGroupOrderedExcluding` /
   `FeatureGroupOrderedExcluding`, etc.) rather than one generic
