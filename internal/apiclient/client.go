@@ -233,11 +233,42 @@ func listQuery(extra url.Values, limit int, cursor string) string {
 	return "?" + extra.Encode()
 }
 
-// ListProjects is GET /projects. Compact rows only — see ProjectCompact.
-func (c *Client) ListProjects(ctx context.Context, limit int, cursor string) (ProjectsPage, error) {
+// ListProjects is GET /projects. Compact rows only — see
+// ProjectCompact. includeArchived true also returns archived projects
+// (ADR 0021); the server default is active-only.
+func (c *Client) ListProjects(ctx context.Context, limit int, cursor string, includeArchived bool) (ProjectsPage, error) {
+	q := url.Values{}
+	if includeArchived {
+		q.Set("include_archived", "true")
+	}
 	var page ProjectsPage
-	err := c.do(ctx, http.MethodGet, "/projects"+listQuery(nil, limit, cursor), nil, &page, requestOptions{})
+	err := c.do(ctx, http.MethodGet, "/projects"+listQuery(q, limit, cursor), nil, &page, requestOptions{})
 	return page, err
+}
+
+// UpdateProject is PATCH /projects/{key} — title/description only;
+// see SetProjectStatus for archive/unarchive.
+func (c *Client) UpdateProject(ctx context.Context, key, title, description string, expectedVersion int64) (Project, error) {
+	var proj Project
+	err := c.do(ctx, http.MethodPatch, "/projects/"+url.PathEscape(key),
+		struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		}{Title: title, Description: description},
+		&proj, requestOptions{IfMatch: &expectedVersion})
+	return proj, err
+}
+
+// SetProjectStatus is POST /projects/{key}/status — archive or
+// unarchive.
+func (c *Client) SetProjectStatus(ctx context.Context, key, status string, expectedVersion int64) (Project, error) {
+	var proj Project
+	err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(key)+"/status",
+		struct {
+			Status string `json:"status"`
+		}{Status: status},
+		&proj, requestOptions{IfMatch: &expectedVersion})
+	return proj, err
 }
 
 // ListTickets is GET /projects/{key}/tickets. view selects

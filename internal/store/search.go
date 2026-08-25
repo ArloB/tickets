@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/ArloB/tickets/internal/domain"
 )
 
 // maxSearchOffset caps how deep a search result page can page — bm25
@@ -188,6 +186,39 @@ func RebuildSearchIndex(ctx context.Context, q Querier) (int, error) {
 	count := 0
 	owners := make(map[int64]rebuildOwnerRef)
 
+	pRows, err := q.QueryContext(ctx, `SELECT e.id, p.key, p.title, p.description, p.status
+		FROM projects p
+		JOIN entities e ON e.id = p.id
+		WHERE e.deleted_at IS NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("rebuild: list projects: %w", err)
+	}
+	for pRows.Next() {
+		var (
+			id                            int64
+			key, title, description, stat string
+		)
+		if err := pRows.Scan(&id, &key, &title, &description, &stat); err != nil {
+			_ = pRows.Close()
+			return 0, fmt.Errorf("rebuild: scan project: %w", err)
+		}
+		body := title + "\n" + description
+		if err := UpsertSearchDocument(ctx, q, "entity", id, SearchDocumentFields{
+			EntityID: id, Kind: "project", ProjectID: id,
+			Ref: key, Status: stat, Title: title, Body: body,
+		}); err != nil {
+			_ = pRows.Close()
+			return 0, fmt.Errorf("rebuild: index project %s: %w", key, err)
+		}
+		owners[id] = rebuildOwnerRef{Ref: key, ProjectID: id}
+		count++
+	}
+	pErr := pRows.Err()
+	_ = pRows.Close()
+	if pErr != nil {
+		return 0, fmt.Errorf("rebuild: iterate projects: %w", pErr)
+	}
+
 	tRows, err := q.QueryContext(ctx, `SELECT`+ticketSelectColumns+`
 		FROM tickets t
 		JOIN entities e ON e.id = t.id
@@ -318,34 +349,44 @@ func RebuildSearchIndex(ctx context.Context, q Querier) (int, error) {
 		return 0, fmt.Errorf("rebuild: iterate content items: %w", ciErr)
 	}
 
+	// Resolved generically via the owners map (populated above by every
+	// commentable kind: project, ticket, feature, decision, plan,
+	// document), the same way the attachments and external-links passes
+	// below already resolve their owner — not a ticket-only JOIN.
+	//
+	// Bug fix: this used to JOIN comments directly to tickets, so a
+	// rebuild silently dropped every comment on a project, feature,
+	// decision, plan, or document (comments went ref-agnostic in Phase
+	// 6 Step 2; this query was never updated to match). The incremental
+	// indexAttachmentSearchDoc/indexCommentSearchDoc call sites were
+	// already correct — only RebuildSearchIndex had the gap, so it went
+	// unnoticed until this pass added projects to the owners map and
+	// the ticket-only JOIN became impossible to miss.
 	cRows, err := q.QueryContext(ctx, `
-		SELECT c.id, c.entity_id, c.body, p.key, t.seq, t.project_id
+		SELECT c.id, c.entity_id, c.body
 		FROM comments c
-		JOIN tickets t ON t.id = c.entity_id
-		JOIN entities e ON e.id = t.id
-		JOIN projects p ON p.id = t.project_id
+		JOIN entities e ON e.id = c.entity_id
 		WHERE c.deleted_at IS NULL AND e.deleted_at IS NULL`)
 	if err != nil {
 		return 0, fmt.Errorf("rebuild: list comments: %w", err)
 	}
 	for cRows.Next() {
 		var (
-			commentID, entityID, seq, projectEntityID int64
-			body, projectKey                          string
+			commentID, entityID int64
+			body                string
 		)
-		if err := cRows.Scan(&commentID, &entityID, &body, &projectKey, &seq, &projectEntityID); err != nil {
+		if err := cRows.Scan(&commentID, &entityID, &body); err != nil {
 			_ = cRows.Close()
 			return 0, fmt.Errorf("rebuild: scan comment: %w", err)
 		}
-		ref, err := domain.Format(domain.Reference{ProjectKey: projectKey, Kind: domain.KindTicket, Seq: seq})
-		if err != nil {
-			_ = cRows.Close()
-			return 0, fmt.Errorf("rebuild: format comment's ticket ref: %w", err)
+		owner, ok := owners[entityID]
+		if !ok {
+			continue // owner soft-deleted — see this function's doc
 		}
 		cid := commentID
 		if err := UpsertSearchDocument(ctx, q, "comment", commentID, SearchDocumentFields{
-			EntityID: entityID, CommentID: &cid, Kind: "comment", ProjectID: projectEntityID,
-			Ref: ref, Title: "", Body: body,
+			EntityID: entityID, CommentID: &cid, Kind: "comment", ProjectID: owner.ProjectID,
+			Ref: owner.Ref, Title: "", Body: body,
 		}); err != nil {
 			_ = cRows.Close()
 			return 0, fmt.Errorf("rebuild: index comment %d: %w", commentID, err)

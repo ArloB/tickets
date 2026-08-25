@@ -26,6 +26,7 @@ type Backend interface {
 	GetProject(ctx context.Context, key string) (domain.Project, error)
 	ListProjects(ctx context.Context, limit int, cursor string) (ProjectsListOutput, error)
 	CreateProject(ctx context.Context, in CreateProjectInput) (domain.Project, error)
+	UpdateProject(ctx context.Context, in UpdateProjectInput) (domain.Project, error)
 	CreateTicket(ctx context.Context, req CreateTicketInput) (domain.Ticket, error)
 	GetTicket(ctx context.Context, ref string) (domain.Ticket, error)
 	ListTickets(ctx context.Context, projectKey, view string, limit int, cursor string) (TicketsListOutput, error)
@@ -77,6 +78,21 @@ type CreateProjectInput struct {
 	Title          string
 	Description    string
 	IdempotencyKey string
+}
+
+// UpdateProjectInput is project_update's Backend-facing input, mirroring
+// UpdateTicketInput's nil-means-unchanged convention: Title and
+// Description together are the PATCH .../{key} title/description
+// update, Status alone is the POST .../{key}/status archive/unarchive
+// move (ADR 0021) — the same two-call split UpdateFeature/
+// UpdateFeatureStatus and this project's own service methods use, so
+// a plain field edit can't accidentally clobber a concurrent
+// archive/unarchive or vice versa.
+type UpdateProjectInput struct {
+	Key                string
+	Title, Description *string
+	Status             *string
+	ExpectedVersion    int64
 }
 
 // CreateDecisionInput mirrors CreateFeatureInput's shape/reasoning.

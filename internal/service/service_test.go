@@ -360,7 +360,7 @@ func TestListProjectsCursorPagination(t *testing.T) {
 		}
 	}
 
-	page1, err := s.ListProjects(ctx, 2, "")
+	page1, err := s.ListProjects(ctx, 2, "", false)
 	if err != nil {
 		t.Fatalf("page1: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestListProjectsCursorPagination(t *testing.T) {
 		t.Fatalf("page1 order = %v, want [AAA BBB]", []string{page1.Projects[0].Key, page1.Projects[1].Key})
 	}
 
-	page2, err := s.ListProjects(ctx, 2, page1.NextCursor)
+	page2, err := s.ListProjects(ctx, 2, page1.NextCursor, false)
 	if err != nil {
 		t.Fatalf("page2: %v", err)
 	}

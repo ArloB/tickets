@@ -65,12 +65,18 @@ export default function ProjectList() {
   const [projects, setProjects] = useState<ProjectCompact[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  // Archived projects are hidden by default (ADR 0021: visibility
+  // only, matching the server's own default) and shown on request
+  // rather than always-visible — the list is for active work first.
+  const [includeArchived, setIncludeArchived] = useState(false)
 
   useEffect(() => {
-    listProjects()
+    setProjects(null)
+    setError(null)
+    listProjects(undefined, includeArchived)
       .then((page) => setProjects(page.projects))
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
-  }, [])
+  }, [includeArchived])
 
   if (error) return <p role="alert">{error}</p>
   if (!projects) return <p>Loading projects…</p>
@@ -78,6 +84,14 @@ export default function ProjectList() {
   return (
     <main>
       <h1>Projects</h1>
+      <label>
+        <input
+          type="checkbox"
+          checked={includeArchived}
+          onChange={(e) => setIncludeArchived(e.target.checked)}
+        />{' '}
+        Include archived
+      </label>
       {projects.length === 0 ? (
         <p>No projects yet.</p>
       ) : (

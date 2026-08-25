@@ -265,7 +265,7 @@ User-facing records are archived or soft-deleted. Audit records and referenced c
 
 Users must be able to:
 
-- Create, edit, archive, browse, and search projects. **Status as of Phase 6 Step 11: create/browse/search are implemented; edit and archive are not** — no update route, service method, or UI form exists for a project's own fields. See `docs/mvp-acceptance.md` row 3.
+- Create, edit, archive, browse, and search projects.
 - Create, edit, prioritize, reorder, and change the state of features and tickets.
 - Create a ticket from a project without manually selecting a feature; the server uses `General`.
 - Move a ticket between features within its project.
@@ -353,6 +353,7 @@ The exact schemas are contract-tested before implementation, but the initial too
 
 - `projects_list`, `project_get`, and `project_create` — `project_create` shipped in Phase 3 beyond this table's original list, closing a CLI/MCP parity gap found in live use
 - `search` (Phase 5 Step 6 — real full-text search; shipped under this name, not the placeholder `work_search` this table originally used; Phase 3's tools relied on list filters instead)
+- `project_update` (Phase 7) — archive/unarchive and title/description edit (ADR 0021); a merged tool mirroring `ticket_update`'s status-and/or-fields shape
 - `tickets_list`, `ticket_get`, `ticket_create`, and `ticket_update`
 - `ticket_comment` and `ticket_link` — `ticket_comment` is ref-agnostic as of Phase 6 Step 2 (any commentable entity, not tickets only)
 - `feature_get`, `features_list`, `feature_create`, and `feature_update` — `features_list` shipped in Phase 3 beyond this table's original list
@@ -598,6 +599,39 @@ Exit criterion: knowledge records and attachments retain complete visible histor
 - Produce versioned native release artifacts and checksums.
 
 Exit criterion: all MVP acceptance criteria pass on both target platforms and a backup/restore drill reproduces the reference installation.
+
+### Phase 7: closing the remaining spec gaps
+
+Phase 6 closed with two documented open items rather than zero
+(`docs/mvp-acceptance.md`). This phase addresses the genuine gaps that
+audit found — as distinct from the deliberately-accepted-for-the-MVP
+register in that same file, which stays as decided.
+
+- Implement project edit and archive (ADR 0021) — the phase's headline
+  item, closing `docs/mvp-acceptance.md` row 3: `UpdateProject`/
+  `SetProjectStatus` in `internal/service`, `PATCH /projects/{key}` and
+  `POST /projects/{key}/status`, `tickets project update`/`archive`/
+  `unarchive`, the MCP `project_update` tool, and a web UI edit/archive
+  form, plus indexing projects in FTS search (§6.3 previously left them
+  unsearchable). No migration needed — `projects.status` and
+  `entities.version` already existed from Phase 1.
+- Add human account management: creating a second human account and
+  changing a password, both currently impossible (`docs/troubleshooting.md`)
+  — an unregistered gap against §4.2/§13, not a deliberate deferral.
+- Widen the MCP `tickets_list` tool to the filters `GET /projects/{key}/tickets`
+  already supports (status/type/severity/priority/feature/assignee/
+  creator/updated_since) — "find my assigned work," step 1 of §16
+  criterion 10's representative workflow, is otherwise impossible over
+  MCP.
+- Fix the benchmark methodology gap against §11's own p95/cold-warm
+  wording (`docs/benchmarks.md` currently reports per-operation means
+  and an ambiguous "first run this process").
+
+Exit criterion: every item above is implemented, tested, and
+documented; `docs/mvp-acceptance.md` row 3 is covered. Row 10's live
+two-host MCP check remains open by design (no code path can close it —
+see that row's own runbook), so this phase's exit criterion is honest
+about one open item, not zero.
 
 ## 15. Test strategy
 

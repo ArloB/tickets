@@ -60,7 +60,7 @@ func (b *InProcessBackend) GetProject(ctx context.Context, key string) (domain.P
 }
 
 func (b *InProcessBackend) ListProjects(ctx context.Context, limit int, cursor string) (ProjectsListOutput, error) {
-	result, err := b.Svc.ListProjects(ctx, limit, cursor)
+	result, err := b.Svc.ListProjects(ctx, limit, cursor, false)
 	if err != nil {
 		return ProjectsListOutput{}, err
 	}
@@ -85,6 +85,63 @@ func (b *InProcessBackend) CreateProject(ctx context.Context, in CreateProjectIn
 		}
 	}
 	return b.Svc.CreateProject(ctx, req, actor, service.NewCorrelationID(), in.IdempotencyKey, fingerprint)
+}
+
+// UpdateProject mirrors updateTicketInProcess's merge structure: a
+// status move first (if requested), then a fields update (if
+// requested), each against whichever version the prior step left
+// current — see UpdateProjectInput's doc comment for why the two are
+// split rather than merged into one service call.
+func (b *InProcessBackend) UpdateProject(ctx context.Context, in UpdateProjectInput) (domain.Project, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return domain.Project{}, err
+	}
+	corrID := service.NewCorrelationID()
+	ifMatch := in.ExpectedVersion
+	var result domain.Project
+	resultKnown := false
+
+	if in.Status != nil {
+		p, err := b.Svc.SetProjectStatus(ctx, service.SetProjectStatusRequest{
+			Key: in.Key, NewStatus: domain.ProjectStatus(*in.Status), ExpectedVersion: ifMatch,
+		}, actor, corrID)
+		if err != nil {
+			return domain.Project{}, err
+		}
+		result, resultKnown = p, true
+		ifMatch = p.Version
+	}
+
+	if in.Title != nil || in.Description != nil {
+		base := result
+		if !resultKnown {
+			p, err := b.Svc.GetProject(ctx, in.Key)
+			if err != nil {
+				return domain.Project{}, err
+			}
+			base = p
+		}
+		title, desc := base.Title, base.Description
+		if in.Title != nil {
+			title = *in.Title
+		}
+		if in.Description != nil {
+			desc = *in.Description
+		}
+		p, err := b.Svc.UpdateProject(ctx, service.UpdateProjectRequest{
+			Key: in.Key, Title: title, Description: desc, ExpectedVersion: ifMatch,
+		}, actor, corrID)
+		if err != nil {
+			return domain.Project{}, err
+		}
+		result, resultKnown = p, true
+	}
+
+	if !resultKnown {
+		return b.Svc.GetProject(ctx, in.Key)
+	}
+	return result, nil
 }
 
 func (b *InProcessBackend) ListFeatures(ctx context.Context, projectKey string, limit int, cursor string) (FeaturesListOutput, error) {

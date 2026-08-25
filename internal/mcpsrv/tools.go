@@ -111,6 +111,18 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:         "project_update",
+		Description:  "Update a project's title/description and/or archive/unarchive status (ADR 0021). Only fields you set are changed; omitted fields are left as-is. Archiving is visibility only — the project drops out of default projects_list/search results, but its tickets, features, and knowledge records stay fully readable and writable. expected_version must be the version from a prior project_get/project_create/projects_list call.",
+		OutputSchema: outputSchemaFor[domain.Project](),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in projectUpdateInput) (*mcp.CallToolResult, domain.Project, error) {
+		proj, err := backend.UpdateProject(withCallerActor(ctx, req), UpdateProjectInput(in))
+		if err != nil {
+			return nil, domain.Project{}, toolError(err)
+		}
+		return nil, proj, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:         "tickets_list",
 		Description:  "List tickets in a project, compact rows only (no description). view is priority_queue (default) or issue_register (bug/security tickets ordered by severity). Paginated — pass the previous call's next_cursor to continue.",
 		OutputSchema: outputSchemaFor[TicketsListOutput](),
@@ -433,6 +445,14 @@ type projectCreateInput struct {
 	Title          string `json:"title" jsonschema:"the project title"`
 	Description    string `json:"description,omitempty" jsonschema:"optional Markdown description"`
 	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"optional: a client-chosen key to make a retried call safe. Reusing the same key with the same content returns the original project instead of creating a duplicate; reusing it with different content is rejected as idempotency_key_reused."`
+}
+
+type projectUpdateInput struct {
+	Key             string  `json:"key" jsonschema:"the project key, e.g. ABC"`
+	Title           *string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
+	Description     *string `json:"description,omitempty" jsonschema:"new Markdown description; omit to leave unchanged"`
+	Status          *string `json:"status,omitempty" jsonschema:"active or archived; omit to leave unchanged"`
+	ExpectedVersion int64   `json:"expected_version" jsonschema:"the project's current version, from a prior project_get/project_create/projects_list call"`
 }
 
 type ticketGetInput struct {

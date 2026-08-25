@@ -3,9 +3,11 @@ import { Link, useParams } from 'react-router-dom'
 import { getProjectBrief } from '../api/projectBrief'
 import { createFeature } from '../api/features'
 import { listComments } from '../api/comments'
+import { updateProjectStatus } from '../api/projects'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
 import { CommentsSection } from '../components/CommentsSection'
+import { ProjectFieldsForm } from '../components/ProjectFieldsForm'
 import { useAuth } from '../auth/AuthContext'
 import type {
   ActivityEvent,
@@ -162,6 +164,9 @@ export default function ProjectOverview() {
   const [comments, setComments] = useState<CommentDetail[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [statusBusy, setStatusBusy] = useState(false)
+  const [statusError, setStatusError] = useState<string | null>(null)
 
   useEffect(() => {
     setProject(null)
@@ -169,6 +174,8 @@ export default function ProjectOverview() {
     setComments(null)
     setError(null)
     setCreating(false)
+    setEditing(false)
+    setStatusError(null)
     Promise.all([getProjectBrief(key), listComments(key)])
       .then(([brief, c]) => {
         setProject(brief.project)
@@ -186,12 +193,66 @@ export default function ProjectOverview() {
   if (error) return <p role="alert">{error}</p>
   if (!project) return <p>Loading project…</p>
 
+  const canEdit = me?.permission === 'editor'
+
+  if (editing) {
+    return (
+      <main>
+        <h1>
+          Edit {project.title} <span>({project.key})</span>
+        </h1>
+        <ProjectFieldsForm
+          project={project}
+          onSaved={(updated) => {
+            setProject(updated)
+            setEditing(false)
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      </main>
+    )
+  }
+
+  async function toggleArchived() {
+    if (!project) return
+    setStatusBusy(true)
+    setStatusError(null)
+    try {
+      const updated = await updateProjectStatus(
+        project.key,
+        project.status === 'archived' ? 'active' : 'archived',
+        project.version,
+      )
+      setProject(updated)
+    } catch (err) {
+      setStatusError(err instanceof ApiError ? err.message : String(err))
+    } finally {
+      setStatusBusy(false)
+    }
+  }
+
   return (
     <main>
       <h1>
         {project.title} <span>({project.key})</span>
       </h1>
-      <p>Status: {project.status}</p>
+      <p>
+        Status: {project.status}
+        {canEdit && (
+          <>
+            {' '}
+            · <button onClick={() => setEditing(true)}>Edit</button>{' '}
+            <button onClick={() => void toggleArchived()} disabled={statusBusy}>
+              {statusBusy
+                ? 'Working…'
+                : project.status === 'archived'
+                  ? 'Unarchive'
+                  : 'Archive'}
+            </button>
+          </>
+        )}
+      </p>
+      {statusError && <p role="alert">{statusError}</p>}
       <Markdown>{project.description}</Markdown>
       <p>
         <Link to={`/projects/${key}/backlog`}>View backlog</Link> ·{' '}

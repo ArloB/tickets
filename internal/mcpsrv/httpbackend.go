@@ -310,7 +310,7 @@ func (b *HTTPBackend) GetProject(ctx context.Context, key string) (domain.Projec
 }
 
 func (b *HTTPBackend) ListProjects(ctx context.Context, limit int, cursor string) (ProjectsListOutput, error) {
-	page, err := b.Client.ListProjects(ctx, limit, cursor)
+	page, err := b.Client.ListProjects(ctx, limit, cursor, false)
 	if err != nil {
 		return ProjectsListOutput{}, toServiceError(err)
 	}
@@ -329,6 +329,59 @@ func (b *HTTPBackend) CreateProject(ctx context.Context, in CreateProjectInput) 
 		return domain.Project{}, toServiceError(err)
 	}
 	return toDomainProject(p), nil
+}
+
+// UpdateProject mirrors InProcessBackend.UpdateProject's status-then-
+// fields merge, but over apiclient's SetProjectStatus/UpdateProject
+// (PATCH .../{key} needs a full title+description body, so a
+// fields-only request with Description omitted merge-fetches the
+// current one first — the same reason the CLI's `project update`
+// does).
+func (b *HTTPBackend) UpdateProject(ctx context.Context, in UpdateProjectInput) (domain.Project, error) {
+	ifMatch := in.ExpectedVersion
+	var result apiclient.Project
+	resultKnown := false
+
+	if in.Status != nil {
+		p, err := b.Client.SetProjectStatus(ctx, in.Key, *in.Status, ifMatch)
+		if err != nil {
+			return domain.Project{}, toServiceError(err)
+		}
+		result, resultKnown = p, true
+		ifMatch = p.Version
+	}
+
+	if in.Title != nil || in.Description != nil {
+		base := result
+		if !resultKnown {
+			p, err := b.Client.GetProject(ctx, in.Key)
+			if err != nil {
+				return domain.Project{}, toServiceError(err)
+			}
+			base = p
+		}
+		title, desc := base.Title, base.Description
+		if in.Title != nil {
+			title = *in.Title
+		}
+		if in.Description != nil {
+			desc = *in.Description
+		}
+		p, err := b.Client.UpdateProject(ctx, in.Key, title, desc, ifMatch)
+		if err != nil {
+			return domain.Project{}, toServiceError(err)
+		}
+		result, resultKnown = p, true
+	}
+
+	if !resultKnown {
+		p, err := b.Client.GetProject(ctx, in.Key)
+		if err != nil {
+			return domain.Project{}, toServiceError(err)
+		}
+		result = p
+	}
+	return toDomainProject(result), nil
 }
 
 func (b *HTTPBackend) ListFeatures(ctx context.Context, projectKey string, limit int, cursor string) (FeaturesListOutput, error) {

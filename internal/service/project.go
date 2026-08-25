@@ -81,6 +81,11 @@ func (s *Service) createProjectTx(ctx context.Context, req CreateProjectRequest,
 			return err
 		}
 		notifiedIDs = ids
+		if err := indexProjectSearchDoc(ctx, tx, projectEntityID, domain.Project{
+			Key: req.Key, Title: title, Description: req.Description, Status: domain.ProjectStatusActive,
+		}); err != nil {
+			return err
+		}
 
 		// Mandatory General feature (ADR 0001), created in the same
 		// transaction so a project never briefly exists without one.
@@ -150,8 +155,10 @@ const defaultPageLimit = 20 // product spec §11: MCP/CLI lists default to at mo
 const maxPageLimit = 100
 
 // ListProjects returns a cursor-paginated, compact page of projects
-// ordered by (created_at, id).
-func (s *Service) ListProjects(ctx context.Context, limit int, cursor string) (ListProjectsResult, error) {
+// ordered by (created_at, id). includeArchived false (the default)
+// restricts to active projects (ADR 0021); true also returns archived
+// ones.
+func (s *Service) ListProjects(ctx context.Context, limit int, cursor string, includeArchived bool) (ListProjectsResult, error) {
 	afterCreatedAt, afterID, err := store.DecodeCreatedAtIDCursor(cursor)
 	if err != nil {
 		return ListProjectsResult{}, newValidationError("cursor", "invalid cursor")
@@ -163,9 +170,143 @@ func (s *Service) ListProjects(ctx context.Context, limit int, cursor string) (L
 		limit = maxPageLimit
 	}
 
-	page, err := store.ListProjects(ctx, s.store.DB(), limit, afterCreatedAt, afterID)
+	page, err := store.ListProjects(ctx, s.store.DB(), limit, afterCreatedAt, afterID, includeArchived)
 	if err != nil {
 		return ListProjectsResult{}, fmt.Errorf("service: list projects: %w", err)
 	}
 	return ListProjectsResult{Projects: page.Projects, NextCursor: page.NextCursor}, nil
+}
+
+// UpdateProjectRequest is UpdateProject's input.
+type UpdateProjectRequest struct {
+	Key             string
+	Title           string
+	Description     string
+	ExpectedVersion int64
+}
+
+// UpdateProject applies a conditional title/description update (ADR
+// 0008), mirroring UpdateFeature. Status is not settable here — see
+// SetProjectStatus — matching the same split UpdateFeature/
+// UpdateFeatureStatus and UpdateTicketFields/UpdateTicketStatus use
+// elsewhere, so a plain field edit never risks clobbering a concurrent
+// archive/unarchive.
+func (s *Service) UpdateProject(ctx context.Context, req UpdateProjectRequest, actor domain.ActorRef, correlationID string) (domain.Project, error) {
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		return domain.Project{}, newValidationError("title", "title is required")
+	}
+
+	var result domain.Project
+	var notifiedIDs []int64
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetProjectByKey(ctx, tx, req.Key)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("project %q not found", req.Key)
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up project: %w", err)
+		}
+
+		if _, err := store.UpdateProjectFields(ctx, tx, row.ID, title, req.Description, req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: update project: %w", err)
+		}
+		mentioned, err := rescanMentions(ctx, tx, row.ID, sourceOwnBody, req.Key, req.Description, now, actorID)
+		if err != nil {
+			return err
+		}
+		notifiedIDs = mentioned
+
+		changes := auditChanges(map[string]any{"title": title})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventProjectUpdated, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetProjectByKey(ctx, tx, req.Key)
+		if err != nil {
+			return fmt.Errorf("service: reload updated project: %w", err)
+		}
+		if err := indexProjectSearchDoc(ctx, tx, row.ID, updated.Entity); err != nil {
+			return err
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Project{}, err
+	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Key, Project: result.Key})
+	s.publishNotified(ctx, notifiedIDs)
+	return result, nil
+}
+
+// SetProjectStatusRequest is SetProjectStatus's input.
+type SetProjectStatusRequest struct {
+	Key             string
+	NewStatus       domain.ProjectStatus
+	ExpectedVersion int64
+}
+
+// SetProjectStatus archives or unarchives a project (ADR 0021):
+// visibility only. It does not soft-delete the project (ADR 0013) and
+// does not cascade to its tickets, features, or knowledge records,
+// which stay fully readable and writable regardless of the project's
+// own status.
+func (s *Service) SetProjectStatus(ctx context.Context, req SetProjectStatusRequest, actor domain.ActorRef, correlationID string) (domain.Project, error) {
+	if !req.NewStatus.Valid() {
+		return domain.Project{}, newValidationError("status", "invalid status %q", req.NewStatus)
+	}
+
+	var result domain.Project
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetProjectByKey(ctx, tx, req.Key)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("project %q not found", req.Key)
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up project: %w", err)
+		}
+
+		if _, err := store.UpdateProjectStatus(ctx, tx, row.ID, string(req.NewStatus), req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: update project status: %w", err)
+		}
+
+		eventType := eventProjectArchived
+		if req.NewStatus == domain.ProjectStatusActive {
+			eventType = eventProjectUnarchived
+		}
+		changes := auditChanges(map[string]any{"status": string(req.NewStatus)})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventType, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetProjectByKey(ctx, tx, req.Key)
+		if err != nil {
+			return fmt.Errorf("service: reload updated project: %w", err)
+		}
+		if err := indexProjectSearchDoc(ctx, tx, row.ID, updated.Entity); err != nil {
+			return err
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.Project{}, err
+	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Key, Project: result.Key})
+	return result, nil
 }

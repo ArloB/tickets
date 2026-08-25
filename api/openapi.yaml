@@ -69,6 +69,17 @@ paths:
           in: query
           schema:
             type: string
+        - name: include_archived
+          in: query
+          description: >
+            When true, also return archived projects (ADR 0021).
+            Default false: archived projects are excluded, matching
+            the default search behavior's opposite choice — see
+            Search's kind parameter description for why the two
+            differ.
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: OK
@@ -94,6 +105,74 @@ paths:
                 $ref: '#/components/schemas/Project'
         '404':
           $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateProject
+      summary: Update a project's title/description (optimistic concurrency). See POST .../status for archive/unarchive.
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /projects/{key}/status:
+    post:
+      operationId: updateProjectStatus
+      summary: >
+        Archive or unarchive a project (optimistic concurrency, ADR
+        0021). Archiving is visibility only: the project drops out of
+        the default GET /projects and search results, but its
+        tickets, features, and knowledge records stay fully readable
+        and writable. Mirrors POST /features/{ref}/status's
+        status-only contract.
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectStatusRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Version conflict — see error.current_version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   /projects/{key}/brief:
     get:
@@ -2984,12 +3063,16 @@ paths:
       operationId: search
       summary: >
         Unified full-text search (product spec §5.12/§6.3) over
-        tickets, features, decisions, plans, documents, comments,
-        attachment names, and external link titles/URLs, ranked by
-        relevance. q is required; project/kind/status narrow an
-        otherwise cross-project search. Pagination is offset-based (not
-        the (created_at, id) cursor most list endpoints use) and capped
-        at 500 results — see ADR 0018.
+        projects, tickets, features, decisions, plans, documents,
+        comments, attachment names, and external link titles/URLs,
+        ranked by relevance. q is required; project/kind/status narrow
+        an otherwise cross-project search. Pagination is offset-based
+        (not the (created_at, id) cursor most list endpoints use) and
+        capped at 500 results — see ADR 0018. Unlike GET /projects,
+        search is not filtered by project status (ADR 0021): an
+        archived project and its still-writable tickets remain equally
+        findable, so hiding the project's own row while surfacing its
+        tickets would be the inconsistent outcome.
       parameters:
         - name: q
           in: query
@@ -3004,8 +3087,9 @@ paths:
         - name: kind
           in: query
           description: >
-            Comma-separated kinds to filter to: ticket, feature,
-            decision, plan, document, comment, attachment, link.
+            Comma-separated kinds to filter to: project, ticket,
+            feature, decision, plan, document, comment, attachment,
+            link.
           schema:
             type: string
             example: ticket,comment
@@ -3761,6 +3845,19 @@ components:
         description:
           type: string
 
+    UpdateProjectRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        description: { type: string }
+
+    UpdateProjectStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+
     Project:
       type: object
       required: [key, title, description, status, version, created_at, updated_at]
@@ -4328,6 +4425,9 @@ components:
         - attachment_added
         - attachment_replaced
         - attachment_removed
+        - project_updated
+        - project_archived
+        - project_unarchived
 
     ActivityEvent:
       type: object

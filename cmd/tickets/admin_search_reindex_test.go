@@ -61,10 +61,11 @@ func TestAdminSearchReindex(t *testing.T) {
 			t.Fatalf("runAdmin search-reindex: %v", err)
 		}
 	})
-	// The project's auto-created General feature is indexed too, so
-	// this is the one ticket plus that one feature, not just the ticket.
-	if !strings.Contains(out, "reindexed 2 search document(s)") {
-		t.Errorf("search-reindex output = %q, want it to report reindexing 2 documents", out)
+	// The project itself and its auto-created General feature are
+	// indexed too, so this is the one ticket plus that one feature plus
+	// the project, not just the ticket.
+	if !strings.Contains(out, "reindexed 3 search document(s)") {
+		t.Errorf("search-reindex output = %q, want it to report reindexing 3 documents", out)
 	}
 
 	st2, err := store.Open(dataDir)

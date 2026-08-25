@@ -41,6 +41,9 @@ const (
 	eventAgentCreated         = "agent_created"
 	eventAgentTokenIssued     = "agent_token_issued"
 	eventAgentTokenRevoked    = "agent_token_revoked"
+	eventProjectUpdated       = "project_updated"
+	eventProjectArchived      = "project_archived"
+	eventProjectUnarchived    = "project_unarchived"
 )
 
 // auditChanges marshals a small before/after or field-summary map into

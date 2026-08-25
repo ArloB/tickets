@@ -47,6 +47,23 @@ func indexFeatureSearchDoc(ctx context.Context, tx *sql.Tx, entityID, projectEnt
 	return nil
 }
 
+// indexProjectSearchDoc indexes a project's own title/description
+// (Phase 7 — plan.md §6.3 promises project text is searchable, and
+// RebuildSearchIndex's original kind set omitted it). Ref is the
+// project's key itself: a project has no seq-numbered public
+// reference the way tickets/features/decisions do (product spec
+// §5.2's table only defines one for those kinds), and its key already
+// serves as its stable, human-facing identity.
+func indexProjectSearchDoc(ctx context.Context, tx *sql.Tx, entityID int64, p domain.Project) error {
+	if err := store.UpsertSearchDocument(ctx, tx, "entity", entityID, store.SearchDocumentFields{
+		EntityID: entityID, Kind: "project", ProjectID: entityID,
+		Ref: p.Key, Status: string(p.Status), Title: p.Title, Body: p.Title + "\n" + p.Description,
+	}); err != nil {
+		return fmt.Errorf("service: index project search document: %w", err)
+	}
+	return nil
+}
+
 func indexDecisionSearchDoc(ctx context.Context, tx *sql.Tx, entityID, projectEntityID int64, d domain.Decision) error {
 	body := d.Context + "\n" + d.Decision + "\n" + d.Rationale + "\n" + d.Consequences
 	if err := store.UpsertSearchDocument(ctx, tx, "entity", entityID, store.SearchDocumentFields{

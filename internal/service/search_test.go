@@ -127,8 +127,8 @@ func TestSearchFeatureCascadeDeleteRemovesDependentTicketAndItsComments(t *testi
 	}
 
 	before, err := s.Search(ctx, SearchRequest{Query: "cascade"})
-	if err != nil || len(before.Hits) != 2 {
-		t.Fatalf("Search before cascade delete = %+v, %v; want 2 hits (ticket + comment)", before, err)
+	if err != nil || len(before.Hits) != 3 {
+		t.Fatalf("Search before cascade delete = %+v, %v; want 3 hits (project + ticket + comment — the project's own title, \"Cascade\", matches too now that projects are indexed)", before, err)
 	}
 
 	if _, err := s.DeleteFeature(ctx, DeleteFeatureRequest{Ref: mustParseRef(t, feature.Ref), Cascade: true, ExpectedVersion: feature.Version}, testActor, testCorrelationID); err != nil {
@@ -136,8 +136,8 @@ func TestSearchFeatureCascadeDeleteRemovesDependentTicketAndItsComments(t *testi
 	}
 
 	after, err := s.Search(ctx, SearchRequest{Query: "cascade"})
-	if err != nil || len(after.Hits) != 0 {
-		t.Fatalf("Search after cascade delete = %+v, %v; want 0 hits (cascade-deleted ticket and its comment must both leave the index)", after, err)
+	if err != nil || len(after.Hits) != 1 {
+		t.Fatalf("Search after cascade delete = %+v, %v; want 1 hit (the project itself — cascade-deleted ticket and its comment must both leave the index, but the project record is untouched)", after, err)
 	}
 }
 
@@ -171,15 +171,79 @@ func TestSearchRebuildIndexRepopulatesFromScratch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RebuildSearchIndex: %v", err)
 	}
-	// The project's auto-created General feature is indexed too, so
-	// this is the one ticket plus that one feature, not just the ticket.
-	if count != 2 {
-		t.Fatalf("RebuildSearchIndex count = %d, want 2", count)
+	// The project itself and its auto-created General feature are
+	// indexed too, so this is the one ticket plus that one feature plus
+	// the project, not just the ticket.
+	if count != 3 {
+		t.Fatalf("RebuildSearchIndex count = %d, want 3", count)
 	}
 
 	rebuilt, err := s.Search(ctx, SearchRequest{Query: "widget"})
 	if err != nil || len(rebuilt.Hits) != 1 {
 		t.Fatalf("Search after rebuild = %+v, %v; want 1 hit", rebuilt, err)
+	}
+}
+
+// TestSearchRebuildIndexCoversCommentsOnNonTicketEntities is the
+// rebuild-path counterpart to TestSearchFindsCommentsOnNonTicketEntities,
+// which (as that test's own doc comment notes) only exercises the
+// incremental indexing path. RebuildSearchIndex used to JOIN comments
+// directly to tickets, silently dropping comments on any other
+// commentable kind on every rebuild — a real pre-existing bug (Phase 6
+// Step 2 made comments ref-agnostic; this query was never updated to
+// match) closed by generalizing the comment pass through the same
+// owners map the attachments/links passes already used. This asserts
+// a comment on a project and a comment on a plan both survive a
+// rebuild, not just incremental creation.
+func TestSearchRebuildIndexCoversCommentsOnNonTicketEntities(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "RBC")
+
+	plan, err := s.CreateContentItem(ctx, CreateContentItemRequest{
+		ProjectKey: "RBC", Kind: domain.KindPlan, Title: "Rollout plan", Body: "steps",
+	}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("CreateContentItem: %v", err)
+	}
+	if _, err := s.AddComment(ctx, AddCommentRequest{
+		Ref: domain.Reference{ProjectKey: "RBC", Kind: domain.KindProject}, Body: "glorbnaxian project note",
+	}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("AddComment on project: %v", err)
+	}
+	if _, err := s.AddComment(ctx, AddCommentRequest{
+		Ref: mustParseRef(t, plan.Ref), Body: "glorbnaxian plan note",
+	}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("AddComment on plan: %v", err)
+	}
+
+	before, err := s.Search(ctx, SearchRequest{Query: "glorbnaxian"})
+	if err != nil || len(before.Hits) != 2 {
+		t.Fatalf("Search before rebuild = %+v, %v; want 2 hits (project comment + plan comment)", before, err)
+	}
+
+	if _, err := s.RebuildSearchIndex(ctx); err != nil {
+		t.Fatalf("RebuildSearchIndex: %v", err)
+	}
+
+	after, err := s.Search(ctx, SearchRequest{Query: "glorbnaxian"})
+	if err != nil {
+		t.Fatalf("Search after rebuild: %v", err)
+	}
+	var sawProjectComment, sawPlanComment bool
+	for _, h := range after.Hits {
+		if h.Kind != "comment" {
+			continue
+		}
+		if h.Ref == "RBC" {
+			sawProjectComment = true
+		}
+		if h.Ref == plan.Ref {
+			sawPlanComment = true
+		}
+	}
+	if !sawProjectComment || !sawPlanComment {
+		t.Errorf("Search after rebuild = %+v, want a comment hit on RBC and one on %s (the ticket-only JOIN bug this test guards against)", after.Hits, plan.Ref)
 	}
 }
 

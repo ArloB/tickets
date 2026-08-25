@@ -122,7 +122,7 @@ func BenchmarkListProjectsFirstPage(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := store.ListProjects(ctx, st.DB(), 20, "", 0); err != nil {
+		if _, err := store.ListProjects(ctx, st.DB(), 20, "", 0, false); err != nil {
 			b.Fatalf("ListProjects: %v", err)
 		}
 	}

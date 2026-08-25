@@ -17,7 +17,7 @@ import (
 var searchKinds = map[string]bool{
 	"ticket": true, "feature": true, "decision": true,
 	"plan": true, "document": true, "comment": true,
-	"attachment": true, "link": true,
+	"attachment": true, "link": true, "project": true,
 }
 
 // SearchRequest is Search's input. ProjectKey "" searches every

@@ -153,6 +153,35 @@ func InsertFeature(ctx context.Context, q Querier, entityID, projectEntityID, se
 	return nil
 }
 
+// UpdateProjectFields applies a conditional title/description update,
+// mirroring UpdateFeatureFields.
+func UpdateProjectFields(ctx context.Context, q Querier, entityID int64, title, description string, expectedVersion int64, now string) (newVersion int64, err error) {
+	newVersion, err = bumpEntityVersion(ctx, q, entityID, expectedVersion, now)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := q.ExecContext(ctx,
+		`UPDATE projects SET title = ?, description = ? WHERE id = ?`,
+		title, description, entityID,
+	); err != nil {
+		return 0, fmt.Errorf("update project fields: %w", err)
+	}
+	return newVersion, nil
+}
+
+// UpdateProjectStatus applies a conditional status update
+// (active/archived), mirroring UpdateFeatureStatus.
+func UpdateProjectStatus(ctx context.Context, q Querier, entityID int64, newStatus string, expectedVersion int64, now string) (newVersion int64, err error) {
+	newVersion, err = bumpEntityVersion(ctx, q, entityID, expectedVersion, now)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := q.ExecContext(ctx, `UPDATE projects SET status = ? WHERE id = ?`, newStatus, entityID); err != nil {
+		return 0, fmt.Errorf("update project status: %w", err)
+	}
+	return newVersion, nil
+}
+
 // ProjectRow is the internal (store-only) view of a project: the
 // domain.Project value plus the internal surrogate id, which service
 // needs for further joins but which never leaves internal/service.
@@ -248,13 +277,21 @@ type ProjectPage struct {
 // followed by a sort, since nothing told the planner project rows are
 // a small, kind-scoped subset. See that migration's comment for the
 // benchmark that found this.
-func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt string, afterID int64) (ProjectPage, error) {
+//
+// includeArchived: false restricts to status = 'active' (the default
+// list/search view — ADR 0021); true returns every non-deleted
+// project regardless of status.
+func ListProjects(ctx context.Context, q Querier, limit int, afterCreatedAt string, afterID int64, includeArchived bool) (ProjectPage, error) {
+	statusFilter := " AND p.status = 'active'"
+	if includeArchived {
+		statusFilter = ""
+	}
 	rows, err := q.QueryContext(ctx,
 		`SELECT e.id, e.uuid, p.key, p.title, p.description, p.status, e.version,
 		        e.created_at, e.updated_at, ca.kind, ca.name
 		 FROM projects p JOIN entities e ON e.id = p.id
 		 LEFT JOIN actors ca ON ca.id = e.created_by
-		 WHERE e.kind = 'project' AND e.deleted_at IS NULL
+		 WHERE e.kind = 'project' AND e.deleted_at IS NULL`+statusFilter+`
 		   AND (e.created_at > ? OR (e.created_at = ? AND e.id > ?))
 		 ORDER BY e.created_at ASC, e.id ASC
 		 LIMIT ?`,

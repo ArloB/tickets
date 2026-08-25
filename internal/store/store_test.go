@@ -85,7 +85,7 @@ func TestTimeLayoutIsFixedWidth(t *testing.T) {
 		t.Fatalf("insert projects row B: %v", err)
 	}
 
-	page, err := ListProjects(ctx, s.DB(), 10, "", 0)
+	page, err := ListProjects(ctx, s.DB(), 10, "", 0, false)
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
