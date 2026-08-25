@@ -148,12 +148,10 @@ Not present in Phase 3:
   (`docs/contracts/cli.md`'s `admin agent`/`admin token`).
 - A project-brief view — a useful brief wants decisions/plans in a
   more complete form than Phase 3's minimal decisions slice provides.
-  Checked against `plan.md` §14's Phase 5 bullet list and all nine
-  Phase 5 steps at Step 9 close-out: it appears in neither, so this is
-  corrected from an earlier "deferred to Phase 5" note (written during
-  Phase 3, before Phase 5's actual scope was decided) to what's
-  actually true — still unscheduled, not deferred to any committed
-  phase or step.
+  Scheduled into `plan.md` §14's Phase 6 bullet list now that its
+  blocker (Phase 5's decision/plan records) is resolved — moved there
+  from §18's speculative future-options list, where it had sat since
+  Phase 0. Not yet implemented.
 
 ## Representative workflow
 

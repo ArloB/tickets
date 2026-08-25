@@ -587,6 +587,7 @@ Exit criterion: knowledge records and attachments retain complete visible histor
 
 ### Phase 6: release hardening
 
+- Implement a project summary/brief view — a single read assembling what a new agent needs to get oriented fast (upcoming/in-progress tickets, issue register highlights, feature list, recent activity, decisions/plans). No new schema: an aggregation over data the information model (§5) already covers, natural fit in the Phase 3 MCP tool surface (§7.2's `project_get`/`search` neighborhood). Moved here from §18's future options now that its blocker — Phase 5's decision/plan records — is resolved.
 - Implement backup, restore, JSON export/import, integrity checks, and documented recovery drills.
 - Run performance benchmarks and optimize indexes, expansions, search, and agent payloads.
 - Threat-model authentication, uploads, Markdown, path references, anonymous access, and MCP token handling.
@@ -660,7 +661,6 @@ Future work should be driven by observed use rather than included speculatively.
 - Due dates, milestones, estimates, and recurring tickets.
 - Plugin packaging or hosted remote MCP distribution.
 - A PostgreSQL storage option if deployment or concurrency eventually exceeds SQLite's intended role.
-- A project summary/brief view — a single read assembling what a new agent needs to get oriented fast (upcoming/in-progress tickets, issue register highlights, feature list, recent activity, decisions once §5 decision/plan records exist). No new schema: it's an aggregation over data the information model (§5) already covers. Natural fit is the Phase 3 MCP tool surface (§7.2's `project_get`/`work_search` neighborhood) rather than earlier, since a genuinely useful brief wants decisions/plans (§5, Phase 5) too — building it before those exist means reshaping it twice.
 
 None of these should compromise exportability, stable references, attribution, or the single application-service boundary.
 
