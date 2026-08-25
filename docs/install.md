@@ -22,6 +22,16 @@ Vite build into `web/dist`), so the binary it produces has a working
 web UI and a real version/commit/date recorded via `-ldflags` (see
 `tickets --version`).
 
+### Building release archives for another platform
+
+`task release` cross-compiles archives for every released target
+(`linux/amd64`, `linux/arm64`, `windows/amd64`) from whatever host
+you run it on — pure Go, no CGO anywhere in this module, so producing
+a Windows binary from Linux (or vice versa) needs nothing beyond the
+Go toolchain already installed for `task build`. Output goes to
+`dist/`: one `.tar.gz` (Linux) or `.zip` (Windows) per target, plus a
+`SHA256SUMS` manifest checkable with `sha256sum -c SHA256SUMS`.
+
 A bare `go build ./cmd/tickets` also works with no Task and no Node —
 it embeds whatever is already sitting in `web/dist/` (the placeholder
 if you've never run `web:build`) and reports `dev`/`none`/`unknown` for

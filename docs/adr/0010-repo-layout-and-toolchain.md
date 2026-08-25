@@ -97,3 +97,20 @@ toolchain joined it.**
   cookie is `SameSite=Lax` (ADR 0004) and a cross-origin dev request
   would silently drop it. `task web:install`/`web:lint`/`web:test`
   round out the individual steps `task ci` composes.
+
+**Phase 6 Step 10 addendum — release archives.** `tools/release`
+(a small `main` package, invoked by `task release`) cross-compiles
+`linux/amd64`, `linux/arm64`, and `windows/amd64` binaries and
+packages each into an archive (`.tar.gz` on Linux, `.zip` on Windows)
+plus a `SHA256SUMS` manifest into `dist/` (already covered by
+`.gitignore`'s `/dist/` pattern from Phase 0). It lives at the repo
+root, a sibling of `cmd/`, not under `internal/` — it is build/release
+tooling, not part of the shipped product, so it doesn't count against
+this ADR's "`cmd/tickets` is the single entry point" claim, the same
+distinction that already excludes `go test`/`task` themselves from
+that claim. No extra toolchain is needed for any target: pure Go,
+`CGO_ENABLED=0` set explicitly during cross-compilation, matching ADR
+0003. `.github/workflows/release.yml` (tag-triggered, `push: v*`)
+calls `task release` and uploads `dist/*` to the GitHub release —
+dormant alongside `ci.yml` until a remote exists (see that workflow's
+header for why).

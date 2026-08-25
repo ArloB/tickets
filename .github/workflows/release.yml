@@ -1,0 +1,44 @@
+# Dormant until a GitHub remote exists (see ci.yml's header comment).
+# Mirrors `task release` exactly — every step here just calls the same
+# task a developer runs locally, so local and CI release builds can
+# never drift. Note: unlike ci.yml (first-party actions/* only), the
+# upload step below uses softprops/action-gh-release, a third-party
+# action — a deliberate choice to make when this workflow is un-dormed,
+# not an oversight.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # task release's VERSION is `git describe --tags`, which
+          # needs full history (and the tags themselves) to resolve
+          # correctly — a shallow checkout would report the wrong
+          # version.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install go-task
+        run: go install github.com/go-task/task/v3/cmd/task@latest
+
+      - name: release
+        run: task release
+
+      - name: Upload archives to the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

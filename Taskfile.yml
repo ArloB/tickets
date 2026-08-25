@@ -135,6 +135,26 @@ tasks:
     cmds:
       - wsl -e bash -lc "cd {{.WSL_REPO}} && git pull --ff-only && task fmt lint test:race openapi web:lint web:test build"
 
+  release:
+    desc: >
+      Cross-compile release archives for linux/amd64, linux/arm64, and
+      windows/amd64 (tools/release), embedding the same
+      version/commit/date ldflags `task build` uses and a real web UI
+      (depends on web:build). Pure Go, no CGO anywhere in this module
+      (ADR 0003), so cross-compiling a Windows/arm64 binary from any
+      host needs nothing beyond the Go toolchain already required for
+      `task build` — no per-platform CI runner, no extra toolchain
+      install. Output: one .tar.gz (linux) or .zip (windows) per
+      target plus a SHA256SUMS manifest, all in dist/ (gitignored).
+      VERSION comes from `git describe --tags --dirty`: a real tagged
+      release is only ever built from a clean checkout at that tag
+      (release.yml's CI run always is), but a local run against
+      uncommitted changes produces a "-dirty"-suffixed archive instead
+      of silently mislabeling it as the tagged version.
+    deps: [web:build]
+    cmds:
+      - go run ./tools/release -version "{{.VERSION}}" -commit "{{.COMMIT}}" -date "{{.DATE}}" -out dist
+
   bench:
     desc: >
       Run product spec §11's performance benchmarks against the full
