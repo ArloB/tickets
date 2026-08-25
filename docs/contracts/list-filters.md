@@ -103,9 +103,15 @@ everything else on this page.
 `(project_id, priority_rank[, severity_rank], position)` only — a
 selective filter (e.g. `assignee`) on top of either index still scans
 in ordering order and discards non-matching rows, rather than seeking
-directly to matching ones. This is fine at small-to-medium project
-sizes and unverified at the product spec §11 reference scale (100,000
-tickets) as of this writing; see `internal/store/bench_test.go` before
-assuming a filtered query meets the §11 p95 targets, and add a
-covering index only where a benchmark actually shows one is needed —
-not speculatively.
+directly to matching ones.
+
+**Verified at the product spec §11 reference scale (Phase 7):**
+`internal/store/bench_test.go`'s `BenchmarkPriorityQueueFilteredByAssignee`
+measures exactly this — a selective `assignee` filter (matching 1 of
+4,000 tickets) over the 100,000-ticket reference dataset — at 1.37 ms
+p95, comfortably inside §11's 100 ms target (~73x headroom) though
+visibly slower than the unfiltered priority queue (about 7x), the scan-
+and-discard cost this section describes. See `docs/benchmarks.md` for
+the full run. No covering index was added, per this section's own
+instruction: add one only where a benchmark actually shows it's
+needed, not speculatively — and this one doesn't show that yet.

@@ -3,14 +3,42 @@ package service
 import (
 	"context"
 	"os"
+	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/fixtures"
 	"github.com/ArloB/tickets/internal/store"
 )
+
+// benchP95 is internal/store/bench_test.go's helper, duplicated here
+// rather than shared across packages (this codebase's stated
+// preference — see ADR 0011's note on duplicated store functions).
+// See that copy's doc comment for the full rationale, in particular
+// why its "first-iter-ms/op" metric is deliberately not called "cold."
+func benchP95(b *testing.B, fn func()) {
+	b.Helper()
+	durations := make([]time.Duration, 0, b.N)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		start := time.Now()
+		fn()
+		durations = append(durations, time.Since(start))
+	}
+	b.StopTimer()
+	if len(durations) > 0 {
+		b.ReportMetric(float64(durations[0].Microseconds())/1000, "first-iter-ms/op")
+	}
+	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+	idx := int(float64(len(durations)) * 0.95)
+	if idx >= len(durations) {
+		idx = len(durations) - 1
+	}
+	b.ReportMetric(float64(durations[idx].Microseconds())/1000, "p95-ms/op")
+}
 
 var (
 	fullFixtureOnce    sync.Once
@@ -81,12 +109,11 @@ func BenchmarkCreateTicket(b *testing.B) {
 		ProjectKey: sum.SampleProjectKey, Type: domain.TicketTypeTask, Title: "Benchmark ticket",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	benchP95(b, func() {
 		if _, err := svc.CreateTicket(ctx, req, testActor, testCorrelationID, "", ""); err != nil {
 			b.Fatalf("CreateTicket: %v", err)
 		}
-	}
+	})
 }
 
 // BenchmarkListActivityFirstPage is §11's "first-page list" target

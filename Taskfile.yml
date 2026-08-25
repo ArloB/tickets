@@ -165,12 +165,11 @@ tasks:
       not seconds, and Benchmark functions are never run by a plain
       `go test`, so leaving it out costs nothing there. Records ns/op
       and allocs (-benchmem); go test's own output header records
-      goos/goarch/cpu for you. "Cold vs warm" isn't independently
-      controlled here — each package's fixture is generated fresh at
-      the start of that package's run, and SQLite's own page cache
-      warms up across a benchmark's b.N iterations within it; report
-      numbers as "first run this process" rather than claiming
-      precision this setup doesn't have (product spec §11: "benchmarks
+      goos/goarch/cpu for you. Three benchmarks (one per §11 target
+      category) also report p95-ms/op and cold-ms/op custom metrics
+      via benchP95 (internal/store/bench_test.go) — see
+      docs/benchmarks.md's "Warm/cold state" section for exactly what
+      "cold" does and doesn't mean here (product spec §11: "benchmarks
       must record dataset, hardware, build, and cold/warm state").
     cmds:
       - go version
