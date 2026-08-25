@@ -13,15 +13,6 @@ Server administration (`server`, `setup`, `admin`) is covered in
 here — those commands open the data directory directly rather than
 talking to a running server.
 
-**Note:** `tickets ticket` has no `create` subcommand today — only
-`list, get, update, assign, move, delete, restore, relate,
-relationships, unrelate, associate, associations, disassociate`.
-Create a ticket via the web UI, a direct `POST
-/projects/{key}/tickets` call (see [`docs/api.md`](api.md)), or an
-MCP client's `ticket_create` tool. Every other principal entity
-(`project`, `feature`, `decision`, `plan`, `document`) does have a CLI
-`create` subcommand.
-
 ## Connecting
 
 Client-mode commands (`project`, `feature`, `ticket`, `comment`,
@@ -66,9 +57,10 @@ tickets project create --key ABC --title "Widget Overhaul"
 # highlights, features, recent activity, recent decisions/plans.
 tickets project brief ABC
 
-# List, filtered and sorted the same way the web UI's priority queue is
-# (tickets themselves are created via the web UI, the HTTP API, or an
-# MCP client's ticket_create tool — see the note above).
+# Create a ticket.
+tickets ticket create --project ABC --type task --title "Redesign the settings page" --priority high
+
+# List, filtered and sorted the same way the web UI's priority queue is.
 tickets ticket list --project ABC --view priority_queue
 
 # Update with optimistic concurrency — --if-version guards against a lost update.

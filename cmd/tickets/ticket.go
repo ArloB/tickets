@@ -19,13 +19,15 @@ import (
 // after flags the way it can with some CLI frameworks.
 func runTicket(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("ticket: expected a subcommand (list, get, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)")
+		return fmt.Errorf("ticket: expected a subcommand (list, get, create, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)")
 	}
 	switch args[0] {
 	case "list":
 		return runTicketList(args[1:])
 	case "get":
 		return runTicketGet(args[1:])
+	case "create":
+		return runTicketCreate(args[1:])
 	case "update":
 		return runTicketUpdate(args[1:])
 	case "assign":
@@ -175,6 +177,69 @@ func runTicketGet(args []string) error {
 	}
 	return writeTable(os.Stdout, []string{"REF", "TITLE", "TYPE", "STATUS", "PRIORITY", "SEVERITY", "VERSION"},
 		[][]string{{t.Ref, t.Title, t.Type, colorStatus(t.Status, enabled), colorPriority(t.Priority, enabled), severity, fmt.Sprintf("%d", t.Version)}})
+}
+
+// runTicketCreate is `tickets ticket create` — POST /projects/{key}/tickets.
+// Closes a real CLI/MCP parity gap found during Phase 6 Step 9
+// documentation (docs/mvp-acceptance.md row 10): every other principal
+// entity (project, feature, decision, plan, document) already has a
+// CLI create subcommand and MCP has ticket_create, but until this
+// change a ticket could only be created via the web UI, a raw HTTP
+// call, or MCP — not the CLI JSON path §16 criterion 10 promises.
+// No --idempotency-key here: internal/apiclient.CreateTicket doesn't
+// forward one today (unlike CreateProject/CreateDecision/AddComment),
+// consistent with docs/contracts/cli.md's "No other create command
+// exposes this flag today."
+func runTicketCreate(args []string) error {
+	fs, cfg, err := newClientFlagSet("ticket create")
+	if err != nil {
+		return err
+	}
+	ticketType := fs.String("type", "", "task, bug, security, or chore (required)")
+	title := fs.String("title", "", "the ticket title (required)")
+	description := fs.String("description", "", "optional Markdown description, given inline")
+	descriptionFile := fs.String("description-file", "", "path to a file containing the Markdown description, or - for stdin")
+	priority := fs.String("priority", "", "critical, high, medium, or low (default medium)")
+	severity := fs.String("severity", "", "critical, high, medium, or low (bug/security tickets only)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := cfg.finish(); err != nil {
+		return err
+	}
+	if cfg.Project == "" {
+		return fmt.Errorf("ticket create: --project or TICKETS_PROJECT is required")
+	}
+	set := visitedFlags(fs)
+	if !set["type"] {
+		return fmt.Errorf("ticket create: --type is required")
+	}
+	if !set["title"] {
+		return fmt.Errorf("ticket create: --title is required")
+	}
+	if set["description"] && set["description-file"] {
+		return fmt.Errorf("ticket create: --description and --description-file are mutually exclusive")
+	}
+
+	desc := *description
+	if set["description-file"] {
+		desc, err = readBodyFile(*descriptionFile)
+		if err != nil {
+			return err
+		}
+	}
+
+	t, err := cfg.newClient().CreateTicket(context.Background(), cfg.Project, apiclient.CreateTicketRequest{
+		Type: *ticketType, Title: *title, Description: desc, Priority: *priority, Severity: *severity,
+	})
+	if err != nil {
+		return err
+	}
+	if cfg.JSON {
+		return writeJSON(os.Stdout, t)
+	}
+	_, err = fmt.Fprintf(os.Stdout, "%s created (version %d)\n", t.Ref, t.Version)
+	return err
 }
 
 // popTicketRef extracts a subcommand's leading positional ticket

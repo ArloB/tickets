@@ -62,6 +62,89 @@ func newTestAPIServerWithAgent(t *testing.T) (apiURL, token, ticketRef string) {
 	return ts.URL + "/api/v1", rawToken, ticket.Ref
 }
 
+func TestTicketCreateJSON(t *testing.T) {
+	isolateClientEnv(t)
+	apiURL, token, _ := newTestAPIServerWithAgent(t)
+	t.Setenv("TICKETS_API_TOKEN", token)
+
+	out := captureStdout(t, func() {
+		if err := runTicket([]string{
+			"create", "--url", apiURL, "--project", "ABC",
+			"--type", "task", "--title", "Newly created ticket", "--priority", "high", "--json",
+		}); err != nil {
+			t.Fatalf("runTicket create: %v", err)
+		}
+	})
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("decode ticket create --json output: %v (raw: %s)", err, out)
+	}
+	if decoded["title"] != "Newly created ticket" {
+		t.Errorf("ticket create output title = %v, want %q", decoded["title"], "Newly created ticket")
+	}
+	if decoded["priority"] != "high" {
+		t.Errorf("ticket create output priority = %v, want high", decoded["priority"])
+	}
+	ref, _ := decoded["ref"].(string)
+	if ref == "" {
+		t.Fatalf("ticket create output has no ref: %s", out)
+	}
+
+	// Confirm the created ticket is actually retrievable, not just
+	// echoed back — a real round trip through the server, not a
+	// client-side echo of the request.
+	getOut := captureStdout(t, func() {
+		if err := runTicket([]string{"get", ref, "--url", apiURL, "--json"}); err != nil {
+			t.Fatalf("runTicket get %s: %v", ref, err)
+		}
+	})
+	if !strings.Contains(getOut, "Newly created ticket") {
+		t.Errorf("ticket get %s after create = %s, want it to contain the created title", ref, getOut)
+	}
+}
+
+// TestTicketCreateDefaultsPriorityWhenOmitted confirms omitting
+// --priority (the common case, per runTicketCreate's own help text:
+// "default medium") actually works end to end — apiclient.CreateTicketRequest.Priority
+// has no `omitempty`, so an omitted flag sends `"priority":""` over
+// the wire, and this must not be rejected as an invalid priority
+// value before service.CreateTicket's own empty-defaults-to-medium
+// logic ever runs.
+func TestTicketCreateDefaultsPriorityWhenOmitted(t *testing.T) {
+	isolateClientEnv(t)
+	apiURL, token, _ := newTestAPIServerWithAgent(t)
+	t.Setenv("TICKETS_API_TOKEN", token)
+
+	out := captureStdout(t, func() {
+		if err := runTicket([]string{
+			"create", "--url", apiURL, "--project", "ABC",
+			"--type", "task", "--title", "No priority given", "--json",
+		}); err != nil {
+			t.Fatalf("runTicket create with no --priority: %v", err)
+		}
+	})
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("decode ticket create --json output: %v (raw: %s)", err, out)
+	}
+	if decoded["priority"] != "medium" {
+		t.Errorf("ticket create with no --priority: priority = %v, want medium (the documented default)", decoded["priority"])
+	}
+}
+
+func TestTicketCreateRequiresTypeAndTitle(t *testing.T) {
+	isolateClientEnv(t)
+	apiURL, token, _ := newTestAPIServerWithAgent(t)
+	t.Setenv("TICKETS_API_TOKEN", token)
+
+	if err := runTicket([]string{"create", "--url", apiURL, "--project", "ABC", "--title", "Missing type"}); err == nil {
+		t.Error("ticket create with no --type: want error, got nil")
+	}
+	if err := runTicket([]string{"create", "--url", apiURL, "--project", "ABC", "--type", "task"}); err == nil {
+		t.Error("ticket create with no --title: want error, got nil")
+	}
+}
+
 func TestTicketUpdateJSON(t *testing.T) {
 	isolateClientEnv(t)
 	apiURL, token, ref := newTestAPIServerWithAgent(t)

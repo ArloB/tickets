@@ -108,7 +108,7 @@ commands:
   admin    maintenance operations (purge-idempotency-keys, search-reindex, integrity, backup, restore, agent, token)
   project  client commands against a running Tickets server (list, create, brief)
   feature  client commands against a running Tickets server (list, get, create, update)
-  ticket   client commands against a running Tickets server (list, get, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
+  ticket   client commands against a running Tickets server (list, get, create, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
   comment  client commands against a running Tickets server (add, list, edit, delete)
   decision client commands against a running Tickets server (list, get, create, update, versions, diff)
   plan     client commands against a running Tickets server (list, get, create, update, versions, diff, download)

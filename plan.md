@@ -265,7 +265,7 @@ User-facing records are archived or soft-deleted. Audit records and referenced c
 
 Users must be able to:
 
-- Create, edit, archive, browse, and search projects.
+- Create, edit, archive, browse, and search projects. **Status as of Phase 6 Step 11: create/browse/search are implemented; edit and archive are not** — no update route, service method, or UI form exists for a project's own fields. See `docs/mvp-acceptance.md` row 3.
 - Create, edit, prioritize, reorder, and change the state of features and tickets.
 - Create a ticket from a project without manually selecting a feature; the server uses `General`.
 - Move a ticket between features within its project.

@@ -4,10 +4,12 @@ import { adminPassword } from '../playwright.config.js'
 /** ValidProjectKey (internal/domain/reference.go): uppercase letters
  * and digits, 2-10 chars, starting with a letter. Tests share one
  * server/database for the whole run, so every project needs its own
- * key — this generates one that's astronomically unlikely to collide
- * within a single run. */
+ * key. 4 digits (9000 values, not 3 digits/900) — Phase 6 Step 11
+ * widened this after two 409 already_exists collisions surfaced under
+ * parallel workers with the smaller space; still well under the
+ * grammar's 10-char cap ("E2E" + 4 digits = 7). */
 export function randomKey(prefix = 'E2E'): string {
-  const suffix = Math.floor(Math.random() * 900 + 100)
+  const suffix = Math.floor(Math.random() * 9000 + 1000)
   return `${prefix}${suffix}`
 }
 
