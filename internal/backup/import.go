@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/store"
 	"github.com/google/uuid"
 )
@@ -65,8 +66,24 @@ const maxReportedProblems = 50
 // authenticate again; imported human actors likewise arrive without a
 // password (human_accounts is never exported). Both are stated in the
 // report, not silently left for the operator to discover.
-func Import(ctx context.Context, db *sql.DB, env Envelope, commit bool) (ImportReport, error) {
+//
+// attachmentsDir mirrors Export's own flag: when the envelope
+// references any blob (an uploaded attachment or content item), a
+// commit is refused unless attachmentsDir is non-empty and actually
+// contains every referenced hash — otherwise a committed import would
+// leave attachment metadata pointing at bytes that were never brought
+// over. dstBlobs is only used when attachmentsDir is non-empty and
+// commit succeeds, to copy the verified blobs into the target data
+// directory's own blob store.
+func Import(ctx context.Context, db *sql.DB, env Envelope, attachmentsDir string, dstBlobs *blobstore.Store, commit bool) (ImportReport, error) {
 	report := ImportReport{Counts: map[string]int{}}
+
+	if env.FormatVersion != envelopeFormatVersion {
+		report.Problems = append(report.Problems, fmt.Sprintf(
+			"export format version %d is not supported by this build (want %d) — re-export with a compatible tickets version",
+			env.FormatVersion, envelopeFormatVersion))
+		return report, nil
+	}
 
 	highest, err := store.HighestEmbeddedMigrationVersion()
 	if err != nil {
@@ -84,6 +101,26 @@ func Import(ctx context.Context, db *sql.DB, env Envelope, commit bool) (ImportR
 	}
 	report.Problems = append(report.Problems, emptyProblems...)
 	report.Problems = append(report.Problems, validateReferences(env)...)
+
+	referencedHashes := referencedBlobHashes(env)
+	var srcBlobs *blobstore.Store
+	if len(referencedHashes) > 0 {
+		if attachmentsDir == "" {
+			report.Problems = append(report.Problems, fmt.Sprintf(
+				"export references %d attachment blob(s) but no --attachments directory was given — "+
+					"the imported rows would point at content that was never brought over", len(referencedHashes)))
+		} else {
+			srcBlobs, err = blobstore.Open(attachmentsDir)
+			if err != nil {
+				return ImportReport{}, fmt.Errorf("import: open attachments directory: %w", err)
+			}
+			for hash := range referencedHashes {
+				if _, err := srcBlobs.ModTime(hash); err != nil {
+					report.Problems = append(report.Problems, fmt.Sprintf("attachments directory is missing blob %s", hash))
+				}
+			}
+		}
+	}
 
 	report.Counts["entities"] = len(env.Entities)
 	report.Counts["actors"] = len(env.Actors) - len(seedActors)
@@ -130,6 +167,21 @@ func Import(ctx context.Context, db *sql.DB, env Envelope, commit bool) (ImportR
 		return ImportReport{}, fmt.Errorf("import: commit: %w", err)
 	}
 	committed = true
+
+	// Blobs are copied only after the database transaction commits:
+	// the rows referencing them are the source of truth for what
+	// "imported successfully" means, and a blob copy failure after
+	// that point is reported as an error rather than silently
+	// unwound (blobstore.Store.Put's content-addressing makes a
+	// re-run safe — an already-present blob is simply skipped).
+	if srcBlobs != nil {
+		for hash := range referencedHashes {
+			if _, err := copyBlob(srcBlobs, dstBlobs, hash); err != nil {
+				return ImportReport{}, fmt.Errorf("import: copy attachment blobs: %w", err)
+			}
+		}
+	}
+
 	report.Committed = true
 	return report, nil
 }
@@ -184,6 +236,22 @@ func checkTargetEmpty(ctx context.Context, db *sql.DB) ([]string, error) {
 // re-implement every validation internal/service already owns.
 func validateReferences(env Envelope) []string {
 	var problems []string
+
+	// insertAll skips any envelope actor at id 1 or id 2 unconditionally
+	// (seedActors' own doc comment) — checked here, not there, so a
+	// hand-edited or corrupted envelope that put a real actor at one of
+	// those ids is refused with a named problem instead of silently
+	// dropped, which would misattribute every row that actor's id
+	// touches (author_id, created_by, actor_id, ...) onto the target's
+	// unrelated system/local actor.
+	for _, a := range env.Actors {
+		seed, isSeed := seedActors[a.ID]
+		if isSeed && (seed.Kind != a.Kind || seed.Name != a.Name) {
+			problems = append(problems, fmt.Sprintf(
+				"actors id=%d is expected to be the seeded %s/%s actor but the export has %s/%s — refusing to silently drop it",
+				a.ID, seed.Kind, seed.Name, a.Kind, a.Name))
+		}
+	}
 
 	entityIDs := make(map[int64]bool, len(env.Entities))
 	for _, e := range env.Entities {

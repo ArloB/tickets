@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/buildinfo"
 	"github.com/ArloB/tickets/internal/store"
 	"github.com/google/uuid"
@@ -17,7 +18,20 @@ const envelopeFormatVersion = 1
 // Envelope (`tickets export`, product spec §12's portable-JSON
 // mechanism). See Envelope's doc comment for exactly what is and
 // is not included, and why.
-func Export(ctx context.Context, db *sql.DB) (Envelope, error) {
+//
+// attachmentsDir is optional (product spec §7.3's `[--attachments
+// DIR]`): when non-empty, every blob referenced by an exported
+// attachment or an uploaded content item's file representation is
+// copied there via srcBlobs, in the same sharded layout Backup uses,
+// so the directory can be pointed at directly by `tickets import
+// --attachments`. When empty, Export still succeeds — the envelope
+// carries attachment/content-item metadata (file_hash, file_name,
+// size, ...) either way — but the bytes themselves are left behind;
+// Import refuses to commit an envelope with referenced blobs unless
+// it's given a matching --attachments directory, rather than silently
+// producing an installation where attachment metadata exists and the
+// content doesn't.
+func Export(ctx context.Context, db *sql.DB, srcBlobs *blobstore.Store, attachmentsDir string) (Envelope, error) {
 	schemaVersion, err := store.HighestEmbeddedMigrationVersion()
 	if err != nil {
 		return Envelope{}, fmt.Errorf("export: schema version: %w", err)
@@ -58,6 +72,18 @@ func Export(ctx context.Context, db *sql.DB) (Envelope, error) {
 	} {
 		if err := step.fn(ctx, db, &env); err != nil {
 			return Envelope{}, fmt.Errorf("export: %s: %w", step.name, err)
+		}
+	}
+
+	if attachmentsDir != "" {
+		destBlobs, err := blobstore.Open(attachmentsDir)
+		if err != nil {
+			return Envelope{}, fmt.Errorf("export: open attachments directory: %w", err)
+		}
+		for hash := range referencedBlobHashes(env) {
+			if _, err := copyBlob(srcBlobs, destBlobs, hash); err != nil {
+				return Envelope{}, fmt.Errorf("export: %w", err)
+			}
 		}
 	}
 	return env, nil

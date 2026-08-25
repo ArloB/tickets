@@ -1,8 +1,10 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,12 +13,15 @@ import (
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/service"
 	"github.com/ArloB/tickets/internal/store"
+	"github.com/google/uuid"
 )
 
 // TestExportThenImportRoundTrip is this package's core export/import
-// regression test: a project with a ticket, a comment, and a decision
-// exported, imported (dry-run first, then committed) into a fresh
-// target, and the result compared against the source.
+// regression test: a project with a ticket, a comment, a decision, and
+// an uploaded attachment exported (with --attachments), imported
+// (dry-run first, then committed) into a fresh target, and the result
+// — including the attachment's actual bytes, not just its metadata row
+// — compared against the source.
 func TestExportThenImportRoundTrip(t *testing.T) {
 	srcDir := filepath.Join(t.TempDir(), "src")
 	svc := newTestService(t, srcDir)
@@ -38,20 +43,30 @@ func TestExportThenImportRoundTrip(t *testing.T) {
 	if _, err := svc.AddComment(ctx, service.AddCommentRequest{Ref: ticketRef, Body: "hello"}, testActor, "cid-3", "", ""); err != nil {
 		t.Fatalf("add comment: %v", err)
 	}
+	attachmentContent := []byte("round trip attachment bytes")
+	attachment, err := svc.CreateAttachment(ctx, service.CreateAttachmentRequest{
+		Ref: ticketRef, Title: "file.txt", Kind: domain.AttachmentKindUpload,
+		Content: bytes.NewReader(attachmentContent), FileName: "file.txt", MediaType: "text/plain",
+	}, testActor, "cid-4")
+	if err != nil {
+		t.Fatalf("create attachment: %v", err)
+	}
 
 	srcSt, err := store.Open(srcDir)
 	if err != nil {
 		t.Fatalf("reopen source store: %v", err)
 	}
 	defer func() { _ = srcSt.Close() }()
+	srcBlobs := mustOpenBlobs(t, srcDir)
 
-	env, err := Export(ctx, srcSt.DB())
+	attachmentsDir := filepath.Join(t.TempDir(), "attachments")
+	env, err := Export(ctx, srcSt.DB(), srcBlobs, attachmentsDir)
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
-	if len(env.Projects) != 1 || len(env.Tickets) != 1 || len(env.Comments) != 1 {
-		t.Fatalf("export counts = projects:%d tickets:%d comments:%d, want 1/1/1",
-			len(env.Projects), len(env.Tickets), len(env.Comments))
+	if len(env.Projects) != 1 || len(env.Tickets) != 1 || len(env.Comments) != 1 || len(env.Attachments) != 1 {
+		t.Fatalf("export counts = projects:%d tickets:%d comments:%d attachments:%d, want 1/1/1/1",
+			len(env.Projects), len(env.Tickets), len(env.Comments), len(env.Attachments))
 	}
 
 	// Round-trip through JSON, the same as `tickets export`'s file
@@ -67,8 +82,9 @@ func TestExportThenImportRoundTrip(t *testing.T) {
 
 	dstDir := filepath.Join(t.TempDir(), "dst")
 	dstSt := newTestServiceStore(t, dstDir)
+	dstBlobs := mustOpenBlobs(t, dstDir)
 
-	dryRun, err := Import(ctx, dstSt.DB(), reloaded, false)
+	dryRun, err := Import(ctx, dstSt.DB(), reloaded, attachmentsDir, dstBlobs, false)
 	if err != nil {
 		t.Fatalf("Import (dry-run): %v", err)
 	}
@@ -82,7 +98,7 @@ func TestExportThenImportRoundTrip(t *testing.T) {
 		t.Errorf("dry-run Counts[tickets] = %d, want 1", dryRun.Counts["tickets"])
 	}
 
-	committed, err := Import(ctx, dstSt.DB(), reloaded, true)
+	committed, err := Import(ctx, dstSt.DB(), reloaded, attachmentsDir, dstBlobs, true)
 	if err != nil {
 		t.Fatalf("Import (commit): %v", err)
 	}
@@ -90,7 +106,7 @@ func TestExportThenImportRoundTrip(t *testing.T) {
 		t.Fatal("commit Import: Committed = false, want true")
 	}
 
-	dstSvc := service.New(dstSt, mustOpenBlobs(t, dstDir))
+	dstSvc := service.New(dstSt, dstBlobs)
 	proj, err := dstSvc.GetProject(ctx, "ABC")
 	if err != nil {
 		t.Fatalf("get imported project: %v", err)
@@ -104,6 +120,59 @@ func TestExportThenImportRoundTrip(t *testing.T) {
 	}
 	if len(result.Tickets) != 1 || result.Tickets[0].Title != "A ticket" {
 		t.Errorf("imported tickets = %+v, want one ticket titled %q", result.Tickets, "A ticket")
+	}
+
+	// The discriminating check: the attachment's actual bytes must be
+	// reachable in the target's blob store, not just its metadata row.
+	dl, err := dstSvc.DownloadAttachment(ctx, attachment.ID)
+	if err != nil {
+		t.Fatalf("download imported attachment: %v", err)
+	}
+	defer func() { _ = dl.Content.Close() }()
+	got, err := io.ReadAll(dl.Content)
+	if err != nil {
+		t.Fatalf("read imported attachment content: %v", err)
+	}
+	if string(got) != string(attachmentContent) {
+		t.Errorf("imported attachment content = %q, want %q", got, attachmentContent)
+	}
+}
+
+// TestImportRefusesWithoutAttachmentsDirWhenBlobsAreReferenced
+// confirms Import blocks a commit rather than silently producing an
+// installation whose attachment rows point at bytes that were never
+// brought over.
+func TestImportRefusesWithoutAttachmentsDirWhenBlobsAreReferenced(t *testing.T) {
+	ctx := context.Background()
+	dstDir := filepath.Join(t.TempDir(), "dst")
+	dstSt := newTestServiceStore(t, dstDir)
+	dstBlobs := mustOpenBlobs(t, dstDir)
+
+	hash := "deadbeef00000000000000000000000000000000000000000000000000ab"
+	env := Envelope{
+		FormatVersion: envelopeFormatVersion, SchemaVersion: 1,
+		Entities: []EntityRow{{ID: 1, UUID: newTestUUID(t), Kind: "ticket", Version: 1, CreatedAt: "2026-01-01T00:00:00.000000000Z", UpdatedAt: "2026-01-01T00:00:00.000000000Z"}},
+		Attachments: []AttachmentRow{{
+			ID: 1, EntityID: int64Ptr(1), Kind: "upload", Title: "f", CurrentVersion: 1,
+			FileHash: &hash, CreatedAt: "2026-01-01T00:00:00.000000000Z", CreatedBy: 1,
+		}},
+	}
+
+	report, err := Import(ctx, dstSt.DB(), env, "", dstBlobs, true)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if report.Committed {
+		t.Error("Import with referenced blobs and no --attachments: Committed = true, want false")
+	}
+	found := false
+	for _, p := range report.Problems {
+		if strings.Contains(p, "attachments directory") || strings.Contains(p, "--attachments") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Import Problems = %v, want one naming the missing --attachments directory", report.Problems)
 	}
 }
 
@@ -123,8 +192,8 @@ func TestImportRefusesNonEmptyTarget(t *testing.T) {
 	}
 	defer func() { _ = dstSt.Close() }()
 
-	env := Envelope{FormatVersion: 1, SchemaVersion: 1}
-	report, err := Import(ctx, dstSt.DB(), env, true)
+	env := Envelope{FormatVersion: envelopeFormatVersion, SchemaVersion: 1}
+	report, err := Import(ctx, dstSt.DB(), env, "", mustOpenBlobs(t, dstDir), true)
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
@@ -145,10 +214,10 @@ func TestImportDetectsInvalidReference(t *testing.T) {
 	dstSt := newTestServiceStore(t, dstDir)
 
 	env := Envelope{
-		FormatVersion: 1, SchemaVersion: 1,
+		FormatVersion: envelopeFormatVersion, SchemaVersion: 1,
 		Tickets: []TicketRow{{ID: 99, ProjectID: 1, FeatureID: 1, Seq: 1, Type: "task", Title: "orphaned"}},
 	}
-	report, err := Import(ctx, dstSt.DB(), env, true)
+	report, err := Import(ctx, dstSt.DB(), env, "", mustOpenBlobs(t, dstDir), true)
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
@@ -163,6 +232,38 @@ func TestImportDetectsInvalidReference(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Import Problems = %v, want one naming the missing entity id=1 reference", report.Problems)
+	}
+}
+
+// TestImportDetectsCorruptedSeedActor confirms a hand-edited envelope
+// that put a real actor at the reserved seed id 1 (normally 'system')
+// is refused rather than silently dropped — dropping it would
+// misattribute every row that id touches onto the target's unrelated
+// system actor.
+func TestImportDetectsCorruptedSeedActor(t *testing.T) {
+	ctx := context.Background()
+	dstDir := filepath.Join(t.TempDir(), "dst")
+	dstSt := newTestServiceStore(t, dstDir)
+
+	env := Envelope{
+		FormatVersion: envelopeFormatVersion, SchemaVersion: 1,
+		Actors: []ActorRow{{ID: 1, UUID: newTestUUID(t), Kind: "human", Name: "not-system", CreatedAt: "2026-01-01T00:00:00.000000000Z", UpdatedAt: "2026-01-01T00:00:00.000000000Z"}},
+	}
+	report, err := Import(ctx, dstSt.DB(), env, "", mustOpenBlobs(t, dstDir), true)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if report.Committed {
+		t.Error("Import with a corrupted seed actor: Committed = true, want false")
+	}
+	found := false
+	for _, p := range report.Problems {
+		if strings.Contains(p, "actors id=1") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Import Problems = %v, want one naming the corrupted actors id=1 row", report.Problems)
 	}
 }
 
@@ -201,7 +302,7 @@ func TestExportNeverContainsSecrets(t *testing.T) {
 		t.Fatalf("seed human_accounts sentinel: %v", err)
 	}
 
-	env, err := Export(ctx, st.DB())
+	env, err := Export(ctx, st.DB(), mustOpenBlobs(t, dataDir), "")
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
@@ -240,3 +341,14 @@ func mustOpenBlobs(t *testing.T, dataDir string) *blobstore.Store {
 	}
 	return blobs
 }
+
+func newTestUUID(t *testing.T) string {
+	t.Helper()
+	u, err := uuid.NewV7()
+	if err != nil {
+		t.Fatalf("generate uuid: %v", err)
+	}
+	return u.String()
+}
+
+func int64Ptr(v int64) *int64 { return &v }

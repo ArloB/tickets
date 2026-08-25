@@ -8,20 +8,22 @@ import (
 	"os"
 
 	"github.com/ArloB/tickets/internal/backup"
+	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/config"
 	"github.com/ArloB/tickets/internal/store"
 )
 
-// runImport is `tickets import --input FILE [--commit]` (product spec
-// §7.3, §12). Dry run is the default posture: without --commit,
-// nothing is written, and the printed report is exactly what a
-// --commit run would attempt — the same validation runs either way
-// (internal/backup.Import), so a dry run is not an approximation of
-// the real thing.
+// runImport is `tickets import --input FILE [--attachments DIR]
+// [--commit]` (product spec §7.3, §12). Dry run is the default
+// posture: without --commit, nothing is written, and the printed
+// report is exactly what a --commit run would attempt — the same
+// validation runs either way (internal/backup.Import), so a dry run
+// is not an approximation of the real thing.
 func runImport(args []string) error {
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	dataDir := fs.String("data-dir", "", "directory for the SQLite database (defaults to the same resolution `tickets server` uses)")
 	input := fs.String("input", "", "export JSON file produced by `tickets export`")
+	attachments := fs.String("attachments", "", "directory produced by `tickets export --attachments`; required if the export references any attachment content")
 	commit := fs.Bool("commit", false, "actually write the import; without this flag, only a validation report is produced")
 	jsonOut := fs.Bool("json", false, "print the report as JSON instead of human-readable text")
 	if err := fs.Parse(args); err != nil {
@@ -55,7 +57,12 @@ func runImport(args []string) error {
 	}
 	defer func() { _ = st.Close() }()
 
-	report, err := backup.Import(context.Background(), st.DB(), env, *commit)
+	blobs, err := blobstore.Open(cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("open blob store at %s: %w", cfg.DataDir, err)
+	}
+
+	report, err := backup.Import(context.Background(), st.DB(), env, *attachments, blobs, *commit)
 	if err != nil {
 		return err
 	}

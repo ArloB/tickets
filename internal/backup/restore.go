@@ -39,6 +39,11 @@ func Restore(ctx context.Context, dataDir, inputDir string, force bool) error {
 	if err != nil {
 		return err
 	}
+	if manifest.FormatVersion != manifestFormatVersion {
+		return fmt.Errorf(
+			"restore: manifest format version %d is not supported by this build (want %d) — "+
+				"restore with a compatible tickets version", manifest.FormatVersion, manifestFormatVersion)
+	}
 	highest, err := store.HighestEmbeddedMigrationVersion()
 	if err != nil {
 		return fmt.Errorf("restore: schema version: %w", err)

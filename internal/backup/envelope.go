@@ -302,6 +302,35 @@ type SubscriptionRow struct {
 	CreatedAt string `json:"created_at"`
 }
 
+// referencedBlobHashes collects every distinct file_hash the envelope's
+// own rows reference — attachments/attachment_versions and
+// content_items/content_versions (a plan/document stored as an
+// uploaded file, not just Markdown, per docs/adr/0017-content-items.md).
+// Export uses this to know what to copy into --attachments DIR; Import
+// uses it to know what must already be there before a commit that
+// carries upload-kind content can be trusted.
+func referencedBlobHashes(env Envelope) map[string]bool {
+	hashes := make(map[string]bool)
+	add := func(h *string) {
+		if h != nil && *h != "" {
+			hashes[*h] = true
+		}
+	}
+	for _, r := range env.Attachments {
+		add(r.FileHash)
+	}
+	for _, r := range env.AttachmentVersions {
+		add(r.FileHash)
+	}
+	for _, r := range env.ContentItems {
+		add(r.FileHash)
+	}
+	for _, r := range env.ContentVersions {
+		add(r.FileHash)
+	}
+	return hashes
+}
+
 type NotificationRow struct {
 	ID          int64   `json:"id"`
 	ActorID     int64   `json:"actor_id"`
