@@ -53,6 +53,8 @@ type Backend interface {
 
 	ListNotifications(ctx context.Context, unreadOnly bool, limit int, cursor string) (NotificationsListOutput, error)
 	MarkNotificationsRead(ctx context.Context, ids []int64, all bool) (int64, error)
+
+	GetProjectBrief(ctx context.Context, key string) (ProjectBrief, error)
 }
 
 // SearchInput is Search's input — Kind is a slice of kind strings, not

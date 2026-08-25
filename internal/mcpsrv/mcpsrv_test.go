@@ -213,7 +213,7 @@ func TestToolsOverInMemoryTransport(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	want := map[string]bool{
-		"project_get": false, "projects_list": false,
+		"project_brief": false, "project_get": false, "projects_list": false,
 		"ticket_get": false, "ticket_create": false, "tickets_list": false,
 	}
 	for _, tool := range tools.Tools {
@@ -701,6 +701,52 @@ func TestTicketLinkOverRealStreamableHTTP(t *testing.T) {
 	}
 	if !foundAssoc {
 		t.Errorf("associations for %s = %+v, want %s", ref, associated, other.Ref)
+	}
+}
+
+// TestProjectBriefOverRealStreamableHTTP proves project_brief reaches
+// the same service.ProjectBrief the HTTP API's GET .../brief route
+// uses, over the real MCP transport InProcessBackend serves.
+func TestProjectBriefOverRealStreamableHTTP(t *testing.T) {
+	backend, ticketRef := newTestBackend(t)
+	raw, _ := mustIssueAgentToken(t, backend, "codex")
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	ctx := context.Background()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_brief", Arguments: map[string]any{"key": "ABC"}})
+	if err != nil {
+		t.Fatalf("CallTool project_brief: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("project_brief returned a tool error: %+v", res.Content)
+	}
+	brief := decodeResult[ProjectBrief](t, res)
+	if brief.Project.Key != "ABC" {
+		t.Errorf("brief.Project.Key = %q, want %q", brief.Project.Key, "ABC")
+	}
+	found := false
+	for _, ticket := range brief.IssueRegister {
+		if ticket.Ref == ticketRef {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("IssueRegister = %+v, want it to contain the seeded bug %q", brief.IssueRegister, ticketRef)
+	}
+	if len(brief.Features) != 1 {
+		t.Errorf("len(Features) = %d, want 1 (General)", len(brief.Features))
 	}
 }
 

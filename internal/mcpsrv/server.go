@@ -20,6 +20,12 @@ PROJECTKEY-N: a ticket is "ABC-123" (no letter code), a feature is
 description or a comment body creates a backlink to that entity — it
 does not create a dependency; use ticket_link for that.
 
+Call project_brief FIRST when starting work in a project. It returns
+in-progress/upcoming tickets, issue-register highlights, the feature
+list with ticket-progress counts, recent activity, and recent accepted
+decisions/plans in one call — orientation before ticket_get/record_get
+narrow in on any one record's full detail.
+
 List tools (projects_list, tickets_list) return compact rows only —
 no description/context/decision/rationale body text — to keep
 responses small. Call the matching *_get tool (ticket_get, feature_get,

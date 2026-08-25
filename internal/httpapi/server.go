@@ -68,6 +68,7 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodPost, "/api/v1/projects", routeEditor, s.createProject},
 		{http.MethodGet, "/api/v1/projects", routeViewer, s.listProjects},
 		{http.MethodGet, "/api/v1/projects/{key}", routeViewer, s.getProject},
+		{http.MethodGet, "/api/v1/projects/{key}/brief", routeViewer, s.getProjectBrief},
 		{http.MethodPost, "/api/v1/projects/{key}/tickets", routeEditor, s.createTicket},
 		{http.MethodGet, "/api/v1/projects/{key}/tickets", routeViewer, s.listTickets},
 		{http.MethodGet, "/api/v1/tickets/{ref}", routeViewer, s.getTicket},

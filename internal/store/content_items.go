@@ -177,6 +177,40 @@ func ListContentItemsForProjectPage(ctx context.Context, q Querier, projectEntit
 	return page, nil
 }
 
+// RecentContentItems returns a project's most recently created,
+// non-deleted plans or documents (kind selects which), newest first,
+// unpaginated — the project brief's (Phase 6 Step 5) "recent plans"
+// section. See RecentAcceptedDecisions' doc comment for why this is a
+// dedicated DESC-ordered query rather than reusing
+// ListContentItemsForProjectPage's oldest-first listing.
+func RecentContentItems(ctx context.Context, q Querier, projectEntityID int64, kind domain.EntityKind, limit int) ([]ContentItemRow, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT`+contentItemSelectColumns+`
+		 FROM content_items ci
+		 JOIN entities e ON e.id = ci.id
+		 JOIN projects p ON p.id = ci.project_id
+		 LEFT JOIN actors ca ON ca.id = e.created_by
+		 WHERE ci.project_id = ? AND ci.kind = ? AND e.deleted_at IS NULL
+		 ORDER BY e.created_at DESC, e.id DESC
+		 LIMIT ?`,
+		projectEntityID, string(kind), limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent content items for project %d: %w", projectEntityID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []ContentItemRow
+	for rows.Next() {
+		row, err := scanContentItemRow(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("scan content item: %w", err)
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 // GetContentItemRefByEntityID resolves a plan/document's public
 // reference from its internal entity id, or ErrNotFound — mirrors
 // GetDecisionRefByEntityID. Used when a mention/association edge (bare

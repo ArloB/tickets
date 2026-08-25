@@ -1,13 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { getProject } from '../api/projects'
-import { createFeature, listFeatures } from '../api/features'
+import { getProjectBrief } from '../api/projectBrief'
+import { createFeature } from '../api/features'
 import { listComments } from '../api/comments'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
 import { CommentsSection } from '../components/CommentsSection'
 import { useAuth } from '../auth/AuthContext'
-import type { CommentDetail, FeatureCompact, Priority, ProjectDetail } from '../api/types'
+import type {
+  ActivityEvent,
+  CommentDetail,
+  DecisionCompact,
+  ContentItemCompact,
+  FeatureBriefRow,
+  Priority,
+  ProjectDetail,
+  TicketCompact,
+} from '../api/types'
 
 const priorities: Priority[] = ['critical', 'high', 'medium', 'low']
 
@@ -16,7 +25,7 @@ function NewFeatureForm({
   onCreated,
 }: {
   projectKey: string
-  onCreated: (f: FeatureCompact) => void
+  onCreated: (f: FeatureBriefRow) => void
 }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -36,6 +45,8 @@ function NewFeatureForm({
         priority: created.priority,
         version: created.version,
         updated_at: created.updated_at,
+        tickets_total: 0,
+        tickets_done: 0,
       })
       setTitle('')
       setDescription('')
@@ -79,11 +90,75 @@ function NewFeatureForm({
   )
 }
 
+function TicketBriefList({ tickets }: { tickets: TicketCompact[] }) {
+  if (tickets.length === 0) return <p>None.</p>
+  return (
+    <ul>
+      {tickets.map((t) => (
+        <li key={t.ref}>
+          <Link to={`/tickets/${t.ref}`}>{t.title}</Link> <span>({t.ref})</span> <span>{t.status}</span>{' '}
+          <span>{t.priority}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function DecisionBriefList({ decisions }: { decisions: DecisionCompact[] }) {
+  if (decisions.length === 0) return <p>None yet.</p>
+  return (
+    <ul>
+      {decisions.map((d) => (
+        <li key={d.ref}>
+          <Link to={`/decisions/${d.ref}`}>{d.title}</Link> <span>({d.ref})</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function PlanBriefList({ plans }: { plans: ContentItemCompact[] }) {
+  if (plans.length === 0) return <p>None yet.</p>
+  return (
+    <ul>
+      {plans.map((p) => (
+        <li key={p.ref}>
+          <Link to={`/plans/${p.ref}`}>{p.title}</Link> <span>({p.ref})</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function ActivityBriefList({ events }: { events: ActivityEvent[] }) {
+  if (events.length === 0) return <p>No recent activity.</p>
+  return (
+    <ul>
+      {events.map((e) => (
+        <li key={e.id}>
+          <span>{e.actor}</span> {e.event_type}
+          {e.entity ? (
+            <>
+              {' '}
+              on <span>{e.entity}</span>
+            </>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export default function ProjectOverview() {
   const { key = '' } = useParams()
   const { me } = useAuth()
   const [project, setProject] = useState<ProjectDetail | null>(null)
-  const [features, setFeatures] = useState<FeatureCompact[] | null>(null)
+  const [inProgress, setInProgress] = useState<TicketCompact[]>([])
+  const [issueRegister, setIssueRegister] = useState<TicketCompact[]>([])
+  const [features, setFeatures] = useState<FeatureBriefRow[] | null>(null)
+  const [recentDecisions, setRecentDecisions] = useState<DecisionCompact[]>([])
+  const [recentPlans, setRecentPlans] = useState<ContentItemCompact[]>([])
+  const [recentActivity, setRecentActivity] = useState<ActivityEvent[]>([])
   const [comments, setComments] = useState<CommentDetail[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -94,10 +169,15 @@ export default function ProjectOverview() {
     setComments(null)
     setError(null)
     setCreating(false)
-    Promise.all([getProject(key), listFeatures(key), listComments(key)])
-      .then(([proj, page, c]) => {
-        setProject(proj)
-        setFeatures(page.features)
+    Promise.all([getProjectBrief(key), listComments(key)])
+      .then(([brief, c]) => {
+        setProject(brief.project)
+        setInProgress(brief.in_progress)
+        setIssueRegister(brief.issue_register)
+        setFeatures(brief.features)
+        setRecentDecisions(brief.recent_decisions)
+        setRecentPlans(brief.recent_plans)
+        setRecentActivity(brief.recent_activity)
         setComments(c.comments)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
@@ -122,6 +202,13 @@ export default function ProjectOverview() {
         <Link to={`/projects/${key}/documents`}>Documents</Link> ·{' '}
         <Link to={`/projects/${key}/activity`}>Activity</Link>
       </p>
+
+      <h2>In progress / upcoming</h2>
+      <TicketBriefList tickets={inProgress} />
+
+      <h2>Issue register</h2>
+      <TicketBriefList tickets={issueRegister} />
+
       <h2>Features</h2>
       {!features || features.length === 0 ? (
         <p>No features yet.</p>
@@ -130,7 +217,10 @@ export default function ProjectOverview() {
           {features.map((f) => (
             <li key={f.ref}>
               <Link to={`/features/${f.ref}`}>{f.title}</Link> <span>({f.ref})</span>{' '}
-              <span>{f.status}</span> <span>{f.priority}</span>
+              <span>{f.status}</span> <span>{f.priority}</span>{' '}
+              <span>
+                {f.tickets_done}/{f.tickets_total} done
+              </span>
             </li>
           ))}
         </ul>
@@ -148,6 +238,15 @@ export default function ProjectOverview() {
         ) : (
           <button onClick={() => setCreating(true)}>New feature</button>
         ))}
+
+      <h2>Recent decisions</h2>
+      <DecisionBriefList decisions={recentDecisions} />
+
+      <h2>Recent plans</h2>
+      <PlanBriefList plans={recentPlans} />
+
+      <h2>Recent activity</h2>
+      <ActivityBriefList events={recentActivity} />
 
       <h2>Comments</h2>
       {comments && (

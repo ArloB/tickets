@@ -29,17 +29,24 @@ type projectDetail struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Status      string    `json:"status"`
+	Creator     *string   `json:"creator,omitempty"`
 	Version     int64     `json:"version"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func toProjectDetail(p domain.Project) projectDetail {
+	var creator *string
+	if p.Creator != nil {
+		v := p.Creator.String()
+		creator = &v
+	}
 	return projectDetail{
 		Key:         p.Key,
 		Title:       p.Title,
 		Description: p.Description,
 		Status:      string(p.Status),
+		Creator:     creator,
 		Version:     p.Version,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
@@ -178,12 +185,11 @@ type ticketsPage struct {
 
 // featureDetail is every feature-returning endpoint's response shape —
 // same "explicit field list, no deleted_at" contract as ticketDetail
-// (see this file's top doc). Unlike ticketDetail, no creator field
-// yet: domain.Feature gained Creator in Step 9 for the store/service
-// layers, but no caller has needed it on the wire — add it here,
-// deliberately, when one does. No assignee at all: features are never
-// assigned (product spec §5.4), so domain.Feature has no such field to
-// omit in the first place.
+// (see this file's top doc). Creator was wired in Phase 6 Step 5, the
+// first caller (the project brief) that needed it — domain.Feature has
+// carried it since Phase 1 Step 9. No assignee at all: features are
+// never assigned (product spec §5.4), so domain.Feature has no such
+// field to omit in the first place.
 type featureDetail struct {
 	Ref         string    `json:"ref"`
 	Project     string    `json:"project"`
@@ -191,12 +197,18 @@ type featureDetail struct {
 	Description string    `json:"description"`
 	Status      string    `json:"status"`
 	Priority    string    `json:"priority"`
+	Creator     *string   `json:"creator,omitempty"`
 	Version     int64     `json:"version"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func toFeatureDetail(f domain.Feature) featureDetail {
+	var creator *string
+	if f.Creator != nil {
+		v := f.Creator.String()
+		creator = &v
+	}
 	return featureDetail{
 		Ref:         f.Ref,
 		Project:     f.ProjectKey,
@@ -204,6 +216,7 @@ func toFeatureDetail(f domain.Feature) featureDetail {
 		Description: f.Description,
 		Status:      string(f.Status),
 		Priority:    string(f.Priority),
+		Creator:     creator,
 		Version:     f.Version,
 		CreatedAt:   f.CreatedAt,
 		UpdatedAt:   f.UpdatedAt,

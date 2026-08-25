@@ -95,6 +95,28 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /projects/{key}/brief:
+    get:
+      operationId: getProjectBrief
+      summary: >
+        A project's orientation read (product spec §12, Phase 6 Step
+        5): in-progress/upcoming tickets, issue-register highlights,
+        the feature list with ticket-progress counts, recent activity,
+        and recent accepted decisions and plans, each capped at 20
+        compact rows. The recommended first call when getting oriented
+        in a project, before any detail call narrows in on one record.
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectBrief'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /projects/{key}/tickets:
     post:
       operationId: createTicket
@@ -3748,6 +3770,12 @@ components:
         title: { type: string }
         description: { type: string }
         status: { $ref: '#/components/schemas/ProjectStatus' }
+        creator:
+          type: string
+          example: 'human:alice'
+          description: >
+            Absent only for entities created before Phase 2's identity
+            work (ADR 0012); always present for anything created since.
         version: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -3776,6 +3804,53 @@ components:
           items: { $ref: '#/components/schemas/ProjectCompact' }
         next_cursor:
           type: string
+
+    ProjectBrief:
+      type: object
+      required: [project, in_progress, issue_register, features, recent_activity, recent_decisions, recent_plans]
+      additionalProperties: false
+      description: >
+        GET /projects/{key}/brief's response — every section capped at
+        20 compact rows (product spec §11).
+      properties:
+        project: { $ref: '#/components/schemas/Project' }
+        in_progress:
+          type: array
+          items: { $ref: '#/components/schemas/TicketCompact' }
+          description: Priority-queue order, excluding done/cancelled tickets.
+        issue_register:
+          type: array
+          items: { $ref: '#/components/schemas/TicketCompact' }
+          description: Severity-queue order, excluding done/cancelled tickets.
+        features:
+          type: array
+          items: { $ref: '#/components/schemas/FeatureBriefRow' }
+        recent_activity:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityEvent' }
+        recent_decisions:
+          type: array
+          items: { $ref: '#/components/schemas/DecisionCompact' }
+          description: Accepted decisions only, newest first.
+        recent_plans:
+          type: array
+          items: { $ref: '#/components/schemas/ContentItemCompact' }
+          description: Newest first.
+
+    FeatureBriefRow:
+      type: object
+      required: [ref, title, status, priority, version, updated_at, tickets_total, tickets_done]
+      additionalProperties: false
+      description: FeatureCompact plus a ticket-progress summary for the project brief.
+      properties:
+        ref: { type: string, example: ABC-F1 }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/WorkflowStatus' }
+        priority: { $ref: '#/components/schemas/Priority' }
+        version: { type: integer }
+        updated_at: { type: string, format: date-time }
+        tickets_total: { type: integer }
+        tickets_done: { type: integer }
 
     CreateTicketRequest:
       type: object
@@ -3912,6 +3987,12 @@ components:
         description: { type: string }
         status: { $ref: '#/components/schemas/WorkflowStatus' }
         priority: { $ref: '#/components/schemas/Priority' }
+        creator:
+          type: string
+          example: 'human:alice'
+          description: >
+            Absent only for entities created before Phase 2's identity
+            work (ADR 0012); always present for anything created since.
         version: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/ArloB/tickets/internal/apiclient"
 )
@@ -15,13 +16,15 @@ import (
 // opening internal/store directly.
 func runProject(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("project: expected a subcommand (list, create)")
+		return fmt.Errorf("project: expected a subcommand (list, create, brief)")
 	}
 	switch args[0] {
 	case "list":
 		return runProjectList(args[1:])
 	case "create":
 		return runProjectCreate(args[1:])
+	case "brief":
+		return runProjectBrief(args[1:])
 	default:
 		return fmt.Errorf("project: unknown subcommand %q", args[0])
 	}
@@ -108,4 +111,86 @@ func runProjectList(args []string) error {
 		_, _ = fmt.Fprintf(os.Stdout, "next_cursor: %s\n", page.NextCursor)
 	}
 	return nil
+}
+
+// runProjectBrief is `tickets project brief KEY` (product spec §12,
+// Phase 6 Step 5) — the same orientation read GET /projects/{key}/brief
+// and the project_brief MCP tool return.
+func runProjectBrief(args []string) error {
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		return fmt.Errorf("project brief: expected a project key as the first argument")
+	}
+	key, rest := args[0], args[1:]
+	fs, cfg, err := newClientFlagSet("project brief")
+	if err != nil {
+		return err
+	}
+	if err := fs.Parse(rest); err != nil {
+		return err
+	}
+	if err := cfg.finish(); err != nil {
+		return err
+	}
+
+	brief, err := cfg.newClient().GetProjectBrief(context.Background(), key)
+	if err != nil {
+		return err
+	}
+	if cfg.JSON {
+		return writeJSON(os.Stdout, brief)
+	}
+
+	_, _ = fmt.Fprintf(os.Stdout, "%s — %s (%s)\n\n", brief.Project.Key, brief.Project.Title, brief.Project.Status)
+
+	_, _ = fmt.Fprintln(os.Stdout, "IN PROGRESS / UPCOMING")
+	if err := writeTable(os.Stdout, []string{"REF", "TITLE", "STATUS", "PRIORITY"}, ticketBriefRows(brief.InProgress)); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(os.Stdout, "\nISSUE REGISTER")
+	if err := writeTable(os.Stdout, []string{"REF", "TITLE", "STATUS", "PRIORITY"}, ticketBriefRows(brief.IssueRegister)); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(os.Stdout, "\nFEATURES")
+	featureRows := make([][]string, len(brief.Features))
+	for i, f := range brief.Features {
+		featureRows[i] = []string{f.Ref, f.Title, f.Status, fmt.Sprintf("%d/%d done", f.TicketsDone, f.TicketsTotal)}
+	}
+	if err := writeTable(os.Stdout, []string{"REF", "TITLE", "STATUS", "PROGRESS"}, featureRows); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(os.Stdout, "\nRECENT DECISIONS (accepted)")
+	decisionRows := make([][]string, len(brief.RecentDecisions))
+	for i, d := range brief.RecentDecisions {
+		decisionRows[i] = []string{d.Ref, d.Title, d.Status}
+	}
+	if err := writeTable(os.Stdout, []string{"REF", "TITLE", "STATUS"}, decisionRows); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(os.Stdout, "\nRECENT PLANS")
+	planRows := make([][]string, len(brief.RecentPlans))
+	for i, p := range brief.RecentPlans {
+		planRows[i] = []string{p.Ref, p.Title}
+	}
+	if err := writeTable(os.Stdout, []string{"REF", "TITLE"}, planRows); err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintln(os.Stdout, "\nRECENT ACTIVITY")
+	activityRows := make([][]string, len(brief.RecentActivity))
+	for i, e := range brief.RecentActivity {
+		activityRows[i] = []string{e.Entity, e.EventType, e.Actor, e.CreatedAt.Format("2006-01-02 15:04")}
+	}
+	return writeTable(os.Stdout, []string{"ENTITY", "EVENT", "ACTOR", "WHEN"}, activityRows)
+}
+
+func ticketBriefRows(tickets []apiclient.TicketCompact) [][]string {
+	rows := make([][]string, len(tickets))
+	for i, t := range tickets {
+		rows[i] = []string{t.Ref, t.Title, t.Status, t.Priority}
+	}
+	return rows
 }

@@ -55,6 +55,8 @@ func main() {
 		err = runNotifications(os.Args[2:])
 	case "attachment":
 		err = runAttachment(os.Args[2:])
+	case "link":
+		err = runLink(os.Args[2:])
 	case "export":
 		err = runExport(os.Args[2:])
 	case "import":
@@ -104,7 +106,7 @@ commands:
   setup    first-run administrative setup
   mcp      run the MCP stdio bridge against a configured Tickets server
   admin    maintenance operations (purge-idempotency-keys, search-reindex, integrity, backup, restore, agent, token)
-  project  client commands against a running Tickets server (list, create)
+  project  client commands against a running Tickets server (list, create, brief)
   feature  client commands against a running Tickets server (list, get, create, update)
   ticket   client commands against a running Tickets server (list, get, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
   comment  client commands against a running Tickets server (add, list, edit, delete)
@@ -113,6 +115,7 @@ commands:
   document client commands against a running Tickets server (list, get, create, update, versions, diff, download)
   activity client commands against a running Tickets server (list)
   attachment client commands against a running Tickets server (upload, path, list, get, versions, download, replace, delete)
+  link     client commands against a running Tickets server (add, list, remove) for named external links on a ticket, feature, decision, plan, or document
   search   client command against a running Tickets server: full-text search
   subscribe   client command against a running Tickets server: subscribe to a reference
   unsubscribe client command against a running Tickets server: unsubscribe from a reference

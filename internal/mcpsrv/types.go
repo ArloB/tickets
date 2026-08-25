@@ -5,6 +5,7 @@ import (
 
 	"github.com/ArloB/tickets/internal/apiclient"
 	"github.com/ArloB/tickets/internal/domain"
+	"github.com/ArloB/tickets/internal/service"
 )
 
 // ProjectCompact/TicketCompact are the compact list-row shapes
@@ -170,6 +171,182 @@ func toFeatureCompact(f domain.Feature) FeatureCompact {
 
 func fromAPIFeatureCompact(f apiclient.FeatureCompact) FeatureCompact {
 	return FeatureCompact{Ref: f.Ref, Title: f.Title, Status: f.Status, Priority: f.Priority, Version: f.Version, UpdatedAt: f.UpdatedAt}
+}
+
+// FeatureBriefRow is one row of project_brief's features section —
+// FeatureCompact plus a ticket-progress summary, mirroring
+// internal/httpapi/project_brief.go's featureBriefRow/
+// apiclient.FeatureBriefRow field-for-field.
+type FeatureBriefRow struct {
+	FeatureCompact
+	TicketsTotal int `json:"tickets_total"`
+	TicketsDone  int `json:"tickets_done"`
+}
+
+func toFeatureBriefRow(f service.FeatureBriefRow) FeatureBriefRow {
+	return FeatureBriefRow{FeatureCompact: toFeatureCompact(f.Feature), TicketsTotal: f.TicketsTotal, TicketsDone: f.TicketsDone}
+}
+
+func fromAPIFeatureBriefRow(f apiclient.FeatureBriefRow) FeatureBriefRow {
+	return FeatureBriefRow{
+		FeatureCompact: FeatureCompact{Ref: f.Ref, Title: f.Title, Status: f.Status, Priority: f.Priority, Version: f.Version, UpdatedAt: f.UpdatedAt},
+		TicketsTotal:   f.TicketsTotal, TicketsDone: f.TicketsDone,
+	}
+}
+
+// DecisionCompact is one row of project_brief's recent_decisions
+// section — mirrors internal/httpapi/wire.go's decisionCompact/
+// apiclient.DecisionCompact field-for-field.
+type DecisionCompact struct {
+	Ref       string    `json:"ref"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"`
+	Version   int64     `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func toDecisionCompact(d domain.Decision) DecisionCompact {
+	return DecisionCompact{Ref: d.Ref, Title: d.Title, Status: string(d.Status), Version: d.Version, UpdatedAt: d.UpdatedAt}
+}
+
+func fromAPIDecisionCompact(d apiclient.DecisionCompact) DecisionCompact {
+	return DecisionCompact{Ref: d.Ref, Title: d.Title, Status: d.Status, Version: d.Version, UpdatedAt: d.UpdatedAt}
+}
+
+// ContentItemCompact is one row of project_brief's recent_plans
+// section — mirrors internal/httpapi/wire.go's contentItemCompact/
+// apiclient.ContentItemCompact field-for-field.
+type ContentItemCompact struct {
+	Ref       string    `json:"ref"`
+	Title     string    `json:"title"`
+	Kind      string    `json:"kind"`
+	Version   int64     `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func toContentItemCompact(c domain.ContentItem) ContentItemCompact {
+	return ContentItemCompact{Ref: c.Ref, Title: c.Title, Kind: string(c.Kind), Version: c.Version, UpdatedAt: c.UpdatedAt}
+}
+
+func fromAPIContentItemCompact(c apiclient.ContentItemCompact) ContentItemCompact {
+	return ContentItemCompact{Ref: c.Ref, Title: c.Title, Kind: c.Kind, Version: c.Version, UpdatedAt: c.UpdatedAt}
+}
+
+// ActivityEvent is one row of project_brief's recent_activity section
+// — mirrors internal/httpapi/activity.go's activityEvent/
+// apiclient.ActivityEvent field-for-field.
+type ActivityEvent struct {
+	ID             int64     `json:"id"`
+	Entity         string    `json:"entity,omitempty"`
+	EntityKind     string    `json:"entity_kind"`
+	Actor          string    `json:"actor"`
+	EventType      string    `json:"event_type"`
+	CommentID      *int64    `json:"comment_id,omitempty"`
+	CommentExcerpt *string   `json:"comment_excerpt,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+func toActivityEvent(e service.ActivityEvent) ActivityEvent {
+	return ActivityEvent{
+		ID: e.ID, Entity: e.EntityRef, EntityKind: string(e.EntityKind), Actor: e.Actor.String(),
+		EventType: e.EventType, CommentID: e.CommentID, CommentExcerpt: e.CommentBody, CreatedAt: e.CreatedAt,
+	}
+}
+
+func fromAPIActivityEvent(e apiclient.ActivityEvent) ActivityEvent {
+	return ActivityEvent{
+		ID: e.ID, Entity: e.Entity, EntityKind: e.EntityKind, Actor: e.Actor, EventType: e.EventType,
+		CommentID: e.CommentID, CommentExcerpt: e.CommentExcerpt, CreatedAt: e.CreatedAt,
+	}
+}
+
+// ProjectBrief is project_brief's output — mirrors
+// internal/httpapi/project_brief.go's projectBriefView field-for-field.
+type ProjectBrief struct {
+	Project         domain.Project       `json:"project"`
+	InProgress      []TicketCompact      `json:"in_progress"`
+	IssueRegister   []TicketCompact      `json:"issue_register"`
+	Features        []FeatureBriefRow    `json:"features"`
+	RecentActivity  []ActivityEvent      `json:"recent_activity"`
+	RecentDecisions []DecisionCompact    `json:"recent_decisions"`
+	RecentPlans     []ContentItemCompact `json:"recent_plans"`
+}
+
+func toProjectBrief(b service.ProjectBrief) ProjectBrief {
+	inProgress := make([]TicketCompact, len(b.InProgress))
+	for i, t := range b.InProgress {
+		inProgress[i] = toTicketCompact(t)
+	}
+	issues := make([]TicketCompact, len(b.IssueRegister))
+	for i, t := range b.IssueRegister {
+		issues[i] = toTicketCompact(t)
+	}
+	features := make([]FeatureBriefRow, len(b.Features))
+	for i, f := range b.Features {
+		features[i] = toFeatureBriefRow(f)
+	}
+	activity := make([]ActivityEvent, len(b.RecentActivity))
+	for i, e := range b.RecentActivity {
+		activity[i] = toActivityEvent(e)
+	}
+	decisions := make([]DecisionCompact, len(b.RecentDecisions))
+	for i, d := range b.RecentDecisions {
+		decisions[i] = toDecisionCompact(d)
+	}
+	plans := make([]ContentItemCompact, len(b.RecentPlans))
+	for i, p := range b.RecentPlans {
+		plans[i] = toContentItemCompact(p)
+	}
+	return ProjectBrief{
+		Project: b.Project, InProgress: inProgress, IssueRegister: issues, Features: features,
+		RecentActivity: activity, RecentDecisions: decisions, RecentPlans: plans,
+	}
+}
+
+func fromAPIProjectBrief(b apiclient.ProjectBrief) ProjectBrief {
+	inProgress := make([]TicketCompact, len(b.InProgress))
+	for i, t := range b.InProgress {
+		inProgress[i] = fromAPITicketCompact(t)
+	}
+	issues := make([]TicketCompact, len(b.IssueRegister))
+	for i, t := range b.IssueRegister {
+		issues[i] = fromAPITicketCompact(t)
+	}
+	features := make([]FeatureBriefRow, len(b.Features))
+	for i, f := range b.Features {
+		features[i] = fromAPIFeatureBriefRow(f)
+	}
+	activity := make([]ActivityEvent, len(b.RecentActivity))
+	for i, e := range b.RecentActivity {
+		activity[i] = fromAPIActivityEvent(e)
+	}
+	decisions := make([]DecisionCompact, len(b.RecentDecisions))
+	for i, d := range b.RecentDecisions {
+		decisions[i] = fromAPIDecisionCompact(d)
+	}
+	plans := make([]ContentItemCompact, len(b.RecentPlans))
+	for i, p := range b.RecentPlans {
+		plans[i] = fromAPIContentItemCompact(p)
+	}
+	var creator *string
+	if b.Project.Creator != nil {
+		creator = b.Project.Creator
+	}
+	proj := domain.Project{
+		Key: b.Project.Key, Title: b.Project.Title, Description: b.Project.Description,
+		Status: domain.ProjectStatus(b.Project.Status), Version: b.Project.Version,
+		CreatedAt: b.Project.CreatedAt, UpdatedAt: b.Project.UpdatedAt,
+	}
+	if creator != nil {
+		ref, err := domain.ParseActorRef(*creator)
+		if err == nil {
+			proj.Creator = &ref
+		}
+	}
+	return ProjectBrief{
+		Project: proj, InProgress: inProgress, IssueRegister: issues, Features: features,
+		RecentActivity: activity, RecentDecisions: decisions, RecentPlans: plans,
+	}
 }
 
 // FeatureWriteResult is feature_create/feature_update's output —

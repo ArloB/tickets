@@ -109,10 +109,11 @@ writing:
 > content is rejected as idempotency_key_reused — useful when retrying
 > after a dropped connection.
 
-## Tool surface (Phase 3)
+## Tool surface (Phase 3, plus later additions noted per row)
 
 | Tool | Purpose |
 | --- | --- |
+| `project_brief` | **Call this first** when starting work in a project: in-progress/upcoming tickets, issue-register highlights, the feature list with ticket-progress counts, recent activity, and recent accepted decisions and plans, each capped at 20 compact rows. `ticket_get`/`record_get` follow it for detail on any one record (Phase 6 Step 5). |
 | `project_get` / `projects_list` | Read a project / list projects, compact rows. |
 | `project_create` | Create a project. Always creates a General feature alongside it (ADR 0001). |
 | `ticket_get` / `tickets_list` | Read a ticket / list tickets. `tickets_list`'s `view` is `priority_queue` (default) or `issue_register`. |
@@ -148,12 +149,8 @@ Not present in Phase 3:
   endpoint and simply broken over stdio (no admin session exists
   there). Agent/token management is CLI-only
   (`docs/contracts/cli.md`'s `admin agent`/`admin token`).
-- A project-brief view — a useful brief wants decisions/plans in a
-  more complete form than Phase 3's minimal decisions slice provides.
-  Scheduled into `plan.md` §14's Phase 6 bullet list now that its
-  blocker (Phase 5's decision/plan records) is resolved — moved there
-  from §18's speculative future-options list, where it had sat since
-  Phase 0. Not yet implemented.
+- ~~A project-brief view~~ — landed in Phase 6 Step 5 as the
+  `project_brief` tool (see the table above).
 
 ## Representative workflow
 
@@ -161,6 +158,10 @@ The sequence product spec §16 names as Phase 3's acceptance bar: find
 assigned work, read linked context, start the ticket, comment, record
 a decision, complete the ticket.
 
+0. `project_brief` to get oriented before anything else — it surfaces
+   in-progress/upcoming and issue-register tickets, features, recent
+   activity, and recent accepted decisions/plans in one call, often
+   enough to skip a separate `tickets_list` call in step 1.
 1. `tickets_list` with `view: "issue_register"` or `"priority_queue"`
    to find work (compact rows — ref/title/status/priority/severity
    only).

@@ -63,6 +63,18 @@ func outputSchemaFor[T any]() *jsonschema.Schema {
 // read-only vertical slice's list side (product spec §7.2).
 func RegisterTools(s *mcp.Server, backend Backend) {
 	mcp.AddTool(s, &mcp.Tool{
+		Name:         "project_brief",
+		Description:  "Get oriented in a project: in-progress/upcoming tickets, issue-register highlights, the feature list with ticket-progress counts, recent activity, and recent accepted decisions and plans, each capped at 20 compact rows. Call this FIRST when starting work in a project — it's the recommended orientation read before project_get/ticket_get/record_get narrow in on any one record.",
+		OutputSchema: outputSchemaFor[ProjectBrief](),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in projectGetInput) (*mcp.CallToolResult, ProjectBrief, error) {
+		brief, err := backend.GetProjectBrief(ctx, in.Key)
+		if err != nil {
+			return nil, ProjectBrief{}, toolError(err)
+		}
+		return nil, brief, nil
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:         "project_get",
 		Description:  "Get a project by its key (e.g. ABC).",
 		OutputSchema: outputSchemaFor[domain.Project](),

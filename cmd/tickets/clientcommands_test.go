@@ -132,6 +132,55 @@ func TestProjectListTable(t *testing.T) {
 	}
 }
 
+func TestProjectBriefTable(t *testing.T) {
+	isolateClientEnv(t)
+	apiURL := newTestAPIServer(t)
+
+	out := captureStdout(t, func() {
+		if err := runProject([]string{"brief", "ABC", "--url", apiURL}); err != nil {
+			t.Fatalf("runProject brief: %v", err)
+		}
+	})
+	if !strings.Contains(out, "ABC") || !strings.Contains(out, "ISSUE REGISTER") || !strings.Contains(out, "FEATURES") {
+		t.Errorf("project brief table output = %q, want the project key and section headers", out)
+	}
+}
+
+func TestProjectBriefJSON(t *testing.T) {
+	isolateClientEnv(t)
+	apiURL := newTestAPIServer(t)
+
+	out := captureStdout(t, func() {
+		if err := runProject([]string{"brief", "ABC", "--url", apiURL, "--json"}); err != nil {
+			t.Fatalf("runProject brief: %v", err)
+		}
+	})
+	var brief struct {
+		Project struct {
+			Key string `json:"key"`
+		} `json:"project"`
+		IssueRegister []map[string]any `json:"issue_register"`
+	}
+	if err := json.Unmarshal([]byte(out), &brief); err != nil {
+		t.Fatalf("unmarshal brief: %v (raw: %s)", err, out)
+	}
+	if brief.Project.Key != "ABC" {
+		t.Errorf("brief.Project.Key = %q, want %q", brief.Project.Key, "ABC")
+	}
+	if len(brief.IssueRegister) != 1 {
+		t.Errorf("len(IssueRegister) = %d, want 1 (the seeded bug)", len(brief.IssueRegister))
+	}
+}
+
+func TestProjectBriefRequiresKeyArgument(t *testing.T) {
+	isolateClientEnv(t)
+	apiURL := newTestAPIServer(t)
+
+	if err := runProject([]string{"brief", "--url", apiURL}); err == nil {
+		t.Error("project brief with no key argument: want error, got nil")
+	}
+}
+
 // TestTicketListRequiresProject proves ticket list never silently
 // hits GET /projects//tickets when no project is configured — it must
 // fail client-side with a clear error before any request is sent.

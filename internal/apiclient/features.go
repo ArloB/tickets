@@ -17,6 +17,7 @@ type Feature struct {
 	Description string    `json:"description"`
 	Status      string    `json:"status"`
 	Priority    string    `json:"priority"`
+	Creator     *string   `json:"creator,omitempty"`
 	Version     int64     `json:"version"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`

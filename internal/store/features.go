@@ -280,6 +280,49 @@ func ListFeaturesForProjectPage(ctx context.Context, q Querier, projectEntityID 
 	})
 }
 
+// FeatureTicketCounts is one feature's non-deleted ticket count, split
+// into how many of those are "done" — the project brief's (Phase 6
+// Step 5) per-feature progress summary. Done is exactly
+// domain.WorkflowStatusDone; cancelled tickets count toward Total but
+// not Done, the same way a cancelled ticket still shows up in an
+// ordinary board/list view rather than disappearing.
+type FeatureTicketCounts struct {
+	Total int
+	Done  int
+}
+
+// FeatureTicketCountsForProject returns every feature's
+// FeatureTicketCounts in one project, keyed by the feature's entities
+// id — a single GROUP BY query rather than one query per feature, so
+// the brief's cost stays flat as a project's feature count grows.
+// Features with zero tickets are absent from the map (nothing to
+// GROUP BY); callers treat a missing key as {0, 0}.
+func FeatureTicketCountsForProject(ctx context.Context, q Querier, projectEntityID int64) (map[int64]FeatureTicketCounts, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT t.feature_id, COUNT(*), SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END)
+		 FROM tickets t
+		 JOIN entities e ON e.id = t.id
+		 WHERE t.project_id = ? AND e.deleted_at IS NULL
+		 GROUP BY t.feature_id`,
+		projectEntityID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("feature ticket counts for project %d: %w", projectEntityID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make(map[int64]FeatureTicketCounts)
+	for rows.Next() {
+		var featureID int64
+		var counts FeatureTicketCounts
+		if err := rows.Scan(&featureID, &counts.Total, &counts.Done); err != nil {
+			return nil, fmt.Errorf("scan feature ticket counts: %w", err)
+		}
+		out[featureID] = counts
+	}
+	return out, rows.Err()
+}
+
 // GetFeatureRefByEntityID resolves a feature's public reference from
 // its internal entity id, or ErrNotFound if missing/deleted/not a
 // feature — GetFeatureByRef's reverse, mirroring

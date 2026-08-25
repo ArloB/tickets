@@ -466,6 +466,20 @@ func (b *HTTPBackend) ListNotifications(ctx context.Context, unreadOnly bool, li
 	return out, nil
 }
 
+func (b *HTTPBackend) GetProjectBrief(ctx context.Context, key string) (ProjectBrief, error) {
+	if key == "" {
+		key = b.DefaultProject
+	}
+	if key == "" {
+		return ProjectBrief{}, errMissingProjectKey()
+	}
+	brief, err := b.Client.GetProjectBrief(ctx, key)
+	if err != nil {
+		return ProjectBrief{}, toServiceError(err)
+	}
+	return fromAPIProjectBrief(brief), nil
+}
+
 func (b *HTTPBackend) MarkNotificationsRead(ctx context.Context, ids []int64, all bool) (int64, error) {
 	n, err := b.Client.MarkNotificationsRead(ctx, ids, all)
 	if err != nil {

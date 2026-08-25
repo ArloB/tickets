@@ -46,6 +46,7 @@ export interface ProjectDetail {
   title: string
   description: string
   status: ProjectStatus
+  creator?: string
   version: number
   created_at: string
   updated_at: string
@@ -54,6 +55,31 @@ export interface ProjectDetail {
 export interface ProjectsPage {
   projects: ProjectCompact[]
   next_cursor?: string
+}
+
+/** FeatureCompact plus a ticket-progress summary — one row of
+ * ProjectBrief's features section. */
+export interface FeatureBriefRow {
+  ref: string
+  title: string
+  status: WorkflowStatus
+  priority: Priority
+  version: number
+  updated_at: string
+  tickets_total: number
+  tickets_done: number
+}
+
+/** GET /projects/{key}/brief's response — a project's orientation
+ * read, every section capped at 20 compact rows (product spec §11). */
+export interface ProjectBrief {
+  project: ProjectDetail
+  in_progress: TicketCompact[]
+  issue_register: TicketCompact[]
+  features: FeatureBriefRow[]
+  recent_activity: ActivityEvent[]
+  recent_decisions: DecisionCompact[]
+  recent_plans: ContentItemCompact[]
 }
 
 // -- Ticket --

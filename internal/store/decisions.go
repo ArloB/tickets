@@ -156,6 +156,44 @@ func ListDecisionsForProjectPage(ctx context.Context, q Querier, projectEntityID
 	return page, nil
 }
 
+// RecentAcceptedDecisions returns a project's most recently created
+// accepted decisions, newest first, unpaginated — the project brief's
+// (Phase 6 Step 5) "recent accepted decisions" section, which wants a
+// fixed-size recency snapshot rather than a full paginated listing.
+// Unlike ListDecisionsForProjectPage's oldest-first (created_at ASC)
+// ordering, which exists so a cursor-paginated *full* listing reads in
+// a stable, appendable order, this always answers "the newest ones"
+// directly via ORDER BY ... DESC rather than fetching the whole
+// oldest-first list and reversing the tail in Go — the same reasoning
+// ListActivityPage's own newest-first ordering documents.
+func RecentAcceptedDecisions(ctx context.Context, q Querier, projectEntityID int64, limit int) ([]DecisionRow, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT`+decisionSelectColumns+`
+		 FROM decisions d
+		 JOIN entities e ON e.id = d.id
+		 JOIN projects p ON p.id = d.project_id
+		 LEFT JOIN actors ca ON ca.id = e.created_by
+		 WHERE d.project_id = ? AND e.deleted_at IS NULL AND d.status = 'accepted'
+		 ORDER BY e.created_at DESC, e.id DESC
+		 LIMIT ?`,
+		projectEntityID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("recent accepted decisions for project %d: %w", projectEntityID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []DecisionRow
+	for rows.Next() {
+		row, err := scanDecisionRow(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("scan decision: %w", err)
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 // GetDecisionRefByEntityID resolves a decision's public reference from
 // its internal entity id, or ErrNotFound if missing/deleted/not a
 // decision — GetDecisionByRef's reverse, mirroring

@@ -459,6 +459,14 @@ func (b *InProcessBackend) ListNotifications(ctx context.Context, unreadOnly boo
 	return out, nil
 }
 
+func (b *InProcessBackend) GetProjectBrief(ctx context.Context, key string) (ProjectBrief, error) {
+	brief, err := b.Svc.ProjectBrief(ctx, key)
+	if err != nil {
+		return ProjectBrief{}, err
+	}
+	return toProjectBrief(brief), nil
+}
+
 func (b *InProcessBackend) MarkNotificationsRead(ctx context.Context, ids []int64, all bool) (int64, error) {
 	actor, err := mcpActor(ctx)
 	if err != nil {
