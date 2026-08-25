@@ -80,12 +80,18 @@ introduces.
 - A content item has no `status` field: §5.9 names no workflow for
   plans/documents the way §5.8 names one for decisions, so none is
   added speculatively.
-- Comments stay ticket-only in Step 3 despite §5.10 naming
+- Comments stayed ticket-only in Step 3 despite §5.10 naming
   projects/features/tickets/decisions/plans/documents as commentable —
   extending `ticket_comment` (or adding a generic comment target) to
-  every principal entity is out of this step's scope and not required
-  by the plan/document vertical slice; it's a pre-existing gap this
-  step doesn't widen (decisions already lack comments too).
+  every principal entity was out of this step's scope and not required
+  by the plan/document vertical slice; it was a pre-existing gap this
+  step didn't widen (decisions lacked comments too). **Closed in Phase
+  6 Step 2**: `internal/service/comment.go`'s `resolveCommentOwner`
+  generalizes `AddComment`/`ListComments`/`EditComment`/`DeleteComment`
+  to all six kinds — no migration was needed, since
+  `comments.entity_id` already referenced `entities(id)` generically
+  (`0002_core_domain.sql`); the restriction was purely a service-layer
+  `store.GetTicketByRef` call, not a schema one.
 - Steps 4–5 (attachments, and content items' file/path/url
   representations) build on this table's already-present nullable
   columns without a further migration.

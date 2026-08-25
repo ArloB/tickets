@@ -147,3 +147,45 @@ func TestCommentRejectsUnknownSubcommand(t *testing.T) {
 		t.Error("runComment with an unknown subcommand: want error, got nil")
 	}
 }
+
+// TestCommentAddOnFeatureAndProject is Phase 6 Step 2's CLI regression
+// test: comment add/list pass ref through unnarrowed to
+// apiclient.CreateComment/ListComments, so they now work for a feature
+// reference and a bare project key too, not just a ticket ref.
+func TestCommentAddOnFeatureAndProject(t *testing.T) {
+	isolateClientEnv(t)
+	apiURL, token, _ := newTestAPIServerWithAgent(t)
+	t.Setenv("TICKETS_API_TOKEN", token)
+
+	for _, ref := range []string{"ABC-F1", "ABC"} {
+		t.Run(ref, func(t *testing.T) {
+			out := captureStdout(t, func() {
+				if err := runComment([]string{"add", ref, "--url", apiURL, "--body", "hello " + ref, "--json"}); err != nil {
+					t.Fatalf("runComment add %s: %v", ref, err)
+				}
+			})
+			var decoded map[string]any
+			if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+				t.Fatalf("decode comment add --json output: %v (raw: %s)", err, out)
+			}
+			if decoded["body"] != "hello "+ref {
+				t.Errorf("comment add on %s output body = %v, want %q", ref, decoded["body"], "hello "+ref)
+			}
+
+			listOut := captureStdout(t, func() {
+				if err := runComment([]string{"list", ref, "--url", apiURL, "--json"}); err != nil {
+					t.Fatalf("runComment list %s: %v", ref, err)
+				}
+			})
+			var page struct {
+				Comments []map[string]any `json:"comments"`
+			}
+			if err := json.Unmarshal([]byte(listOut), &page); err != nil {
+				t.Fatalf("decode comment list --json output: %v (raw: %s)", err, listOut)
+			}
+			if len(page.Comments) != 1 {
+				t.Errorf("comment list on %s = %d comments, want 1", ref, len(page.Comments))
+			}
+		})
+	}
+}

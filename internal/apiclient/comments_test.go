@@ -87,3 +87,43 @@ func TestCommentRoundTrip(t *testing.T) {
 		t.Fatalf("DeleteComment: %v", err)
 	}
 }
+
+// TestCommentsPathPrefixDispatchesOnRefKind is Phase 6 Step 2's
+// regression test for commentsPathPrefix: CreateComment/ListComments
+// must route to the right one of the six /kind/{ref}/comments routes
+// based on ref's own shape, including a bare project key — the one
+// form domain.Parse itself rejects (see commentsPathPrefix's doc).
+func TestCommentsPathPrefixDispatchesOnRefKind(t *testing.T) {
+	cases := map[string]string{
+		"ABC-1":    "/tickets/ABC-1/comments",
+		"ABC-F1":   "/features/ABC-F1/comments",
+		"ABC-D1":   "/decisions/ABC-D1/comments",
+		"ABC-P1":   "/plans/ABC-P1/comments",
+		"ABC-DOC1": "/documents/ABC-DOC1/comments",
+		"ABC":      "/projects/ABC/comments",
+	}
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(Comment{ID: 1, Version: 1})
+	}))
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL}
+	for ref, wantPath := range cases {
+		t.Run(ref, func(t *testing.T) {
+			if _, err := c.CreateComment(t.Context(), ref, "x", ""); err != nil {
+				t.Fatalf("CreateComment(%q): %v", ref, err)
+			}
+			if gotPath != wantPath {
+				t.Errorf("CreateComment(%q) hit path %q, want %q", ref, gotPath, wantPath)
+			}
+		})
+	}
+
+	if _, err := c.CreateComment(t.Context(), "not a ref", "x", ""); err == nil {
+		t.Error("CreateComment with an unparseable ref: want an error, got nil")
+	}
+}

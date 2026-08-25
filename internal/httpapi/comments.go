@@ -25,13 +25,21 @@ type addCommentRequest struct {
 	Body string `json:"body"`
 }
 
-func (s *Server) createComment(w http.ResponseWriter, r *http.Request) {
-	ref, svcErr := parseTicketRef(r.PathValue("ref"))
-	if svcErr != nil {
-		writeError(w, r, svcErr)
-		return
-	}
+// parseProjectCommentRef parses the {key} path value the
+// /projects/{key}/comments routes share into a project-kind reference
+// — a project has no seq-numbered public reference the way the other
+// five commentable kinds do (domain.Format rejects KindProject), so
+// unlike parseFeatureRef/parseDecisionRef/parseContentItemRef this
+// takes the raw key directly rather than parsing a formatted
+// reference, mirroring getProject's own key handling.
+func parseProjectCommentRef(key string) domain.Reference {
+	return domain.Reference{ProjectKey: key, Kind: domain.KindProject}
+}
 
+// createCommentOnRef is createComment's shared core, called once ref
+// has been parsed by whichever kind-specific route matched (Phase 6
+// Step 2: comments are no longer ticket-only, §5.10).
+func (s *Server) createCommentOnRef(w http.ResponseWriter, r *http.Request, ref domain.Reference) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, r, &service.Error{Code: domain.ErrValidationFailed, Message: "failed to read request body"})
@@ -57,12 +65,9 @@ func (s *Server) createComment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toCommentDetail(comment))
 }
 
-func (s *Server) listComments(w http.ResponseWriter, r *http.Request) {
-	ref, svcErr := parseTicketRef(r.PathValue("ref"))
-	if svcErr != nil {
-		writeError(w, r, svcErr)
-		return
-	}
+// listCommentsOnRef is listComments' shared core, called once ref has
+// been parsed by whichever kind-specific route matched.
+func (s *Server) listCommentsOnRef(w http.ResponseWriter, r *http.Request, ref domain.Reference) {
 	comments, err := s.svc.ListComments(r.Context(), ref)
 	if err != nil {
 		writeError(w, r, err)
@@ -73,6 +78,104 @@ func (s *Server) listComments(w http.ResponseWriter, r *http.Request) {
 		out[i] = toCommentDetail(c)
 	}
 	writeJSON(w, http.StatusOK, commentsPage{Comments: out})
+}
+
+func (s *Server) createComment(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseTicketRef(r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.createCommentOnRef(w, r, ref)
+}
+
+func (s *Server) listComments(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseTicketRef(r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.listCommentsOnRef(w, r, ref)
+}
+
+func (s *Server) createFeatureComment(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseFeatureRef(r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.createCommentOnRef(w, r, ref)
+}
+
+func (s *Server) listFeatureComments(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseFeatureRef(r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.listCommentsOnRef(w, r, ref)
+}
+
+func (s *Server) createDecisionComment(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseDecisionRef(r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.createCommentOnRef(w, r, ref)
+}
+
+func (s *Server) listDecisionComments(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseDecisionRef(r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.listCommentsOnRef(w, r, ref)
+}
+
+func (s *Server) createPlanComment(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseContentItemRef(domain.KindPlan, r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.createCommentOnRef(w, r, ref)
+}
+
+func (s *Server) listPlanComments(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseContentItemRef(domain.KindPlan, r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.listCommentsOnRef(w, r, ref)
+}
+
+func (s *Server) createDocumentComment(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseContentItemRef(domain.KindDocument, r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.createCommentOnRef(w, r, ref)
+}
+
+func (s *Server) listDocumentComments(w http.ResponseWriter, r *http.Request) {
+	ref, svcErr := parseContentItemRef(domain.KindDocument, r.PathValue("ref"))
+	if svcErr != nil {
+		writeError(w, r, svcErr)
+		return
+	}
+	s.listCommentsOnRef(w, r, ref)
+}
+
+func (s *Server) createProjectComment(w http.ResponseWriter, r *http.Request) {
+	s.createCommentOnRef(w, r, parseProjectCommentRef(r.PathValue("key")))
+}
+
+func (s *Server) listProjectComments(w http.ResponseWriter, r *http.Request) {
+	s.listCommentsOnRef(w, r, parseProjectCommentRef(r.PathValue("key")))
 }
 
 func (s *Server) getComment(w http.ResponseWriter, r *http.Request) {

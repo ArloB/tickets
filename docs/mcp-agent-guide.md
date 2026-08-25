@@ -98,8 +98,10 @@ writing:
 > kind's fields are simply omitted from that call. record_get/
 > record_update infer which kind a reference names from the reference
 > itself (ABC-D1 is a decision, ABC-P1 a plan, ABC-DOC1 a document), so
-> neither needs a kind argument. ticket_comment is the only comment tool;
-> comments exist on tickets only.
+> neither needs a kind argument. ticket_comment is the only comment tool,
+> despite its name — ref accepts a ticket, feature, decision, plan, or
+> document reference, or a bare project key, so it works on any of those
+> six kinds.
 >
 > ticket_comment and record_create accept an optional idempotency_key:
 > reusing the same key with identical arguments returns the original
@@ -116,7 +118,7 @@ writing:
 | `ticket_get` / `tickets_list` | Read a ticket / list tickets. `tickets_list`'s `view` is `priority_queue` (default) or `issue_register`. |
 | `ticket_create` | Create a ticket — the one create tool that returns the full `domain.Ticket`, not a compact write result, since an agent that just created something usually needs its full state immediately. |
 | `ticket_update` | Partial update — see the instructions text above. |
-| `ticket_comment` | Add a Markdown comment to a ticket. |
+| `ticket_comment` | Add a Markdown comment to a ticket, feature, decision, plan, document, or project (despite the tool's name) — see the instructions text above. |
 | `ticket_link` | Associate or relate two entities — see the instructions text above. |
 | `ticket_relationships` | Read back a ticket's explicit relationships (both ends), from that ticket's perspective. |
 | `ticket_associations` | Read back a ticket or feature's `associated_with` links. |

@@ -217,3 +217,97 @@ func TestEditDeletedCommentIsNotFound(t *testing.T) {
 		t.Fatalf("EditComment on deleted comment = %v, want not_found", err)
 	}
 }
+
+// TestAddCommentOnEveryPrincipalEntityKind is Phase 6 Step 2's
+// regression test for §5.10: "projects, features, tickets, decisions,
+// plans, and documents can receive Markdown comments" — previously
+// only tickets could (AddComment hard-coded store.GetTicketByRef).
+// Drives AddComment/ListComments/EditComment/DeleteComment through all
+// six kinds via one reference each, confirming resolveCommentOwner's
+// project-vs-resolveAssociationEndpoint dispatch works uniformly.
+func TestAddCommentOnEveryPrincipalEntityKind(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "ABC")
+
+	ticket := mustCreateTicket(t, s, "ABC", "T")
+	feature, err := s.CreateFeature(ctx, CreateFeatureRequest{ProjectKey: "ABC", Title: "F"}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("CreateFeature: %v", err)
+	}
+	decision, err := s.CreateDecision(ctx, CreateDecisionRequest{ProjectKey: "ABC", Title: "D"}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("CreateDecision: %v", err)
+	}
+	plan, err := s.CreateContentItem(ctx, CreateContentItemRequest{ProjectKey: "ABC", Kind: domain.KindPlan, Title: "P", Body: "plan body"}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("CreateContentItem(plan): %v", err)
+	}
+	doc, err := s.CreateContentItem(ctx, CreateContentItemRequest{ProjectKey: "ABC", Kind: domain.KindDocument, Title: "Doc", Body: "doc body"}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("CreateContentItem(document): %v", err)
+	}
+
+	refs := map[string]domain.Reference{
+		"project":  {ProjectKey: "ABC", Kind: domain.KindProject},
+		"feature":  mustParseRef(t, feature.Ref),
+		"ticket":   mustParseRef(t, ticket.Ref),
+		"decision": mustParseRef(t, decision.Ref),
+		"plan":     mustParseRef(t, plan.Ref),
+		"document": mustParseRef(t, doc.Ref),
+	}
+
+	for name, ref := range refs {
+		t.Run(name, func(t *testing.T) {
+			c, err := s.AddComment(ctx, AddCommentRequest{Ref: ref, Body: "hello " + name}, testActor, testCorrelationID, "", "")
+			if err != nil {
+				t.Fatalf("AddComment on %s: %v", name, err)
+			}
+			if c.Body != "hello "+name {
+				t.Fatalf("comment body = %q, want %q", c.Body, "hello "+name)
+			}
+
+			list, err := s.ListComments(ctx, ref)
+			if err != nil {
+				t.Fatalf("ListComments on %s: %v", name, err)
+			}
+			if len(list) != 1 || list[0].ID != c.ID {
+				t.Fatalf("ListComments on %s = %+v, want one comment with id %d", name, list, c.ID)
+			}
+
+			edited, err := s.EditComment(ctx, EditCommentRequest{CommentID: c.ID, Body: "edited " + name, ExpectedVersion: c.Version}, testActor, testCorrelationID)
+			if err != nil {
+				t.Fatalf("EditComment on %s: %v", name, err)
+			}
+			if edited.Body != "edited "+name {
+				t.Fatalf("edited comment body = %q, want %q", edited.Body, "edited "+name)
+			}
+
+			if err := s.DeleteComment(ctx, DeleteCommentRequest{CommentID: c.ID, ExpectedVersion: edited.Version}, testActor, testCorrelationID); err != nil {
+				t.Fatalf("DeleteComment on %s: %v", name, err)
+			}
+			got, err := s.GetComment(ctx, c.ID)
+			if err != nil {
+				t.Fatalf("GetComment after delete on %s: %v", name, err)
+			}
+			if got.DeletedAt == nil {
+				t.Fatalf("DeletedAt after delete on %s = nil, want set", name)
+			}
+		})
+	}
+}
+
+// TestAddCommentOnUnknownProjectIsNotFound confirms a project-kind
+// reference to a nonexistent project key is not_found, the project
+// half of resolveCommentOwner's dispatch.
+func TestAddCommentOnUnknownProjectIsNotFound(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "ABC")
+
+	_, err := s.AddComment(ctx, AddCommentRequest{Ref: domain.Reference{ProjectKey: "ZZZ", Kind: domain.KindProject}, Body: "x"}, testActor, testCorrelationID, "", "")
+	var svcErr *Error
+	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrNotFound {
+		t.Fatalf("AddComment on unknown project = %v, want not_found", err)
+	}
+}

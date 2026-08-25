@@ -706,6 +706,216 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /features/{ref}/comments:
+    post:
+      operationId: createFeatureComment
+      summary: Add a comment to a feature
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+        - $ref: '#/components/parameters/CSRFToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCommentRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listFeatureComments
+      summary: List every comment on a feature, oldest first, tombstones included
+      parameters:
+        - $ref: '#/components/parameters/FeatureRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /decisions/{ref}/comments:
+    post:
+      operationId: createDecisionComment
+      summary: Add a comment to a decision
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+        - $ref: '#/components/parameters/CSRFToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCommentRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDecisionComments
+      summary: List every comment on a decision, oldest first, tombstones included
+      parameters:
+        - $ref: '#/components/parameters/DecisionRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /plans/{ref}/comments:
+    post:
+      operationId: createPlanComment
+      summary: Add a comment to a plan
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/CSRFToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCommentRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listPlanComments
+      summary: List every comment on a plan, oldest first, tombstones included
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /documents/{ref}/comments:
+    post:
+      operationId: createDocumentComment
+      summary: Add a comment to a document
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/CSRFToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCommentRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listDocumentComments
+      summary: List every comment on a document, oldest first, tombstones included
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
+  /projects/{key}/comments:
+    post:
+      operationId: createProjectComment
+      summary: Add a comment to a project
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+        - $ref: '#/components/parameters/CSRFToken'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddCommentRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listProjectComments
+      summary: List every comment on a project, oldest first, tombstones included
+      parameters:
+        - $ref: '#/components/parameters/ProjectKey'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentsPage'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /comments/{id}:
     get:
       operationId: getComment
@@ -4213,7 +4423,11 @@ components:
       properties:
         ref:
           type: string
-          description: The reference of the entity that mentions this record.
+          description: >
+            The reference of the entity that mentions this record, or
+            a bare project key (e.g. "ABC") when the mention came from
+            a comment on a project — a project has no seq-numbered
+            reference token.
           example: ABC-124
         comment_id:
           type: integer

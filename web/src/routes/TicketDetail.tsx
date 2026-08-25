@@ -180,7 +180,7 @@ export default function TicketDetail() {
 
       <h2>Comments</h2>
       <CommentsSection
-        ticketRef={ticket.ref}
+        entityRef={ticket.ref}
         comments={ticket.comments ?? []}
         onChange={(comments) => setTicket({ ...ticket, comments })}
         canEdit={canEdit}

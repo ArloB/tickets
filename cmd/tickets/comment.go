@@ -8,10 +8,11 @@ import (
 	"strings"
 )
 
-// runComment is `tickets comment <subcommand>`. Comments are
-// ticket-only in Phase 3 (see internal/service/comment.go's
-// AddCommentRequest doc comment) — every subcommand here takes a
-// ticket reference or a comment id, never a feature/decision one.
+// runComment is `tickets comment <subcommand>`. add/list take any of
+// the six commentable references (a ticket, feature, decision, plan,
+// or document reference, or a bare project key — Phase 6 Step 2);
+// edit/delete take a comment id instead, since a comment's owner is
+// already fixed once it exists.
 func runComment(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("comment: expected a subcommand (add, list, edit, delete)")
@@ -32,7 +33,7 @@ func runComment(args []string) error {
 
 func runCommentAdd(args []string) error {
 	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
-		return fmt.Errorf("comment add: expected a ticket reference as the first argument")
+		return fmt.Errorf("comment add: expected a reference (ticket, feature, decision, plan, document, or project key) as the first argument")
 	}
 	ref := args[0]
 	fs, cfg, err := newClientFlagSet("comment add")
@@ -74,7 +75,7 @@ func runCommentAdd(args []string) error {
 
 func runCommentList(args []string) error {
 	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
-		return fmt.Errorf("comment list: expected a ticket reference as the first argument")
+		return fmt.Errorf("comment list: expected a reference (ticket, feature, decision, plan, document, or project key) as the first argument")
 	}
 	ref := args[0]
 	fs, cfg, err := newClientFlagSet("comment list")

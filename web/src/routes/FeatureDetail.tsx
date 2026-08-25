@@ -5,6 +5,7 @@ import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
 import { listBacklinks } from '../api/backlinks'
 import { listAttachments } from '../api/attachments'
+import { listComments } from '../api/comments'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { useEntityChanged } from '../api/events'
@@ -13,11 +14,13 @@ import { FeatureFieldsForm } from '../components/FeatureFieldsForm'
 import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
 import { AttachmentList } from '../components/AttachmentList'
+import { CommentsSection } from '../components/CommentsSection'
 import { SubscribeButton } from '../components/SubscribeButton'
 import { useAuth } from '../auth/AuthContext'
 import type {
   Attachment,
   Backlink,
+  CommentDetail,
   ExternalLink,
   FeatureDetail as FeatureDetailDto,
 } from '../api/types'
@@ -30,6 +33,7 @@ export default function FeatureDetail() {
   const [associated, setAssociated] = useState<string[] | null>(null)
   const [backlinks, setBacklinks] = useState<Backlink[] | null>(null)
   const [attachments, setAttachments] = useState<Attachment[] | null>(null)
+  const [comments, setComments] = useState<CommentDetail[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
 
@@ -40,6 +44,7 @@ export default function FeatureDetail() {
       setAssociated(null)
       setBacklinks(null)
       setAttachments(null)
+      setComments(null)
       setError(null)
       setEditing(false)
     }
@@ -49,13 +54,15 @@ export default function FeatureDetail() {
       listAssociations(ref),
       listBacklinks(ref),
       listAttachments(ref),
+      listComments(ref),
     ])
-      .then(([f, l, a, b, at]) => {
+      .then(([f, l, a, b, at, c]) => {
         setFeature(f)
         setLinks(l.links)
         setAssociated(a.associated)
         setBacklinks(b.backlinks)
         setAttachments(at.attachments)
+        setComments(c.comments)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [ref])
@@ -146,6 +153,16 @@ export default function FeatureDetail() {
             </li>
           ))}
         </ul>
+      )}
+
+      <h2>Comments</h2>
+      {comments && (
+        <CommentsSection
+          entityRef={feature.ref}
+          comments={comments}
+          onChange={setComments}
+          canEdit={canEdit}
+        />
       )}
     </main>
   )

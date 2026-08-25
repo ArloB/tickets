@@ -3,7 +3,12 @@
 // interchangeably, docs/contracts/references.md's {KEY}-F{seq}/
 // {KEY}-D{seq}/{KEY}-{seq} shapes) and by route-building components.
 
-export type EntityKind = 'ticket' | 'feature' | 'decision' | 'plan' | 'document'
+export type EntityKind = 'ticket' | 'feature' | 'decision' | 'plan' | 'document' | 'project'
+
+// A project has no seq-numbered reference token (domain.Format rejects
+// KindProject server-side) — it's named by its bare key instead, e.g.
+// "ABC". Mirrors internal/domain/reference.go's projectKeyPattern.
+const projectKeyPattern = /^[A-Z][A-Z0-9]{1,9}$/
 
 export function entityKindOfRef(ref: string): EntityKind {
   // DOC is tried before F/D so "ABC-DOC9" doesn't spuriously match the
@@ -13,6 +18,7 @@ export function entityKindOfRef(ref: string): EntityKind {
   if (/-F\d+$/.test(ref)) return 'feature'
   if (/-D\d+$/.test(ref)) return 'decision'
   if (/-P\d+$/.test(ref)) return 'plan'
+  if (projectKeyPattern.test(ref)) return 'project'
   return 'ticket'
 }
 
@@ -22,11 +28,12 @@ const pathSegment: Record<EntityKind, string> = {
   decision: 'decisions',
   plan: 'plans',
   document: 'documents',
+  project: 'projects',
 }
 
 /** e.g. "tickets" for "ABC-1", "features" for "ABC-F1" — the URL
- * segment addLink/listLinks/backlinks/associations share across all
- * three entity kinds. */
+ * segment addLink/listLinks/backlinks/associations/comments share
+ * across every entity kind. */
 export function entityPathSegment(ref: string): string {
   return pathSegment[entityKindOfRef(ref)]
 }
@@ -39,5 +46,6 @@ export function detailRoute(ref: string): string {
   if (kind === 'decision') return `/decisions/${ref}`
   if (kind === 'plan') return `/plans/${ref}`
   if (kind === 'document') return `/documents/${ref}`
+  if (kind === 'project') return `/projects/${ref}`
   return `/tickets/${ref}`
 }

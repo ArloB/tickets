@@ -12,13 +12,109 @@ import (
 	"github.com/ArloB/tickets/internal/store"
 )
 
-// AddCommentRequest is AddComment's input. Ref names the ticket the
-// comment attaches to — feature/project comments aren't wired up yet:
-// nothing exercises them, and adding that surface speculatively would
-// be untested code.
+// AddCommentRequest is AddComment's input. Ref names any of the six
+// commentable kinds §5.10 names: project, feature, ticket, decision,
+// plan, or document (Phase 6 Step 2 — previously ticket-only, per this
+// field's now-outdated original doc, though comments.entity_id has
+// always referenced entities(id) generically; the restriction was a
+// service-layer choice, not a schema one).
 type AddCommentRequest struct {
 	Ref  domain.Reference
 	Body string
+}
+
+// commentOwner is a resolved comment target — any of the six kinds
+// §5.10 names. EntityID/ProjectEntityID feed indexCommentSearchDoc and
+// notify's project-scoped resolution; Ref and ProjectKey feed
+// rescanMentions' reference scanner and the ChangeHint broadcast. A
+// project's Ref is its own Key, never a formatted reference — a
+// project has no seq-numbered public reference the way the other five
+// kinds do (domain.Format rejects KindProject), matching
+// CreateProject's own ChangeHint convention (internal/service/project.go).
+type commentOwner struct {
+	EntityID        int64
+	ProjectEntityID int64
+	Ref             string
+	ProjectKey      string
+}
+
+// resolveCommentOwner resolves any of the six commentable kinds from a
+// caller-supplied reference. Delegates to resolveAssociationEndpoint
+// for the five kinds it already resolves (ticket/feature/decision/
+// plan/document) and adds project support, which
+// resolveAssociationEndpoint deliberately excludes: an association is
+// project *content*, not a property of the project itself
+// (domain.ValidAssociationKind's doc) — a restriction that has no
+// bearing on comments, which §5.10 lists projects as receiving
+// directly.
+func resolveCommentOwner(ctx context.Context, q store.Querier, ref domain.Reference) (commentOwner, error) {
+	if ref.Kind == domain.KindProject {
+		row, err := store.GetProjectByKey(ctx, q, ref.ProjectKey)
+		if errors.Is(err, store.ErrNotFound) {
+			return commentOwner{}, newNotFoundError("project not found")
+		}
+		if err != nil {
+			return commentOwner{}, fmt.Errorf("service: look up project: %w", err)
+		}
+		return commentOwner{EntityID: row.ID, ProjectEntityID: row.ID, Ref: row.Entity.Key, ProjectKey: row.Entity.Key}, nil
+	}
+	endpoint, err := resolveAssociationEndpoint(ctx, q, "ref", ref)
+	if err != nil {
+		return commentOwner{}, err
+	}
+	projectEntityID, err := store.EntityProjectID(ctx, q, endpoint.EntityID)
+	if err != nil {
+		return commentOwner{}, fmt.Errorf("service: resolve %s's project: %w", ref.Kind, err)
+	}
+	return commentOwner{EntityID: endpoint.EntityID, ProjectEntityID: projectEntityID, Ref: endpoint.Ref, ProjectKey: ref.ProjectKey}, nil
+}
+
+// resolveCommentOwnerByEntityID is resolveCommentOwner's counterpart
+// for EditComment/DeleteComment, which only have the comment's
+// already-resolved owning entity id (row.EntityID), not the caller-
+// supplied reference — mirrors mentionTargetRef's kind-dispatch
+// pattern (internal/service/mentions.go) with project support added.
+func resolveCommentOwnerByEntityID(ctx context.Context, q store.Querier, entityID int64) (commentOwner, error) {
+	kind, err := store.GetEntityKindByID(ctx, q, entityID)
+	if errors.Is(err, store.ErrNotFound) {
+		return commentOwner{}, newNotFoundError("comment's owning entity not found")
+	}
+	if err != nil {
+		return commentOwner{}, fmt.Errorf("service: resolve comment owner kind: %w", err)
+	}
+	if kind == domain.KindProject {
+		key, err := store.GetProjectKeyByEntityID(ctx, q, entityID)
+		if err != nil {
+			return commentOwner{}, fmt.Errorf("service: resolve project key: %w", err)
+		}
+		return commentOwner{EntityID: entityID, ProjectEntityID: entityID, Ref: key, ProjectKey: key}, nil
+	}
+
+	var ref domain.Reference
+	switch kind {
+	case domain.KindTicket:
+		ref, err = store.GetTicketRefByEntityID(ctx, q, entityID)
+	case domain.KindFeature:
+		ref, err = store.GetFeatureRefByEntityID(ctx, q, entityID)
+	case domain.KindDecision:
+		ref, err = store.GetDecisionRefByEntityID(ctx, q, entityID)
+	case domain.KindPlan, domain.KindDocument:
+		ref, err = store.GetContentItemRefByEntityID(ctx, q, entityID)
+	default:
+		return commentOwner{}, fmt.Errorf("service: unexpected comment owner kind %q", kind)
+	}
+	if err != nil {
+		return commentOwner{}, fmt.Errorf("service: resolve comment owner ref: %w", err)
+	}
+	formatted, err := domain.Format(ref)
+	if err != nil {
+		return commentOwner{}, fmt.Errorf("service: format comment owner ref: %w", err)
+	}
+	projectEntityID, err := store.EntityProjectID(ctx, q, entityID)
+	if err != nil {
+		return commentOwner{}, fmt.Errorf("service: resolve comment owner's project: %w", err)
+	}
+	return commentOwner{EntityID: entityID, ProjectEntityID: projectEntityID, Ref: formatted, ProjectKey: ref.ProjectKey}, nil
 }
 
 // AddComment adds a comment to a ticket and scans its body for
@@ -51,12 +147,9 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 			return nil // no writes happened on this path; committing is a no-op
 		}
 
-		ticket, err := store.GetTicketByRef(ctx, tx, req.Ref)
-		if errors.Is(err, store.ErrNotFound) {
-			return newNotFoundError("ticket not found")
-		}
+		owner, err := resolveCommentOwner(ctx, tx, req.Ref)
 		if err != nil {
-			return fmt.Errorf("service: look up ticket: %w", err)
+			return err
 		}
 
 		// Loaded before this comment's own auto-subscribe below so the
@@ -64,30 +157,30 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 		// though notify() also self-excludes by actor id regardless, so
 		// this ordering documents the intent rather than being load-
 		// bearing on its own.
-		subscriberIDs, err := store.ListSubscriberActorIDs(ctx, tx, ticket.ID)
+		subscriberIDs, err := store.ListSubscriberActorIDs(ctx, tx, owner.EntityID)
 		if err != nil {
 			return fmt.Errorf("service: list subscribers: %w", err)
 		}
 
-		id, err := store.InsertComment(ctx, tx, ticket.ID, actorID, body, now)
+		id, err := store.InsertComment(ctx, tx, owner.EntityID, actorID, body, now)
 		if err != nil {
 			return fmt.Errorf("service: insert comment: %w", err)
 		}
 		commentID = id
 
-		mentioned, err := rescanMentions(ctx, tx, ticket.ID, commentID, ticket.Entity.ProjectKey, body, now, actorID)
+		mentioned, err := rescanMentions(ctx, tx, owner.EntityID, commentID, owner.ProjectKey, body, now, actorID)
 		if err != nil {
 			return err
 		}
-		if err := indexCommentSearchDoc(ctx, tx, commentID, ticket.ID, ticket.ProjectEntityID, ticket.Entity.Ref, body); err != nil {
+		if err := indexCommentSearchDoc(ctx, tx, commentID, owner.EntityID, owner.ProjectEntityID, owner.Ref, body); err != nil {
 			return err
 		}
-		if err := subscribe(ctx, tx, ticket.ID, actorID, now); err != nil {
+		if err := subscribe(ctx, tx, owner.EntityID, actorID, now); err != nil {
 			return err
 		}
 		notifiedIDs = mentioned
 		for _, recipientID := range subscriberIDs {
-			ok, err := notify(ctx, tx, recipientID, notificationKindCommented, ticket.ID, commentID, actorID, now)
+			ok, err := notify(ctx, tx, recipientID, notificationKindCommented, owner.EntityID, commentID, actorID, now)
 			if err != nil {
 				return err
 			}
@@ -95,11 +188,11 @@ func (s *Service) AddComment(ctx context.Context, req AddCommentRequest, actor d
 				notifiedIDs = append(notifiedIDs, recipientID)
 			}
 		}
-		hint = ChangeHint{Kind: HintEntityChanged, Ref: ticket.Entity.Ref, Project: ticket.Entity.ProjectKey}
+		hint = ChangeHint{Kind: HintEntityChanged, Ref: owner.Ref, Project: owner.ProjectKey}
 
 		cid := commentID
 		changes := auditChanges(map[string]any{"comment_id": commentID})
-		if err := store.InsertAuditEvent(ctx, tx, ticket.ID, actorID, eventCommentAdded, corrID, &cid, changes, now); err != nil {
+		if err := store.InsertAuditEvent(ctx, tx, owner.EntityID, actorID, eventCommentAdded, corrID, &cid, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
 		if err := recordIdempotency(ctx, tx, idemKey, actorID, fingerprint, strconv.FormatInt(commentID, 10), now); err != nil {
@@ -129,17 +222,14 @@ func (s *Service) GetComment(ctx context.Context, commentID int64) (domain.Comme
 	return row.Entity, nil
 }
 
-// ListComments returns every comment on a ticket, oldest first,
-// tombstones included.
+// ListComments returns every comment on any of the six commentable
+// kinds (§5.10), oldest first, tombstones included.
 func (s *Service) ListComments(ctx context.Context, ref domain.Reference) ([]domain.Comment, error) {
-	ticket, err := store.GetTicketByRef(ctx, s.store.DB(), ref)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, newNotFoundError("ticket not found")
-	}
+	owner, err := resolveCommentOwner(ctx, s.store.DB(), ref)
 	if err != nil {
-		return nil, fmt.Errorf("service: get ticket: %w", err)
+		return nil, err
 	}
-	rows, err := store.ListCommentsForEntity(ctx, s.store.DB(), ticket.ID)
+	rows, err := store.ListCommentsForEntity(ctx, s.store.DB(), owner.EntityID)
 	if err != nil {
 		return nil, fmt.Errorf("service: list comments: %w", err)
 	}
@@ -210,21 +300,17 @@ func (s *Service) EditComment(ctx context.Context, req EditCommentRequest, actor
 			return fmt.Errorf("service: update comment body: %w", err)
 		}
 
-		ticketRef, err := store.GetTicketRefByEntityID(ctx, tx, row.EntityID)
+		owner, err := resolveCommentOwnerByEntityID(ctx, tx, row.EntityID)
 		if err != nil {
-			return fmt.Errorf("service: resolve comment's ticket: %w", err)
+			return fmt.Errorf("service: resolve comment's owner: %w", err)
 		}
-		if _, err := rescanMentions(ctx, tx, row.EntityID, req.CommentID, ticketRef.ProjectKey, body, now, actorID); err != nil {
+		if _, err := rescanMentions(ctx, tx, row.EntityID, req.CommentID, owner.ProjectKey, body, now, actorID); err != nil {
 			return err
 		}
-		ticket, err := store.GetTicketByRef(ctx, tx, ticketRef)
-		if err != nil {
-			return fmt.Errorf("service: reload comment's ticket for indexing: %w", err)
-		}
-		if err := indexCommentSearchDoc(ctx, tx, req.CommentID, row.EntityID, ticket.ProjectEntityID, ticket.Entity.Ref, body); err != nil {
+		if err := indexCommentSearchDoc(ctx, tx, req.CommentID, row.EntityID, owner.ProjectEntityID, owner.Ref, body); err != nil {
 			return err
 		}
-		hint = ChangeHint{Kind: HintEntityChanged, Ref: ticket.Entity.Ref, Project: ticket.Entity.ProjectKey}
+		hint = ChangeHint{Kind: HintEntityChanged, Ref: owner.Ref, Project: owner.ProjectKey}
 
 		cid := req.CommentID
 		changes := auditChanges(map[string]any{"comment_id": req.CommentID})
@@ -279,15 +365,11 @@ func (s *Service) DeleteComment(ctx context.Context, req DeleteCommentRequest, a
 			return fmt.Errorf("service: remove comment search document: %w", err)
 		}
 
-		ticketRef, err := store.GetTicketRefByEntityID(ctx, tx, row.EntityID)
+		owner, err := resolveCommentOwnerByEntityID(ctx, tx, row.EntityID)
 		if err != nil {
-			return fmt.Errorf("service: resolve comment's ticket: %w", err)
+			return fmt.Errorf("service: resolve comment's owner: %w", err)
 		}
-		refStr, err := domain.Format(ticketRef)
-		if err != nil {
-			return fmt.Errorf("service: format comment's ticket ref: %w", err)
-		}
-		hint = ChangeHint{Kind: HintEntityChanged, Ref: refStr, Project: ticketRef.ProjectKey}
+		hint = ChangeHint{Kind: HintEntityChanged, Ref: owner.Ref, Project: owner.ProjectKey}
 
 		cid := req.CommentID
 		changes := auditChanges(map[string]any{"comment_id": req.CommentID})

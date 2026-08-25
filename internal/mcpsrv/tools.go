@@ -136,7 +136,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "ticket_comment",
-		Description:  "Add a Markdown comment to a ticket. Mentioning another entity's reference (e.g. #ABC-124) creates a backlink but not a dependency — use ticket_link for an explicit relationship.",
+		Description:  "Add a Markdown comment to a ticket, feature, decision, plan, document, or project — ref accepts any of their public references, or a bare project key (e.g. ABC) to comment on the project itself. Mentioning another entity's reference (e.g. #ABC-124) creates a backlink but not a dependency — use ticket_link for an explicit relationship.",
 		OutputSchema: outputSchemaFor[CommentWriteResult](),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in ticketCommentInput) (*mcp.CallToolResult, CommentWriteResult, error) {
 		out, err := backend.AddComment(withCallerActor(ctx, req), in.Ref, in.Body, in.IdempotencyKey)
@@ -470,7 +470,7 @@ type ticketUpdateInput struct {
 }
 
 type ticketCommentInput struct {
-	Ref            string `json:"ref" jsonschema:"the ticket's public reference, e.g. ABC-123"`
+	Ref            string `json:"ref" jsonschema:"the target's public reference (e.g. ABC-123 for a ticket, ABC-F2 for a feature, ABC-D1 for a decision, ABC-P1 for a plan, ABC-DOC1 for a document) or a bare project key (e.g. ABC) to comment on the project itself"`
 	Body           string `json:"body" jsonschema:"the comment's Markdown body"`
 	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"optional: a client-chosen key to make a retried call safe. Reusing the same key with the same ref/body returns the original comment instead of creating a duplicate; reusing it with different content is rejected as idempotency_key_reused."`
 }

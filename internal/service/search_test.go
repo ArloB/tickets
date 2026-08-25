@@ -458,3 +458,55 @@ func TestSearchAttachmentAndLinkReindexedOnTicketRestore(t *testing.T) {
 		t.Fatalf("Search after restore = %+v, want both the attachment and link hits back (attachment=%v link=%v)", result.Hits, sawAttachment, sawLink)
 	}
 }
+
+// TestSearchFindsCommentsOnNonTicketEntities is Phase 6 Step 2's
+// search-side regression test: mvp-acceptance.md's row 12 note says a
+// non-ticket comment must be verified findable once comments widen
+// past tickets. Adds a comment to a project and to a plan and confirms
+// both are searchable, mirroring
+// TestSearchFindsTicketFeatureDecisionAndComment's ticket-comment case.
+func TestSearchFindsCommentsOnNonTicketEntities(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "NTC")
+
+	plan, err := s.CreateContentItem(ctx, CreateContentItemRequest{
+		ProjectKey: "NTC", Kind: domain.KindPlan, Title: "Rollout plan", Body: "steps",
+	}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("CreateContentItem: %v", err)
+	}
+
+	projectComment, err := s.AddComment(ctx, AddCommentRequest{
+		Ref: domain.Reference{ProjectKey: "NTC", Kind: domain.KindProject}, Body: "glorbnaxian status update",
+	}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("AddComment on project: %v", err)
+	}
+	planComment, err := s.AddComment(ctx, AddCommentRequest{
+		Ref: mustParseRef(t, plan.Ref), Body: "glorbnaxian rollout note",
+	}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("AddComment on plan: %v", err)
+	}
+
+	result, err := s.Search(ctx, SearchRequest{Query: "glorbnaxian"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	var sawProjectComment, sawPlanComment bool
+	for _, h := range result.Hits {
+		if h.Kind != "comment" || h.CommentID == nil {
+			continue
+		}
+		switch *h.CommentID {
+		case projectComment.ID:
+			sawProjectComment = h.Ref == "NTC"
+		case planComment.ID:
+			sawPlanComment = h.Ref == plan.Ref
+		}
+	}
+	if !sawProjectComment || !sawPlanComment {
+		t.Fatalf("Search(%q) = %+v, want hits for both the project comment (id %d) and the plan comment (id %d)", "glorbnaxian", result.Hits, projectComment.ID, planComment.ID)
+	}
+}

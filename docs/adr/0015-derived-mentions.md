@@ -84,7 +84,17 @@ deleted outright rather than left to be filtered forever.
   consume it, per the Phase 1 plan's explicit deferral.
 - Comments are the only source of mentions that isn't a principal
   entity's own body — `AddComment`/`EditComment` call `rescanMentions`
-  with the comment's id as `source_comment_id` and the *ticket's*
-  `ProjectKey` as the scope (comments only attach to tickets in Phase
-  1; see ADR 0013's note that feature/project comments aren't built
-  since nothing exercises them yet).
+  with the comment's id as `source_comment_id` and the owning entity's
+  `ProjectKey` as the scope. In Phase 1 this was always the *ticket's*
+  `ProjectKey`, since comments only attached to tickets; **as of Phase
+  6 Step 2, comments exist on all six principal kinds** (ADR 0017's
+  updated Consequences), so `resolveCommentOwner`/
+  `resolveCommentOwnerByEntityID` (`internal/service/comment.go`)
+  resolve the scope generically. A comment on a project is a genuinely
+  new mention-source case this ADR's original design didn't anticipate
+  — a project has no seq-numbered reference token (`domain.Format`
+  rejects `KindProject`), so a project-sourced backlink resolves
+  through a new `mentionSourceRefString` helper that returns the bare
+  project key instead of delegating to `mentionTargetRef`'s
+  reference-only dispatch for that one kind. `TestGetBacklinksFromProjectComment`
+  (`internal/service/backlinks_test.go`) is the regression test.

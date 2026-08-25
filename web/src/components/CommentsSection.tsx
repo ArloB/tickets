@@ -76,16 +76,19 @@ function EditingComment({
 }
 
 export function CommentsSection({
-  ticketRef,
+  entityRef,
   comments,
   onChange,
   canEdit,
 }: {
-  ticketRef: string
+  /** Any of the six commentable references §5.10 names: a
+   * ticket/feature/decision/plan/document reference, or a bare
+   * project key (Phase 6 Step 2). */
+  entityRef: string
   comments: CommentDetail[]
   /** Called with the updated comment array only — a comment mutation
-   * never bumps the parent ticket's version, so the caller updates
-   * just `ticket.comments`, no parent refetch needed. */
+   * never bumps the parent entity's version, so the caller updates
+   * just its own `comments` field, no parent refetch needed. */
   onChange: (comments: CommentDetail[]) => void
   canEdit: boolean
 }) {
@@ -100,7 +103,7 @@ export function CommentsSection({
     setPosting(true)
     setPostError(null)
     try {
-      const created = await addComment(ticketRef, newBody)
+      const created = await addComment(entityRef, newBody)
       onChange([...comments, created])
       setNewBody('')
     } catch (err) {

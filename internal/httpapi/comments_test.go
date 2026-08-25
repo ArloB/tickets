@@ -177,3 +177,51 @@ func TestGetCommentNotFound(t *testing.T) {
 		t.Fatalf("get missing comment status = %d, want 404, body=%s", resp.StatusCode, body)
 	}
 }
+
+// TestCreateAndListCommentsOnEveryEntityKind is Phase 6 Step 2's HTTP
+// regression test for the five comment routes added alongside the
+// original ticket-only pair: /features, /decisions, /plans,
+// /documents, and /projects. Each response is schema-validated against
+// api/openapi.yaml by ts.do.
+func TestCreateAndListCommentsOnEveryEntityKind(t *testing.T) {
+	ts := newTestServer(t)
+	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
+	ts.do(http.MethodPost, "/projects/ABC/features", nil, mustJSON(t, map[string]string{"title": "F"}))
+	ts.do(http.MethodPost, "/projects/ABC/decisions", nil, mustJSON(t, map[string]string{"title": "D", "decision": "x"}))
+	ts.do(http.MethodPost, "/projects/ABC/plans", nil, mustJSON(t, map[string]string{"title": "P", "body": "plan body"}))
+	ts.do(http.MethodPost, "/projects/ABC/documents", nil, mustJSON(t, map[string]string{"title": "Doc", "body": "doc body"}))
+
+	cases := []string{
+		"/features/ABC-F2/comments",
+		"/decisions/ABC-D1/comments",
+		"/plans/ABC-P1/comments",
+		"/documents/ABC-DOC1/comments",
+		"/projects/ABC/comments",
+	}
+	for _, path := range cases {
+		t.Run(path, func(t *testing.T) {
+			createResp, createBody := ts.do(http.MethodPost, path, nil, mustJSON(t, map[string]string{"body": "hello"}))
+			if createResp.StatusCode != http.StatusCreated {
+				t.Fatalf("create comment on %s status = %d, body=%s", path, createResp.StatusCode, createBody)
+			}
+			var created map[string]any
+			if err := json.Unmarshal(createBody, &created); err != nil {
+				t.Fatalf("unmarshal created comment: %v", err)
+			}
+
+			listResp, listBody := ts.do(http.MethodGet, path, nil, nil)
+			if listResp.StatusCode != http.StatusOK {
+				t.Fatalf("list comments on %s status = %d, body=%s", path, listResp.StatusCode, listBody)
+			}
+			var page struct {
+				Comments []map[string]any `json:"comments"`
+			}
+			if err := json.Unmarshal(listBody, &page); err != nil {
+				t.Fatalf("unmarshal comments page: %v", err)
+			}
+			if len(page.Comments) != 1 || page.Comments[0]["id"] != created["id"] {
+				t.Fatalf("list comments on %s = %+v, want exactly the created comment (id %v)", path, page.Comments, created["id"])
+			}
+		})
+	}
+}

@@ -150,6 +150,30 @@ func mentionTargetRef(ctx context.Context, q store.Querier, entityID int64) (dom
 	}
 }
 
+// mentionSourceRefString resolves a mention edge's source entity id to
+// its formatted public reference, as a string. A mention's source can
+// now be a project's own comment (Phase 6 Step 2: comments exist on
+// all six principal kinds, and a project comment's body is scanned by
+// rescanMentions the same as any other), which mentionTargetRef cannot
+// return — a project has no seq-numbered reference token
+// (domain.Format rejects KindProject; see its doc), so this returns
+// the project's bare key instead of delegating to mentionTargetRef for
+// that one kind, string-formatting the other five via domain.Format.
+func mentionSourceRefString(ctx context.Context, q store.Querier, entityID int64) (string, error) {
+	kind, err := store.GetEntityKindByID(ctx, q, entityID)
+	if err != nil {
+		return "", err
+	}
+	if kind == domain.KindProject {
+		return store.GetProjectKeyByEntityID(ctx, q, entityID)
+	}
+	ref, err := mentionTargetRef(ctx, q, entityID)
+	if err != nil {
+		return "", err
+	}
+	return domain.Format(ref)
+}
+
 // GetTicketMentions returns the current outgoing mention targets of a
 // ticket's description, as public references — for tests (gate 7) and
 // any future caller that wants to show a ticket's mentions.
@@ -185,7 +209,12 @@ func (s *Service) GetCommentMentions(ctx context.Context, commentID int64) ([]do
 // so a caller can tell "mentioned in ABC-124's description" from
 // "mentioned in a comment on ABC-124."
 type Backlink struct {
-	SourceRef       domain.Reference
+	// SourceRef is already the formatted public reference (or a bare
+	// project key — Phase 6 Step 2) — a domain.Reference can't
+	// represent a project source (domain.Format rejects KindProject),
+	// so this is resolved to a string once here rather than pushing
+	// that special case onto every caller.
+	SourceRef       string
 	SourceCommentID int64
 }
 
@@ -206,7 +235,7 @@ func (s *Service) GetBacklinks(ctx context.Context, ref domain.Reference) ([]Bac
 	}
 	out := make([]Backlink, len(rows))
 	for i, row := range rows {
-		srcRef, err := mentionTargetRef(ctx, s.store.DB(), row.SourceEntityID)
+		srcRef, err := mentionSourceRefString(ctx, s.store.DB(), row.SourceEntityID)
 		if err != nil {
 			return nil, fmt.Errorf("service: resolve mention source: %w", err)
 		}

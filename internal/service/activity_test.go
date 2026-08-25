@@ -50,6 +50,42 @@ func TestListActivityIncludesTicketAndCommentEvents(t *testing.T) {
 	}
 }
 
+// TestListActivityIncludesProjectCommentWithEmptyEntityRef is Phase 6
+// Step 2's regression test: a comment on a project itself is a new
+// case (comments were ticket-only before this phase) that
+// ListActivityPage's `WHERE (e.project_id = ? OR e.id = ?)` already
+// handles via the `e.id = ?` branch (the same one project_created
+// uses), and activityEntityRef already returns "" for KindProject
+// rather than erroring — this confirms the feed page actually renders
+// rather than 500ing once a project comment exists.
+func TestListActivityIncludesProjectCommentWithEmptyEntityRef(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "ABC")
+
+	projectRef := domain.Reference{ProjectKey: "ABC", Kind: domain.KindProject}
+	if _, err := s.AddComment(ctx, AddCommentRequest{Ref: projectRef, Body: "kickoff"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("AddComment on project: %v", err)
+	}
+
+	result, err := s.ListActivity(ctx, "ABC", ActivityListFilters{}, 10, "")
+	if err != nil {
+		t.Fatalf("ListActivity: %v", err)
+	}
+	if len(result.Events) != 2 {
+		t.Fatalf("events = %+v, want 2 (project_created, comment_added)", result.Events)
+	}
+	if result.Events[0].EventType != eventCommentAdded {
+		t.Fatalf("Events[0].EventType = %q, want %q", result.Events[0].EventType, eventCommentAdded)
+	}
+	if result.Events[0].EntityRef != "" {
+		t.Errorf("Events[0].EntityRef = %q, want empty for a project-kind entity", result.Events[0].EntityRef)
+	}
+	if result.Events[0].EntityKind != domain.KindProject {
+		t.Errorf("Events[0].EntityKind = %q, want %q", result.Events[0].EntityKind, domain.KindProject)
+	}
+}
+
 // TestListActivityFiltersByEventType proves the event_type filter
 // actually narrows the query rather than being silently ignored.
 func TestListActivityFiltersByEventType(t *testing.T) {

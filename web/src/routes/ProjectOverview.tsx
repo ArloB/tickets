@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getProject } from '../api/projects'
 import { createFeature, listFeatures } from '../api/features'
+import { listComments } from '../api/comments'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
+import { CommentsSection } from '../components/CommentsSection'
 import { useAuth } from '../auth/AuthContext'
-import type { FeatureCompact, Priority, ProjectDetail } from '../api/types'
+import type { CommentDetail, FeatureCompact, Priority, ProjectDetail } from '../api/types'
 
 const priorities: Priority[] = ['critical', 'high', 'medium', 'low']
 
@@ -82,18 +84,21 @@ export default function ProjectOverview() {
   const { me } = useAuth()
   const [project, setProject] = useState<ProjectDetail | null>(null)
   const [features, setFeatures] = useState<FeatureCompact[] | null>(null)
+  const [comments, setComments] = useState<CommentDetail[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     setProject(null)
     setFeatures(null)
+    setComments(null)
     setError(null)
     setCreating(false)
-    Promise.all([getProject(key), listFeatures(key)])
-      .then(([proj, page]) => {
+    Promise.all([getProject(key), listFeatures(key), listComments(key)])
+      .then(([proj, page, c]) => {
         setProject(proj)
         setFeatures(page.features)
+        setComments(c.comments)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [key])
@@ -143,6 +148,16 @@ export default function ProjectOverview() {
         ) : (
           <button onClick={() => setCreating(true)}>New feature</button>
         ))}
+
+      <h2>Comments</h2>
+      {comments && (
+        <CommentsSection
+          entityRef={key}
+          comments={comments}
+          onChange={setComments}
+          canEdit={me?.permission === 'editor'}
+        />
+      )}
     </main>
   )
 }

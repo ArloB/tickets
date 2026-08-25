@@ -14,6 +14,7 @@ import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
 import { listBacklinks } from '../api/backlinks'
 import { listAttachments } from '../api/attachments'
+import { listComments } from '../api/comments'
 import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { useEntityChanged } from '../api/events'
@@ -22,12 +23,14 @@ import { MarkdownEditor } from '../components/MarkdownEditor'
 import { AssociationsSection } from '../components/AssociationsSection'
 import { LinksSection } from '../components/LinksSection'
 import { AttachmentList } from '../components/AttachmentList'
+import { CommentsSection } from '../components/CommentsSection'
 import { DiffView } from '../components/DiffView'
 import { SubscribeButton } from '../components/SubscribeButton'
 import { useAuth } from '../auth/AuthContext'
 import type {
   Attachment,
   Backlink,
+  CommentDetail,
   ContentItemDetail as ContentItemDetailDto,
   ContentItemDiff,
   ContentItemVersion,
@@ -156,6 +159,7 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
   const [associated, setAssociated] = useState<string[] | null>(null)
   const [backlinks, setBacklinks] = useState<Backlink[] | null>(null)
   const [attachments, setAttachments] = useState<Attachment[] | null>(null)
+  const [comments, setComments] = useState<CommentDetail[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
@@ -173,6 +177,7 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
       setAssociated(null)
       setBacklinks(null)
       setAttachments(null)
+      setComments(null)
       setError(null)
       setEditing(false)
     }
@@ -182,13 +187,15 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
       listAssociations(ref),
       listBacklinks(ref),
       listAttachments(ref),
+      listComments(ref),
     ])
-      .then(([d, l, a, b, at]) => {
+      .then(([d, l, a, b, at, c]) => {
         setItem(d)
         setLinks(l.links)
         setAssociated(a.associated)
         setBacklinks(b.backlinks)
         setAttachments(at.attachments)
+        setComments(c.comments)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [urlKind, ref])
@@ -377,6 +384,16 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
 
       <h2>Version history</h2>
       <VersionHistory urlKind={urlKind} item={item} />
+
+      <h2>Comments</h2>
+      {comments && (
+        <CommentsSection
+          entityRef={item.ref}
+          comments={comments}
+          onChange={setComments}
+          canEdit={canEdit}
+        />
+      )}
     </main>
   )
 }

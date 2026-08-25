@@ -184,21 +184,40 @@ func (b *InProcessBackend) UpdateTicket(ctx context.Context, in UpdateTicketInpu
 	return toTicketWriteResult(ticket), nil
 }
 
-func (b *InProcessBackend) AddComment(ctx context.Context, ticketRef, body, idempotencyKey string) (CommentWriteResult, error) {
+// parseCommentRef parses ref for AddComment (Phase 6 Step 2): any of
+// the five referenceable commentable kinds via domain.Parse, or a bare
+// project key via domain.ValidProjectKey — a project has no
+// seq-numbered reference token domain.Parse recognizes (see its doc),
+// mirroring apiclient.commentsPathPrefix's same two-step check for the
+// HTTP-bridge backend.
+func parseCommentRef(ref string) (domain.Reference, *service.Error) {
+	if domain.ValidProjectKey(ref) {
+		return domain.Reference{ProjectKey: ref, Kind: domain.KindProject}, nil
+	}
+	parsed, err := domain.Parse(ref)
+	if err != nil {
+		return domain.Reference{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: err.Error()}
+	}
+	switch parsed.Kind {
+	case domain.KindTicket, domain.KindFeature, domain.KindDecision, domain.KindPlan, domain.KindDocument:
+		return parsed, nil
+	default:
+		return domain.Reference{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "comments are not supported for a " + string(parsed.Kind) + " reference"}
+	}
+}
+
+func (b *InProcessBackend) AddComment(ctx context.Context, commentRef, body, idempotencyKey string) (CommentWriteResult, error) {
 	actor, err := mcpActor(ctx)
 	if err != nil {
 		return CommentWriteResult{}, err
 	}
-	ref, perr := domain.Parse(ticketRef)
-	if perr != nil {
-		return CommentWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
-	}
-	if ref.Kind != domain.KindTicket {
-		return CommentWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a ticket reference"}
+	ref, svcErr := parseCommentRef(commentRef)
+	if svcErr != nil {
+		return CommentWriteResult{}, svcErr
 	}
 	var fingerprint string
 	if idempotencyKey != "" {
-		fingerprint, err = mcpFingerprint("ticket_comment", struct{ Ref, Body string }{ticketRef, body})
+		fingerprint, err = mcpFingerprint("ticket_comment", struct{ Ref, Body string }{commentRef, body})
 		if err != nil {
 			return CommentWriteResult{}, err
 		}

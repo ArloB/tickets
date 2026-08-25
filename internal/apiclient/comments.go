@@ -2,17 +2,48 @@ package apiclient
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/ArloB/tickets/internal/domain"
 )
 
+// commentsPathPrefix picks the URL prefix for one of the six
+// commentable kinds §5.10 names (Phase 6 Step 2 — previously
+// ticket-only), mirroring associationsPathPrefix's dispatch pattern.
+// A project ref has no seq-numbered token domain.Parse recognizes (see
+// domain.Parse's doc), so a bare project key is checked first via
+// domain.ValidProjectKey before falling through to domain.Parse for
+// the other five kinds.
+func commentsPathPrefix(ref string) (string, error) {
+	if domain.ValidProjectKey(ref) {
+		return "/projects/", nil
+	}
+	parsed, err := domain.Parse(ref)
+	if err != nil {
+		return "", fmt.Errorf("apiclient: parse reference %q: %w", ref, err)
+	}
+	switch parsed.Kind {
+	case domain.KindTicket:
+		return "/tickets/", nil
+	case domain.KindFeature:
+		return "/features/", nil
+	case domain.KindDecision:
+		return "/decisions/", nil
+	case domain.KindPlan:
+		return "/plans/", nil
+	case domain.KindDocument:
+		return "/documents/", nil
+	default:
+		return "", fmt.Errorf("apiclient: comments are not supported for a %q reference", parsed.Kind)
+	}
+}
+
 // Comment mirrors internal/httpapi/wire.go's commentDetail
-// field-for-field. Comments are ticket-only in Phase 3 (product spec
-// §5.10 lists project/feature/decision comments too, but nothing
-// wires those routes up yet — a deliberate, documented scope cut, not
-// an oversight).
+// field-for-field.
 type Comment struct {
 	ID        int64      `json:"id"`
 	Author    string     `json:"author"`
@@ -43,10 +74,16 @@ type CommentHistoryPage struct {
 	Versions []CommentVersion `json:"versions"`
 }
 
-// CreateComment is POST /tickets/{ref}/comments.
-func (c *Client) CreateComment(ctx context.Context, ticketRef, body, idempotencyKey string) (Comment, error) {
+// CreateComment is POST /tickets/{ref}/comments, or the matching
+// route for any of the other five commentable kinds §5.10 names,
+// chosen by ref's own kind (commentsPathPrefix).
+func (c *Client) CreateComment(ctx context.Context, ref, body, idempotencyKey string) (Comment, error) {
+	prefix, err := commentsPathPrefix(ref)
+	if err != nil {
+		return Comment{}, err
+	}
 	var comment Comment
-	err := c.do(ctx, http.MethodPost, "/tickets/"+url.PathEscape(ticketRef)+"/comments",
+	err = c.do(ctx, http.MethodPost, prefix+url.PathEscape(ref)+"/comments",
 		struct {
 			Body string `json:"body"`
 		}{Body: body},
@@ -54,10 +91,14 @@ func (c *Client) CreateComment(ctx context.Context, ticketRef, body, idempotency
 	return comment, err
 }
 
-// ListComments is GET /tickets/{ref}/comments.
-func (c *Client) ListComments(ctx context.Context, ticketRef string) (CommentsPage, error) {
+// ListComments is GET .../comments, chosen by ref's own kind.
+func (c *Client) ListComments(ctx context.Context, ref string) (CommentsPage, error) {
+	prefix, err := commentsPathPrefix(ref)
+	if err != nil {
+		return CommentsPage{}, err
+	}
 	var page CommentsPage
-	err := c.do(ctx, http.MethodGet, "/tickets/"+url.PathEscape(ticketRef)+"/comments", nil, &page, requestOptions{})
+	err = c.do(ctx, http.MethodGet, prefix+url.PathEscape(ref)+"/comments", nil, &page, requestOptions{})
 	return page, err
 }
 

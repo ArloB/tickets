@@ -291,3 +291,42 @@ func TestMarkNotificationsReadByIDAndAll(t *testing.T) {
 		t.Fatalf("MarkNotificationsRead all with nothing unread = %d, %v; want 0", n, err)
 	}
 }
+
+// TestCommentOnProjectNotifiesSubscriberWithEmptyEntityRef is Phase 6
+// Step 2's regression test for toNotification/activityEntityRef: a
+// project is a new kind of comment owner (comments were ticket-only
+// before this phase), and activityEntityRef already special-cases
+// domain.KindProject to return "" rather than calling domain.Format
+// (which rejects KindProject) — this confirms that path is actually
+// exercised end to end (ListNotifications doesn't error) rather than
+// just trusting the existing dispatch code.
+func TestCommentOnProjectNotifiesSubscriberWithEmptyEntityRef(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	seedHumanActor(t, s, "alice")
+
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "PJC", Title: "Project comments"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	projectRef := domain.Reference{ProjectKey: "PJC", Kind: domain.KindProject}
+	if _, err := s.AddComment(ctx, AddCommentRequest{Ref: projectRef, Body: "kickoff notes"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("testActor comments on project: %v", err)
+	}
+	if _, err := s.AddComment(ctx, AddCommentRequest{Ref: projectRef, Body: "reply"}, testActorAlice, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("alice comments on project: %v", err)
+	}
+
+	result, err := s.ListNotifications(ctx, testActor, false, 10, "")
+	if err != nil {
+		t.Fatalf("ListNotifications: %v", err)
+	}
+	if len(result.Notifications) != 1 || result.Notifications[0].Kind != notificationKindCommented {
+		t.Fatalf("testActor's notifications = %+v, want exactly one 'commented'", result.Notifications)
+	}
+	if result.Notifications[0].Entity != "" {
+		t.Errorf("notification Entity = %q, want empty for a project-kind entity", result.Notifications[0].Entity)
+	}
+	if result.Notifications[0].EntityKind != domain.KindProject {
+		t.Errorf("notification EntityKind = %q, want %q", result.Notifications[0].EntityKind, domain.KindProject)
+	}
+}

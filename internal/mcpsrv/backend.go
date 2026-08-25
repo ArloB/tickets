@@ -30,7 +30,7 @@ type Backend interface {
 	GetTicket(ctx context.Context, ref string) (domain.Ticket, error)
 	ListTickets(ctx context.Context, projectKey, view string, limit int, cursor string) (TicketsListOutput, error)
 	UpdateTicket(ctx context.Context, in UpdateTicketInput) (TicketWriteResult, error)
-	AddComment(ctx context.Context, ticketRef, body, idempotencyKey string) (CommentWriteResult, error)
+	AddComment(ctx context.Context, ref, body, idempotencyKey string) (CommentWriteResult, error)
 	AddRelationship(ctx context.Context, sourceRef, relType, targetRef string) error
 	AddAssociation(ctx context.Context, sourceRef, targetRef string) error
 	GetTicketRelationships(ctx context.Context, ref string) (RelationshipsOutput, error)

@@ -1,24 +1,25 @@
 package httpapi
 
 import (
-	"fmt"
 	"net/http"
-
-	"github.com/ArloB/tickets/internal/domain"
 )
 
 // backlinkView is one backlink edge on the wire. CommentID is present
 // only when the mention came from a comment rather than the source
 // entity's own Markdown body — see service.Backlink's doc comment.
+// Ref can now name a project (a bare key, e.g. "ABC") when the mention
+// came from a comment on a project (Phase 6 Step 2) — the route's own
+// {ref} target is still only a ticket/feature/decision/plan/document
+// (parseAssociationRef), but a backlink's *source* isn't restricted to
+// that set.
 type backlinkView struct {
 	Ref       string `json:"ref"`
 	CommentID *int64 `json:"comment_id,omitempty"`
 }
 
-// listBacklinks is GET .../backlinks on a ticket, feature, or
-// decision — read-only, reusing parseAssociationRef the same way
-// listAssociations/listLinks do, since backlinks are supported on
-// exactly the same three entity kinds.
+// listBacklinks is GET .../backlinks on a ticket, feature, decision,
+// plan, or document — read-only, reusing parseAssociationRef the same
+// way listAssociations/listLinks do for the route's own {ref} target.
 func (s *Server) listBacklinks(w http.ResponseWriter, r *http.Request) {
 	ref, svcErr := parseAssociationRef(r.PathValue("ref"))
 	if svcErr != nil {
@@ -32,12 +33,7 @@ func (s *Server) listBacklinks(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]backlinkView, len(backlinks))
 	for i, b := range backlinks {
-		refStr, ferr := domain.Format(b.SourceRef)
-		if ferr != nil {
-			writeError(w, r, fmt.Errorf("httpapi: format backlink source: %w", ferr))
-			return
-		}
-		view := backlinkView{Ref: refStr}
+		view := backlinkView{Ref: b.SourceRef}
 		if b.SourceCommentID != 0 {
 			id := b.SourceCommentID
 			view.CommentID = &id

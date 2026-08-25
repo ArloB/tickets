@@ -83,6 +83,35 @@ func TestInProcessBackendCreateTicketUsesContextActor(t *testing.T) {
 	}
 }
 
+// TestInProcessBackendAddCommentOnEveryEntityKind is Phase 6 Step 2's
+// regression test for parseCommentRef: ticket_comment is ref-agnostic
+// now, so this drives InProcessBackend.AddComment against a feature, a
+// decision, and a bare project key (the one form domain.Parse itself
+// can't handle — see parseCommentRef's doc) to confirm none of them
+// still hit the old "reference must be a ticket reference" rejection.
+func TestInProcessBackendAddCommentOnEveryEntityKind(t *testing.T) {
+	backend, _ := newTestBackend(t)
+	_, agentActor := mustIssueAgentToken(t, backend, "codex")
+	ctx := auth.WithPrincipal(context.Background(), auth.Principal{Actor: agentActor, Permission: auth.PermissionEditor, AuthMethod: "bearer"})
+
+	decision, err := backend.Svc.CreateDecision(ctx, service.CreateDecisionRequest{ProjectKey: "ABC", Title: "D", Decision: "x"}, agentActor, service.NewCorrelationID(), "", "")
+	if err != nil {
+		t.Fatalf("CreateDecision: %v", err)
+	}
+
+	for _, ref := range []string{"ABC-F1", decision.Ref, "ABC"} {
+		t.Run(ref, func(t *testing.T) {
+			result, err := backend.AddComment(ctx, ref, "hello "+ref, "")
+			if err != nil {
+				t.Fatalf("AddComment(%q): %v", ref, err)
+			}
+			if result.ID == 0 {
+				t.Errorf("AddComment(%q) result = %+v, want a nonzero id", ref, result)
+			}
+		})
+	}
+}
+
 func decodeTicketResult(t *testing.T, res *mcp.CallToolResult) domain.Ticket {
 	t.Helper()
 	return decodeResult[domain.Ticket](t, res)

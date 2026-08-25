@@ -55,7 +55,9 @@ record_update; there is no file-upload representation over MCP at all
 or CLI instead. record_get/record_update infer which kind a reference
 names from the reference itself (ABC-D1 is a decision, ABC-P1 a plan,
 ABC-DOC1 a document), so neither needs a kind argument. ticket_comment
-is the only comment tool; comments exist on tickets only.
+is the only comment tool, despite its name — ref accepts a ticket,
+feature, decision, plan, or document reference, or a bare project key,
+so it works on any of those six kinds.
 
 ticket_comment and record_create accept an optional idempotency_key:
 reusing the same key with identical arguments returns the original

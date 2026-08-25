@@ -162,6 +162,26 @@ type ProjectRow struct {
 	GeneralFeatureID int64
 }
 
+// GetProjectKeyByEntityID resolves a project's key from its own
+// entity id — the project-kind counterpart of GetTicketRefByEntityID/
+// GetFeatureRefByEntityID/etc (Phase 6 Step 1: a project has no
+// seq-numbered public reference the way those kinds do, so a project
+// comment's owner resolution needs this instead of a domain.Reference).
+func GetProjectKeyByEntityID(ctx context.Context, q Querier, entityID int64) (string, error) {
+	var key string
+	err := q.QueryRowContext(ctx,
+		`SELECT p.key FROM projects p JOIN entities e ON e.id = p.id WHERE p.id = ? AND e.deleted_at IS NULL`,
+		entityID,
+	).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("get project key for entity %d: %w", entityID, err)
+	}
+	return key, nil
+}
+
 // GetProjectByKey returns the project and its internal ids, or
 // ErrNotFound.
 func GetProjectByKey(ctx context.Context, q Querier, key string) (ProjectRow, error) {

@@ -415,8 +415,8 @@ func (b *HTTPBackend) UpdateTicket(ctx context.Context, in UpdateTicketInput) (T
 	return toTicketWriteResult(ticket), nil
 }
 
-func (b *HTTPBackend) AddComment(ctx context.Context, ticketRef, body, idempotencyKey string) (CommentWriteResult, error) {
-	c, err := b.Client.CreateComment(ctx, ticketRef, body, idempotencyKey)
+func (b *HTTPBackend) AddComment(ctx context.Context, ref, body, idempotencyKey string) (CommentWriteResult, error) {
+	c, err := b.Client.CreateComment(ctx, ref, body, idempotencyKey)
 	if err != nil {
 		return CommentWriteResult{}, toServiceError(err)
 	}

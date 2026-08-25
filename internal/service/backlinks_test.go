@@ -32,12 +32,8 @@ func TestGetBacklinksFromEntityBody(t *testing.T) {
 		t.Fatalf("backlinks = %+v, want exactly 1", backlinks)
 	}
 	got := backlinks[0]
-	gotRef, err := domain.Format(got.SourceRef)
-	if err != nil {
-		t.Fatalf("format source ref: %v", err)
-	}
-	if gotRef != source.Ref {
-		t.Errorf("backlink source ref = %q, want %q", gotRef, source.Ref)
+	if got.SourceRef != source.Ref {
+		t.Errorf("backlink source ref = %q, want %q", got.SourceRef, source.Ref)
 	}
 	if got.SourceCommentID != 0 {
 		t.Errorf("backlink SourceCommentID = %d, want 0 (own-body mention)", got.SourceCommentID)
@@ -75,12 +71,8 @@ func TestGetBacklinksFromComment(t *testing.T) {
 		t.Fatalf("backlinks = %+v, want exactly 1", backlinks)
 	}
 	got := backlinks[0]
-	gotRef, err := domain.Format(got.SourceRef)
-	if err != nil {
-		t.Fatalf("format source ref: %v", err)
-	}
-	if gotRef != host.Ref {
-		t.Errorf("backlink source ref = %q, want %q", gotRef, host.Ref)
+	if got.SourceRef != host.Ref {
+		t.Errorf("backlink source ref = %q, want %q", got.SourceRef, host.Ref)
 	}
 	if got.SourceCommentID != c.ID {
 		t.Errorf("backlink SourceCommentID = %d, want %d (the comment's own id)", got.SourceCommentID, c.ID)
@@ -199,5 +191,45 @@ func TestGetBacklinksAcrossTargetKinds(t *testing.T) {
 	}
 	if len(decisionBacklinks) != 1 {
 		t.Fatalf("decision backlinks = %+v, want 1", decisionBacklinks)
+	}
+}
+
+// TestGetBacklinksFromProjectComment is Phase 6 Step 2's regression
+// test for mentionSourceRefString: a comment on a *project* is a new
+// kind of mention source (comments were ticket-only before this
+// phase), and a project has no seq-numbered reference token
+// (domain.Format rejects KindProject) — the naive reuse of
+// mentionTargetRef's kind switch would 500 on this case instead of
+// resolving the project's bare key.
+func TestGetBacklinksFromProjectComment(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "ABC")
+	target := mustCreateTicket(t, s, "ABC", "Target")
+	targetRef, err := domain.Parse(target.Ref)
+	if err != nil {
+		t.Fatalf("parse target ref: %v", err)
+	}
+
+	c, err := s.AddComment(ctx, AddCommentRequest{
+		Ref: domain.Reference{ProjectKey: "ABC", Kind: domain.KindProject}, Body: "mentions " + target.Ref,
+	}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("AddComment on project: %v", err)
+	}
+
+	backlinks, err := s.GetBacklinks(ctx, targetRef)
+	if err != nil {
+		t.Fatalf("GetBacklinks: %v", err)
+	}
+	if len(backlinks) != 1 {
+		t.Fatalf("backlinks = %+v, want exactly 1", backlinks)
+	}
+	got := backlinks[0]
+	if got.SourceRef != "ABC" {
+		t.Errorf("backlink source ref = %q, want the bare project key %q", got.SourceRef, "ABC")
+	}
+	if got.SourceCommentID != c.ID {
+		t.Errorf("backlink SourceCommentID = %d, want %d", got.SourceCommentID, c.ID)
 	}
 }
