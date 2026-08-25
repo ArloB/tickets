@@ -4325,6 +4325,9 @@ components:
         - external_link_removed
         - content_item_created
         - content_item_updated
+        - attachment_added
+        - attachment_replaced
+        - attachment_removed
 
     ActivityEvent:
       type: object

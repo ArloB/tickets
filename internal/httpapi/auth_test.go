@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -203,6 +204,121 @@ func TestAnonymousReadCoversStep10Through14Routes(t *testing.T) {
 	resp, _ := ts.doNoAuth(http.MethodPost, "/tickets/ABC-1/comments", nil, mustJSON(t, map[string]string{"body": "should be rejected"}))
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("anonymous POST /tickets/ABC-1/comments with anonymous read enabled: status = %d, want 403", resp.StatusCode)
+	}
+}
+
+// TestAnonymousReadCoversPhase4And5Routes is
+// TestAnonymousReadCoversStep10Through14Routes's counterpart for
+// everything routeTable gained afterward: decisions, plans/documents
+// (including their version history and, per ADR 0004's Consequences —
+// "Phase 5 widened anonymous read to attachment bytes" — their
+// downloadable content), external links, backlinks, activity, search,
+// and an attachment's own bytes on a ticket. Also locks in the
+// deliberate exception on the same surface: notifications and a
+// subscription's own status are routeEditor even for GET (no anonymous
+// identity to hold either), so anonymous access to those two must stay
+// rejected even with anonymous read enabled.
+func TestAnonymousReadCoversPhase4And5Routes(t *testing.T) {
+	ts, svc, _ := newAuthTestServer(t, true)
+	mustCreateAdmin(t, svc, "alice", "correct-password")
+	sessionID, csrfToken := ts.login("alice", "correct-password")
+	authed := map[string]string{"Cookie": sessionCookieName + "=" + sessionID, "X-CSRF-Token": csrfToken}
+
+	mustCreated := func(resp *http.Response, body []byte, label string) map[string]any {
+		t.Helper()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("%s: status = %d, body=%s", label, resp.StatusCode, body)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(body, &m); err != nil {
+			t.Fatalf("%s: unmarshal response: %v", label, err)
+		}
+		return m
+	}
+
+	projResp, projBody := ts.doNoAuth(http.MethodPost, "/projects", authed, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
+	mustCreated(projResp, projBody, "create project")
+
+	ticketResp, ticketBody := ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", authed, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ticket := mustCreated(ticketResp, ticketBody, "create ticket")
+	ticketRef, _ := ticket["ref"].(string)
+
+	decisionResp, decisionBody := ts.doNoAuth(http.MethodPost, "/projects/ABC/decisions", authed, mustJSON(t, map[string]string{
+		"title": "A decision", "decision": "do the thing",
+	}))
+	decision := mustCreated(decisionResp, decisionBody, "create decision")
+	decisionRef, _ := decision["ref"].(string)
+
+	// A file representation, not markdown — DownloadContentItem (ADR
+	// 0004's flagged risk, extended to plans/documents) only serves
+	// bytes for the file representation.
+	planResp, planBody := ts.doMultipart(http.MethodPost, "/projects/ABC/plans", authed,
+		map[string]string{"title": "A plan"}, "file", "plan.txt", []byte("plan file bytes"))
+	plan := mustCreated(planResp, planBody, "create plan")
+	planRef, _ := plan["ref"].(string)
+
+	linkResp, linkBody := ts.doNoAuth(http.MethodPost, "/tickets/"+ticketRef+"/links", authed, mustJSON(t, map[string]string{
+		"title": "External doc", "url": "https://example.com/doc",
+	}))
+	link := mustCreated(linkResp, linkBody, "create link")
+	linkID, _ := link["id"].(float64)
+
+	attachResp, attachBody := ts.doMultipart(http.MethodPost, "/tickets/"+ticketRef+"/attachments", authed,
+		map[string]string{"title": "A file"}, "file", "notes.txt", []byte("attachment bytes"))
+	attachment := mustCreated(attachResp, attachBody, "create attachment")
+	attachmentID, _ := attachment["id"].(float64)
+
+	// A comment on the project itself (Phase 6 Step 2's non-ticket
+	// comment surface) so /projects/{key}/comments has something to
+	// read back.
+	ts.doNoAuth(http.MethodPost, "/projects/ABC/comments", authed, mustJSON(t, map[string]string{"body": "a project comment"}))
+
+	anonymousGET := func(path string) {
+		t.Helper()
+		resp, body := ts.doNoAuth(http.MethodGet, path, nil, nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("anonymous GET %s with anonymous read enabled: status = %d, body=%s", path, resp.StatusCode, body)
+		}
+	}
+
+	for _, path := range []string{
+		"/decisions/" + decisionRef,
+		"/decisions/" + decisionRef + "/versions",
+		"/decisions/" + decisionRef + "/diff?from=1&to=1",
+		"/projects/ABC/plans",
+		"/plans/" + planRef,
+		"/plans/" + planRef + "/versions",
+		"/plans/" + planRef + "/download",
+		"/tickets/" + ticketRef + "/links",
+		"/tickets/" + ticketRef + "/backlinks",
+		"/tickets/" + ticketRef + "/attachments",
+		fmt.Sprintf("/attachments/%.0f", attachmentID),
+		fmt.Sprintf("/attachments/%.0f/download", attachmentID), // ADR 0004: the specific risk Phase 5 introduced
+		fmt.Sprintf("/attachments/%.0f/versions", attachmentID),
+		"/projects/ABC/comments",
+		"/projects/ABC/activity",
+		"/search?q=ticket",
+	} {
+		anonymousGET(path)
+	}
+
+	// The link created above round-trips through the anonymous list
+	// read — a weak check that the list route isn't just returning an
+	// empty/error body that happens to be 200.
+	resp, body := ts.doNoAuth(http.MethodGet, "/tickets/"+ticketRef+"/links", nil, nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "External doc") {
+		t.Errorf("anonymous GET links = %d %s, want 200 containing the created link (id %.0f)", resp.StatusCode, body, linkID)
+	}
+
+	// Deliberate exception: notifications and a subscription's own
+	// status require an actual identity, so they stay routeEditor even
+	// for GET — anonymous access to either must still be rejected with
+	// anonymous read enabled.
+	for _, path := range []string{"/notifications", "/tickets/" + ticketRef + "/subscribe"} {
+		resp, _ := ts.doNoAuth(http.MethodGet, path, nil, nil)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("anonymous GET %s with anonymous read enabled: status = %d, want 403 (requires an actual identity)", path, resp.StatusCode)
+		}
 	}
 }
 

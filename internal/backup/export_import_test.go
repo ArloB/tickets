@@ -292,14 +292,39 @@ func TestExportNeverContainsSecrets(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 
-	const secretMarker = "s3cret-password-marker"
-	sentinelHash := "argon2id$v=19$m=1,t=1,p=1$" + secretMarker
+	// Three distinct secret sources product spec §12 explicitly
+	// excludes from export (plan.md's Phase 6 Step 4 text: "Never
+	// password hashes, sessions, or token hashes"): a human account's
+	// password hash, a live session's id/CSRF token, and an agent
+	// token's hash. Each gets its own sentinel so a failure names which
+	// secret leaked, not just that something did.
+	const (
+		passwordMarker = "s3cret-password-marker"
+		sessionMarker  = "s3cret-session-marker"
+		csrfMarker     = "s3cret-csrf-marker"
+		tokenMarker    = "s3cret-token-hash-marker"
+	)
+	sentinelHash := "argon2id$v=19$m=1,t=1,p=1$" + passwordMarker
 	if _, err := st.DB().ExecContext(ctx,
 		`INSERT INTO human_accounts(actor_id, username, password_hash, created_at, updated_at)
 		 VALUES (2, 'sentinel', ?, '2026-01-01T00:00:00.000000000Z', '2026-01-01T00:00:00.000000000Z')`,
 		sentinelHash,
 	); err != nil {
 		t.Fatalf("seed human_accounts sentinel: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO sessions(id, actor_id, csrf_token, created_at, last_seen_at, expires_at)
+		 VALUES (?, 2, ?, '2026-01-01T00:00:00.000000000Z', '2026-01-01T00:00:00.000000000Z', '2099-01-01T00:00:00.000000000Z')`,
+		sessionMarker, csrfMarker,
+	); err != nil {
+		t.Fatalf("seed sessions sentinel: %v", err)
+	}
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO agent_tokens(actor_id, token_hash, description, created_at)
+		 VALUES (2, ?, 'sentinel', '2026-01-01T00:00:00.000000000Z')`,
+		tokenMarker,
+	); err != nil {
+		t.Fatalf("seed agent_tokens sentinel: %v", err)
 	}
 
 	env, err := Export(ctx, st.DB(), mustOpenBlobs(t, dataDir), "")
@@ -310,8 +335,10 @@ func TestExportNeverContainsSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
-	if strings.Contains(string(data), secretMarker) {
-		t.Error("export JSON contains the password hash sentinel — human_accounts must never be exported")
+	for _, marker := range []string{passwordMarker, sessionMarker, csrfMarker, tokenMarker} {
+		if strings.Contains(string(data), marker) {
+			t.Errorf("export JSON contains the %q sentinel — this secret must never be exported", marker)
+		}
 	}
 
 	// Positive assertion: the export actually carries what it's

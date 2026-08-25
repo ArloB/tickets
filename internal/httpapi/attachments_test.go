@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -339,5 +341,133 @@ func TestAttachmentPathRequiresPathValue(t *testing.T) {
 		mustJSON(t, map[string]string{"title": "no path"}))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("create path attachment without path status = %d, body=%s, want 400", resp.StatusCode, body)
+	}
+}
+
+// TestAttachmentFilenameCannotInjectResponseHeaders is Phase 6 Step
+// 7's backfill of a Phase 2-deferred test: writeAttachmentDownload
+// builds Content-Disposition via fmt.Sprintf("...filename=%q", ...),
+// and %q's Go-syntax quoting escapes every control character and
+// embedded quote into a literal backslash sequence — so even a
+// filename containing raw CR/LF or a `"` can never break out of the
+// header value or inject a second header line. This writes the
+// malicious filename directly into the row (bypassing multipart
+// upload, whose own parser may or may not let such bytes survive
+// through Filename in the first place — the invariant that actually
+// matters is what the download response does with whatever ends up in
+// file_name, not how it got there) so the assertion holds regardless
+// of upload-side parsing behavior.
+func TestAttachmentFilenameCannotInjectResponseHeaders(t *testing.T) {
+	ts := newTestServer(t)
+	ref := createTestTicket(t, ts)
+
+	createResp, createBody := ts.doMultipart(http.MethodPost, "/tickets/"+ref+"/attachments", nil,
+		map[string]string{"title": "design notes"}, "file", "notes.txt", []byte("hello"))
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create attachment status = %d, body=%s", createResp.StatusCode, createBody)
+	}
+	var attachment map[string]any
+	if err := json.Unmarshal(createBody, &attachment); err != nil {
+		t.Fatalf("unmarshal attachment: %v", err)
+	}
+	id := int64(attachment["id"].(float64))
+
+	malicious := "evil\r\nX-Injected: yes\r\nSet-Cookie: hacked=true\".txt"
+	if _, err := ts.store.DB().Exec(`UPDATE attachments SET file_name = ? WHERE id = ?`, malicious, id); err != nil {
+		t.Fatalf("seed malicious file_name: %v", err)
+	}
+
+	downloadResp, downloadBody := ts.doUnvalidated(http.MethodGet, "/attachments/"+strconv.FormatInt(id, 10)+"/download", nil, nil)
+	if downloadResp.StatusCode != http.StatusOK {
+		t.Fatalf("download status = %d, body=%s", downloadResp.StatusCode, downloadBody)
+	}
+	if string(downloadBody) != "hello" {
+		t.Errorf("downloaded content = %q, want %q (header injection must not corrupt the body either)", downloadBody, "hello")
+	}
+	if n := len(downloadResp.Header.Values("X-Injected")); n != 0 {
+		t.Errorf("X-Injected header present (%d times) — filename injected a real response header", n)
+	}
+	if n := len(downloadResp.Header.Values("Set-Cookie")); n != 0 {
+		t.Errorf("Set-Cookie header present (%d times) — filename injected a real response header", n)
+	}
+	if n := len(downloadResp.Header.Values("Content-Disposition")); n != 1 {
+		t.Fatalf("Content-Disposition header present %d times, want exactly 1", n)
+	}
+	cd := downloadResp.Header.Get("Content-Disposition")
+	if strings.ContainsAny(cd, "\r\n") {
+		t.Errorf("Content-Disposition header contains a raw CR or LF byte: %q", cd)
+	}
+	_, params, err := mime.ParseMediaType(cd)
+	if err != nil {
+		t.Fatalf("Content-Disposition %q does not parse as a valid media type: %v", cd, err)
+	}
+	// %q's Go-syntax escaping and HTTP quoted-string escaping are
+	// different formats — a raw CR byte becomes the two literal
+	// characters `\` and `r` under %q, which a quoted-string parser
+	// then unescapes as its own quoted-pair (backslash-then-literal-
+	// char) down to just `r`. The exact bytes don't round-trip, and
+	// that's the point: what matters is that no real control character
+	// survives into the parsed value, only inert text.
+	if strings.ContainsAny(params["filename"], "\r\n") {
+		t.Errorf("parsed filename %q contains a raw CR or LF byte — control characters survived instead of being neutralized", params["filename"])
+	}
+	if !strings.Contains(params["filename"], "X-Injected") {
+		t.Errorf("parsed filename %q lost the non-control-character payload entirely — expected it neutralized, not silently dropped", params["filename"])
+	}
+}
+
+// TestUploadedHTMLNeverRendersInline is the discriminating check for a
+// hypothesis raised during Phase 6 Step 7's review: media_type is
+// client-supplied (createUploadAttachment reads it straight from
+// r.FormValue("media_type") with no allow-list) and gets echoed
+// verbatim into the download response's Content-Type — could an
+// uploader make the server serve attacker HTML that a browser renders
+// inline (stored XSS on the app's own origin)? Empirically no, and
+// this pins down why: (1) an empty filename can never reach
+// CreateAttachment at all — mime/multipart's own Form.File only
+// classifies a part as a file when its filename param is non-empty,
+// so Content-Disposition (below) is never skipped for a real upload;
+// (2) writeAttachmentDownload's Content-Disposition is hardcoded to
+// the "attachment" disposition type, never "inline", which is what
+// actually stops a browser from rendering the response as a page
+// regardless of Content-Type; (3) securityHeaders (server.go) wraps
+// the whole mux, not just the SPA, so X-Content-Type-Options: nosniff
+// and a strict CSP apply here too, as defense in depth.
+func TestUploadedHTMLNeverRendersInline(t *testing.T) {
+	ts := newTestServer(t)
+	ref := createTestTicket(t, ts)
+
+	createResp, createBody := ts.doMultipart(http.MethodPost, "/tickets/"+ref+"/attachments", nil,
+		map[string]string{"title": "not actually renderable", "media_type": "text/html"},
+		"file", "page.html", []byte("<script>alert(document.domain)</script>"))
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create attachment status = %d, body=%s", createResp.StatusCode, createBody)
+	}
+	var attachment map[string]any
+	if err := json.Unmarshal(createBody, &attachment); err != nil {
+		t.Fatalf("unmarshal attachment: %v", err)
+	}
+	id := int64(attachment["id"].(float64))
+
+	downloadResp, downloadBody := ts.doUnvalidated(http.MethodGet, "/attachments/"+strconv.FormatInt(id, 10)+"/download", nil, nil)
+	if downloadResp.StatusCode != http.StatusOK {
+		t.Fatalf("download status = %d, body=%s", downloadResp.StatusCode, downloadBody)
+	}
+	// Content-Type does reflect the uploader's declared media_type —
+	// that part of the hypothesis was right, and is expected: this
+	// route serves arbitrary user content and can't know its true type.
+	if ct := downloadResp.Header.Get("Content-Type"); ct != "text/html" {
+		t.Errorf("Content-Type = %q, want the declared media_type text/html to be echoed", ct)
+	}
+	// What actually prevents inline rendering: the disposition type.
+	cd := downloadResp.Header.Get("Content-Disposition")
+	if !strings.HasPrefix(cd, "attachment;") {
+		t.Errorf("Content-Disposition = %q, want it to start with %q so browsers download rather than render this response", cd, "attachment;")
+	}
+	if got := downloadResp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff on the attachment download route", got)
+	}
+	if csp := downloadResp.Header.Get("Content-Security-Policy"); csp == "" {
+		t.Error("Content-Security-Policy header missing on the attachment download route")
 	}
 }

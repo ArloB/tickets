@@ -441,6 +441,44 @@ func TestToolsOverRealStreamableHTTPRejectsMissingToken(t *testing.T) {
 	}
 }
 
+// TestToolsOverRealStreamableHTTPRejectsRevokedToken is Phase 6 Step
+// 7's MCP-layer half of "MCP token handling" (the threat model names
+// this surface explicitly): tokenVerifier (auth.go) adapts
+// service.VerifyBearerToken, the exact function
+// internal/httpapi.TestRevokedBearerTokenRejected already proves
+// rejects a revoked token at the service layer — this closes the same
+// question one layer up, over the real Streamable HTTP transport the
+// go-sdk auth middleware actually runs on, rather than leaving it to
+// be inferred transitively from the service-layer test.
+func TestToolsOverRealStreamableHTTPRejectsRevokedToken(t *testing.T) {
+	backend, _ := newTestBackend(t)
+	ctx := context.Background()
+	agent, err := backend.Svc.CreateAgent(ctx, service.CreateAgentRequest{Name: "codex"}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	raw, tokenID, err := backend.Svc.CreateAgentToken(ctx, agent.Ref, "", nil, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("CreateAgentToken: %v", err)
+	}
+	if err := backend.Svc.RevokeAgentToken(ctx, tokenID, testActor, testCorrelationID); err != nil {
+		t.Fatalf("RevokeAgentToken: %v", err)
+	}
+
+	ts := httptest.NewServer(NewStreamableHTTPHandler(backend))
+	defer ts.Close()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   ts.URL,
+		HTTPClient: &http.Client{Transport: bearerTransport{token: raw}},
+	}
+	_, err = client.Connect(ctx, transport, nil)
+	if err == nil {
+		t.Fatal("connect with a revoked bearer token: want error, got nil")
+	}
+}
+
 // TestTicketCreateOverRealStreamableHTTPWithBearerToken proves the
 // actor-attribution wiring (withCallerActor/mcpActor) actually resolves
 // a real, valid actor from the verified bearer token, end to end

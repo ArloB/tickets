@@ -39,6 +39,7 @@ type testServer struct {
 	router    routers.Router
 	sessionID string
 	csrfToken string
+	store     *store.Store
 }
 
 func newTestServer(t *testing.T) *testServer {
@@ -71,7 +72,7 @@ func newTestServer(t *testing.T) *testServer {
 		t.Fatalf("build openapi router: %v", err)
 	}
 
-	server := &testServer{t: t, url: ts.URL, router: router}
+	server := &testServer{t: t, url: ts.URL, router: router, store: st}
 	server.loginAsTestAdmin(svc)
 	return server
 }
