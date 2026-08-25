@@ -220,6 +220,10 @@ func (s *Server) routeTable() []routeEntry {
 
 		{http.MethodGet, "/api/v1/events", routeViewer, s.events},
 
+		{http.MethodPost, "/api/v1/accounts", routeAdmin, s.createAccount},
+		{http.MethodGet, "/api/v1/accounts", routeAdmin, s.listAccounts},
+		{http.MethodPost, "/api/v1/accounts/{username}/password", routeEditor, s.changePassword},
+
 		{http.MethodPost, "/api/v1/agents", routeAdmin, s.createAgent},
 		{http.MethodGet, "/api/v1/agents", routeAdmin, s.listAgents},
 		{http.MethodPost, "/api/v1/agents/{name}/tokens", routeAdmin, s.createAgentToken},

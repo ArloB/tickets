@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -88,6 +90,164 @@ func (s *Service) CreateAdminAccount(ctx context.Context, username, password str
 	committed = true
 
 	return domain.ActorRef{Kind: domain.ActorHuman, Name: username}, nil
+}
+
+// CreateHumanAccountRequest is CreateHumanAccount's input.
+type CreateHumanAccountRequest struct {
+	Username string
+	Password string
+	IsAdmin  bool
+}
+
+// CreateHumanAccount creates a second (or later) human account (Phase
+// 7 — product spec §4.2/§13 name account management as an admin
+// capability; through Phase 6 the only human account creation path
+// was CreateAdminAccount's one-time first-run bootstrap). Unlike
+// CreateAdminAccount, this goes through s.withTx: there is a real
+// calling actor to attribute the creation to (an admin, enforced by
+// internal/httpapi's routeAdmin — this method itself doesn't check the
+// caller's own admin flag, matching agent.go's CreateAgent, which
+// likewise trusts its caller's permission gate rather than
+// re-verifying it in internal/service).
+func (s *Service) CreateHumanAccount(ctx context.Context, req CreateHumanAccountRequest, actor domain.ActorRef, correlationID string) (domain.ActorRef, error) {
+	username := strings.TrimSpace(req.Username)
+	if username == "" {
+		return domain.ActorRef{}, newValidationError("username", "username is required")
+	}
+	if req.Password == "" {
+		return domain.ActorRef{}, newValidationError("password", "password is required")
+	}
+
+	// Cheap pre-check outside the transaction (avoids hashing a
+	// password for a request that's certain to fail); the check
+	// that actually prevents a race is repeated inside withTx below,
+	// same two-layer pattern CreateAdminAccount documents — SQLite
+	// serializes write transactions, so re-checking with the
+	// transaction handle after BeginTx closes the TOCTOU window.
+	if _, err := store.GetActorIDByRef(ctx, s.store.DB(), domain.ActorHuman, username); err == nil {
+		return domain.ActorRef{}, newAlreadyExistsError("username", "a human account named %q already exists", username)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return domain.ActorRef{}, fmt.Errorf("service: check existing account: %w", err)
+	}
+
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		return domain.ActorRef{}, fmt.Errorf("service: hash password: %w", err)
+	}
+
+	err = s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		if _, err := store.GetActorIDByRef(ctx, tx, domain.ActorHuman, username); err == nil {
+			return newAlreadyExistsError("username", "a human account named %q already exists", username)
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("service: check existing account: %w", err)
+		}
+
+		newActorID, err := store.CreateActor(ctx, tx, domain.ActorHuman, username, "", nil, now)
+		if err != nil {
+			return fmt.Errorf("service: create actor: %w", err)
+		}
+		if err := store.CreateHumanAccount(ctx, tx, newActorID, username, hash, req.IsAdmin, now); err != nil {
+			return fmt.Errorf("service: create human account: %w", err)
+		}
+		changes := auditChanges(map[string]any{"username": username, "is_admin": req.IsAdmin})
+		return store.InsertActorAuditEvent(ctx, tx, newActorID, actorID, eventAccountCreated, corrID, changes, now)
+	})
+	if err != nil {
+		return domain.ActorRef{}, err
+	}
+	return domain.ActorRef{Kind: domain.ActorHuman, Name: username}, nil
+}
+
+// ChangePasswordRequest is ChangePassword's input. OldPassword is
+// required and verified when a human changes their own password;
+// leave it "" for an admin resetting a different account's password
+// (internal/httpapi enforces that the caller is either the target
+// account or an admin — see requireAdmin/requireEditor — this method
+// only enforces OldPassword's correctness when the caller supplies
+// one, matching that split).
+type ChangePasswordRequest struct {
+	Username    string
+	OldPassword string
+	NewPassword string
+	// SelfService is true when the caller is changing their own
+	// password (OldPassword required and verified) and false for an
+	// admin resetting someone else's (OldPassword ignored).
+	SelfService bool
+}
+
+// ChangePassword replaces a human account's password (Phase 7) and
+// invalidates every existing session for that account —
+// store.DeleteSessionsByActor — so an already-issued cookie stops
+// working immediately rather than remaining valid until its own
+// expiry. No password or hash is ever placed in the audit event's
+// changes (mirrors TestAgentTokenAuditEventNeverCarriesTokenValue's
+// contract for tokens).
+func (s *Service) ChangePassword(ctx context.Context, req ChangePasswordRequest, actor domain.ActorRef, correlationID string) error {
+	if req.NewPassword == "" {
+		return newValidationError("new_password", "new_password is required")
+	}
+	account, err := store.GetHumanAccountByUsername(ctx, s.store.DB(), req.Username)
+	if errors.Is(err, store.ErrNotFound) {
+		return newNotFoundError("account %q not found", req.Username)
+	}
+	if err != nil {
+		return fmt.Errorf("service: look up account: %w", err)
+	}
+
+	if req.SelfService {
+		if req.OldPassword == "" {
+			return newValidationError("old_password", "old_password is required to change your own password")
+		}
+		ok, verr := auth.VerifyPassword(account.PasswordHash, req.OldPassword)
+		if verr != nil {
+			return fmt.Errorf("service: verify old password: %w", verr)
+		}
+		if !ok {
+			return &Error{Code: domain.ErrValidationFailed, Field: "old_password", Message: "old_password is incorrect"}
+		}
+	}
+
+	newHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		return fmt.Errorf("service: hash new password: %w", err)
+	}
+
+	return s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		if err := store.UpdateHumanAccountPassword(ctx, tx, account.ActorID, newHash, now); err != nil {
+			return fmt.Errorf("service: update password: %w", err)
+		}
+		if err := store.DeleteSessionsByActor(ctx, tx, account.ActorID); err != nil {
+			return fmt.Errorf("service: invalidate sessions: %w", err)
+		}
+		changes := auditChanges(map[string]any{"username": req.Username})
+		return store.InsertActorAuditEvent(ctx, tx, account.ActorID, actorID, eventPasswordChanged, corrID, changes, now)
+	})
+}
+
+// HumanAccountSummary is ListHumanAccounts' per-row output.
+type HumanAccountSummary struct {
+	Username  string
+	IsAdmin   bool
+	CreatedAt time.Time
+}
+
+// ListHumanAccounts returns every human account (admin view, product
+// spec §13). Unpaginated — see store.ListHumanAccounts' doc comment
+// for why.
+func (s *Service) ListHumanAccounts(ctx context.Context) ([]HumanAccountSummary, error) {
+	rows, err := store.ListHumanAccounts(ctx, s.store.DB())
+	if err != nil {
+		return nil, fmt.Errorf("service: list human accounts: %w", err)
+	}
+	out := make([]HumanAccountSummary, len(rows))
+	for i, r := range rows {
+		createdAt, err := time.Parse(store.TimeLayout, r.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("service: parse account created_at: %w", err)
+		}
+		out[i] = HumanAccountSummary{Username: r.Username, IsAdmin: r.IsAdmin, CreatedAt: createdAt}
+	}
+	return out, nil
 }
 
 // loginThrottleWindow/loginThrottleMax bound how many failed login

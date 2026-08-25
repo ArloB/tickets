@@ -149,7 +149,9 @@ Not present in Phase 3:
   agent-management tool would be unenforced over the HTTP-mounted
   endpoint and simply broken over stdio (no admin session exists
   there). Agent/token management is CLI-only
-  (`docs/contracts/cli.md`'s `admin agent`/`admin token`).
+  (`docs/contracts/cli.md`'s `admin agent`/`admin token`). Human
+  account management (`admin account`, Phase 7) is CLI-only for the
+  same reason and isn't an MCP tool either.
 - ~~A project-brief view~~ — landed in Phase 6 Step 5 as the
   `project_brief` tool (see the table above).
 

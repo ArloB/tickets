@@ -30,6 +30,7 @@ export default function Layout() {
       <nav>
         <Link to="/">Projects</Link>
         {me.actor && <Link to="/notifications">Notifications</Link>}
+        {me.actor?.startsWith('human:') && <Link to="/admin/accounts">Accounts</Link>}
         {me.is_admin && <Link to="/admin/agents">Agents</Link>}
         <form
           role="search"

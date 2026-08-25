@@ -17,6 +17,7 @@ import ActivityFeed from './routes/ActivityFeed'
 import Search from './routes/Search'
 import Notifications from './routes/Notifications'
 import AdminAgents from './routes/AdminAgents'
+import AdminAccounts from './routes/AdminAccounts'
 
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/plans/:ref" element={<ContentItemDetail urlKind="plans" />} />
           <Route path="/documents/:ref" element={<ContentItemDetail urlKind="documents" />} />
           <Route path="/admin/agents" element={<AdminAgents />} />
+          <Route path="/admin/accounts" element={<AdminAccounts />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

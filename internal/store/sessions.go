@@ -65,3 +65,14 @@ func DeleteSession(ctx context.Context, q Querier, id string) error {
 	}
 	return nil
 }
+
+// DeleteSessionsByActor removes every session belonging to actorID —
+// used on password change (Phase 7) so a changed password actually
+// ends every session that used the old one, rather than leaving
+// already-issued cookies valid until their own expiry.
+func DeleteSessionsByActor(ctx context.Context, q Querier, actorID int64) error {
+	if _, err := q.ExecContext(ctx, `DELETE FROM sessions WHERE actor_id = ?`, actorID); err != nil {
+		return fmt.Errorf("delete sessions by actor: %w", err)
+	}
+	return nil
+}

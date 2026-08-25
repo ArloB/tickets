@@ -165,17 +165,28 @@ a fresh CLI invocation (a new process) generally isn't; auto-generating
 a key per call would not help a retried command, since the retry is a
 different process with a different auto-generated key.
 
-## `admin agent` / `admin token`
+## `admin agent` / `admin token` / `admin account`
 
 Structurally different from every other client-mode command: it opens
 `internal/store` directly against a local data directory
 (`--data-dir`, same resolution `tickets server` uses) rather than
 talking to a remote server over `--url`. This is deliberate, not an
 oversight — `internal/apiclient` has no session/CSRF support yet, so
-there is no remote-server path for agent/token management in Phase 3,
-and an MCP tool for it would be unenforced (`InProcessBackend` bypasses
+there is no remote-server path for agent/token/account management, and
+an MCP tool for it would be unenforced (`InProcessBackend` bypasses
 `internal/httpapi`'s `requireAdmin` wrapper entirely). See
 `cmd/tickets/admin_agent.go`'s package doc comment.
+
+`admin account` (Phase 7) follows the same local-store shape but is
+not admin-flag-gated the way the HTTP `/accounts` routes are — this
+CLI path trusts whoever has filesystem/CLI access to the data
+directory, the same boundary `tickets setup` already uses, not a
+runtime permission check. The HTTP routes (`POST /api/v1/accounts`,
+`GET /api/v1/accounts`, `POST /api/v1/accounts/{username}/password`)
+are the session-authenticated, `routeAdmin`-gated counterpart the web
+UI's Accounts page uses; a logged-in human's own password change is
+self-service over that same HTTP route, not a CLI command — see
+`docs/admin.md`'s `account` section for exactly which path does what.
 
 Because there's no bearer token or session to derive an actor from,
 every mutating `admin agent`/`admin token` subcommand takes

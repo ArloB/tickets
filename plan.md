@@ -615,9 +615,20 @@ register in that same file, which stays as decided.
   form, plus indexing projects in FTS search (§6.3 previously left them
   unsearchable). No migration needed — `projects.status` and
   `entities.version` already existed from Phase 1.
-- Add human account management: creating a second human account and
-  changing a password, both currently impossible (`docs/troubleshooting.md`)
-  — an unregistered gap against §4.2/§13, not a deliberate deferral.
+- Add human account management: `Service.CreateHumanAccount`/
+  `ChangePassword`/`ListHumanAccounts`, admin-gated
+  `POST`/`GET /accounts` and self-or-admin `POST /accounts/{username}/password`,
+  `tickets admin account create`/`list`/`change-password`, and a web
+  UI Accounts page (self-service password change for every human,
+  account creation/reset for admins) — creating a second human account
+  and changing a password were both entirely impossible through Phase
+  6 (`docs/troubleshooting.md`), an unregistered gap against §4.2/§13,
+  not a deliberate deferral. One related gap remains open, documented
+  rather than silently missed: an *imported* human actor (export/import
+  never carries `human_accounts`, by design) still has no path to a
+  first password, since both the create and change-password routes
+  require crediting an existing account row, not attaching one to a
+  bare actor — see `docs/backup-recovery.md`.
 - Widen the MCP `tickets_list` tool to the filters `GET /projects/{key}/tickets`
   already supports (status/type/severity/priority/feature/assignee/
   creator/updated_since) — "find my assigned work," step 1 of §16
@@ -628,10 +639,10 @@ register in that same file, which stays as decided.
   and an ambiguous "first run this process").
 
 Exit criterion: every item above is implemented, tested, and
-documented; `docs/mvp-acceptance.md` row 3 is covered. Row 10's live
-two-host MCP check remains open by design (no code path can close it —
-see that row's own runbook), so this phase's exit criterion is honest
-about one open item, not zero.
+documented; `docs/mvp-acceptance.md` row 3 is covered. Two items remain
+open by design, not oversight: row 10's live two-host MCP check (no
+code path can close it — see that row's own runbook) and the imported-
+human-actor password gap noted above.
 
 ## 15. Test strategy
 

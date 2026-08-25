@@ -45,12 +45,13 @@ the corresponding environment variables.
 **`tickets setup` fails with "a human account already exists"**
 Setup refuses to run a second time once *any* human account exists —
 by design, it only ever creates the one account (product spec's
-first-run setup). There is currently no way to create a second human
-account, and no password-change action either: the single admin
-account's credentials are fixed at creation time. Agents get their own
-identities via `tickets admin agent create` + `tickets admin token
-create` instead (`docs/admin.md`) — this limitation is about human
-accounts specifically.
+first-run setup). For every account after the first, use `tickets
+admin account create` (Phase 7) instead — see `docs/admin.md`.
+Agents get their own identities via `tickets admin agent create` +
+`tickets admin token create` instead — this limitation is about human
+accounts specifically, and it no longer applies: a second (or later)
+human account, and a password change for any account, both have a
+real path now.
 
 **Login is rejected repeatedly, even with the right password**
 The DB-persisted login throttle (survives a restart) kicks in after

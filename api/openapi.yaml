@@ -3532,6 +3532,79 @@ paths:
         '401':
           $ref: '#/components/responses/Error'
 
+  /accounts:
+    post:
+      operationId: createAccount
+      summary: >
+        Create a second (or later) human account (admin only, Phase 7
+        — product spec §4.2/§13). The first human account is created
+        by POST /setup instead; this is for every one after that.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDetail'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listAccounts
+      summary: List every human account (admin only)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountsPage'
+        '403':
+          $ref: '#/components/responses/Error'
+
+  /accounts/{username}/password:
+    post:
+      operationId: changePassword
+      summary: >
+        Change a human account's password. A human may change their
+        own password (old_password required and verified); an admin
+        may reset any account's password without knowing the current
+        one (old_password ignored). Every existing session for that
+        account is invalidated on success.
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: No Content
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+
   /agents:
     post:
       operationId: createAgent
@@ -4868,6 +4941,39 @@ components:
       additionalProperties: false
       properties:
         actor: { type: string, example: 'human:alice' }
+
+    CreateAccountRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+        is_admin: { type: boolean, default: false }
+
+    AccountDetail:
+      type: object
+      required: [username, is_admin]
+      additionalProperties: false
+      properties:
+        username: { type: string }
+        is_admin: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    AccountsPage:
+      type: object
+      properties:
+        accounts:
+          type: array
+          items: { $ref: '#/components/schemas/AccountDetail' }
+
+    ChangePasswordRequest:
+      type: object
+      required: [new_password]
+      properties:
+        old_password:
+          type: string
+          description: Required and verified for a human changing their own password; ignored for an admin resetting a different account's.
+        new_password: { type: string }
 
     CreateAgentRequest:
       type: object

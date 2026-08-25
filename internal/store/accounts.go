@@ -101,6 +101,52 @@ func GetHumanAccountByActorID(ctx context.Context, q Querier, actorID int64) (Hu
 	return row, nil
 }
 
+// UpdateHumanAccountPassword replaces a human account's password hash
+// (Phase 7 — account management: previously there was no way to
+// change a password after `tickets setup` created the first one).
+func UpdateHumanAccountPassword(ctx context.Context, q Querier, actorID int64, passwordHash, now string) error {
+	if _, err := q.ExecContext(ctx,
+		`UPDATE human_accounts SET password_hash = ?, updated_at = ? WHERE actor_id = ?`,
+		passwordHash, now, actorID,
+	); err != nil {
+		return fmt.Errorf("update human account password: %w", err)
+	}
+	return nil
+}
+
+// ListHumanAccounts returns every human account, ordered by username,
+// for the admin account-management view (Phase 7). Small, unpaginated
+// by design — matching ListAgents below, since an installation's
+// human account count is expected to stay small (product spec §2.1's
+// personal/small-team scope), unlike ticket-scale lists.
+type HumanAccountSummary struct {
+	Username  string
+	IsAdmin   bool
+	CreatedAt string
+}
+
+func ListHumanAccounts(ctx context.Context, q Querier) ([]HumanAccountSummary, error) {
+	rows, err := q.QueryContext(ctx, `SELECT username, is_admin, created_at FROM human_accounts ORDER BY username`)
+	if err != nil {
+		return nil, fmt.Errorf("list human accounts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []HumanAccountSummary
+	for rows.Next() {
+		var s HumanAccountSummary
+		var admin int
+		if err := rows.Scan(&s.Username, &admin, &s.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan human account: %w", err)
+		}
+		s.IsAdmin = admin != 0
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate human accounts: %w", err)
+	}
+	return out, nil
+}
+
 // CountHumanAccounts backs `tickets setup`'s first-run check: setup
 // refuses to run once any human account exists, so an installation
 // only ever gets its admin created once.

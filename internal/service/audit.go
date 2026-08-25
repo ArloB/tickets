@@ -44,6 +44,8 @@ const (
 	eventProjectUpdated       = "project_updated"
 	eventProjectArchived      = "project_archived"
 	eventProjectUnarchived    = "project_unarchived"
+	eventAccountCreated       = "account_created"
+	eventPasswordChanged      = "password_changed"
 )
 
 // auditChanges marshals a small before/after or field-summary map into

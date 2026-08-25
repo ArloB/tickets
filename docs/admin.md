@@ -137,6 +137,39 @@ or an explicit `kind:name` actor ref for scripts with no human account
 to act as (`--as system:system`, the actor every installation's
 migrations seed). It rejects an agent actor.
 
+### `account`
+
+Human account management (Phase 7 — product spec §4.2/§13). Like
+`agent`/`token`, this is CLI-only, local-store-only:
+`internal/apiclient` has no session/CSRF support, so there is no
+remote-server (`--url`) path for admin operations, only direct-to-store
+administration by whoever has CLI/filesystem access to the data
+directory — the same trust boundary `tickets setup` already uses.
+`tickets setup` still creates the very first account (a one-time
+bootstrap outside `admin account`); every account after that goes
+through `admin account create`.
+
+```sh
+tickets admin account create --username bob --password '...' --as arlo
+tickets admin account create --username ops --password '...' --admin --as arlo
+tickets admin account list
+tickets admin account change-password --username bob --new-password '...' --as arlo
+```
+
+`admin account change-password` resets a password **without** asking
+for the current one — this is the operator/admin reset path, the
+CLI/local-store counterpart to `POST /api/v1/accounts/{username}/password`
+run by an admin session. A logged-in human changing their own password
+uses that same HTTP route instead, self-service (the web UI's Accounts
+page, or a direct call with `old_password` set) — there is no CLI
+self-service form, since the CLI's admin path doesn't authenticate as
+a specific logged-in user at all. Either path invalidates every
+existing session for that account immediately.
+
+`--admin` grants the operational admin flag (product spec §4.2) at
+creation; it isn't a separate promotion command today — promoting an
+existing account after the fact isn't supported yet.
+
 ## Health and version
 
 ```sh
