@@ -116,6 +116,113 @@ func TestOpenOnFreshDatabaseTakesNoPreMigrationBackup(t *testing.T) {
 	}
 }
 
+// TestPreMigrationSnapshotIsUsableForRecovery is Phase 6 Step 8's
+// recovery drill for the pre-migration backup: build a database stuck
+// one version behind with a real project row already in it, let Open
+// take its pre-migration snapshot while upgrading, then prove that
+// snapshot isn't just present with the right schema (that's what
+// TestOpenTakesPreMigrationBackupWhenUpgradingExistingDatabase already
+// checks) but is actually *usable* — a corrupted or truncated VACUUM
+// INTO output would fail one of the checks below, not just look right
+// from the outside.
+func TestPreMigrationSnapshotIsUsableForRecovery(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tickets.db")
+
+	highest, err := highestEmbeddedMigrationVersion()
+	if err != nil {
+		t.Fatalf("highestEmbeddedMigrationVersion: %v", err)
+	}
+	if highest < 2 {
+		t.Skip("needs at least two migrations to leave one pending")
+	}
+	stuckAt := highest - 1
+
+	raw, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	applyMigrationsThrough(t, raw, stuckAt)
+
+	if _, err := raw.Exec(`INSERT INTO actors(uuid, kind, name, created_at, updated_at) VALUES (randomblob(16), 'human', 'recovery-drill', ?, ?)`, Now(), Now()); err != nil {
+		t.Fatalf("seed actor: %v", err)
+	}
+	res, err := raw.Exec(`INSERT INTO entities(uuid, project_id, kind, created_at, updated_at) VALUES (randomblob(16), NULL, 'project', ?, ?)`, Now(), Now())
+	if err != nil {
+		t.Fatalf("seed project entity: %v", err)
+	}
+	entityID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("resolve seeded entity id: %v", err)
+	}
+	if _, err := raw.Exec(`INSERT INTO projects(id, key, title) VALUES (?, 'REC', 'Recovery Drill Project')`, entityID); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (upgrading v%d -> v%d): %v", stuckAt, highest, err)
+	}
+	_ = s.Close()
+
+	backupDir := filepath.Join(dir, preMigrationBackupDir)
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		t.Fatalf("read backup dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("pre-migration backups = %d, want exactly 1: %v", len(entries), entries)
+	}
+	snapshotPath := filepath.Join(backupDir, entries[0].Name())
+
+	// Simulate the actual recovery drill an operator would run: copy
+	// the snapshot into a fresh data directory (never touch it
+	// in-place) and open it exactly the way store.Open would open any
+	// other data directory's database.
+	recoveryDir := t.TempDir()
+	recoveredDBPath := filepath.Join(recoveryDir, "tickets.db")
+	snapshotBytes, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	if err := os.WriteFile(recoveredDBPath, snapshotBytes, 0o600); err != nil {
+		t.Fatalf("write recovered db copy: %v", err)
+	}
+
+	recovered, err := sql.Open("sqlite", recoveredDBPath+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open recovered snapshot: %v", err)
+	}
+	defer func() { _ = recovered.Close() }()
+
+	var integrityOK string
+	if err := recovered.QueryRow(`PRAGMA integrity_check`).Scan(&integrityOK); err != nil {
+		t.Fatalf("PRAGMA integrity_check on recovered snapshot: %v", err)
+	}
+	if integrityOK != "ok" {
+		t.Fatalf("PRAGMA integrity_check = %q, want ok — the pre-migration snapshot is corrupted", integrityOK)
+	}
+
+	var gotVersion int
+	if err := recovered.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&gotVersion); err != nil {
+		t.Fatalf("query schema version in recovered snapshot: %v", err)
+	}
+	if gotVersion != stuckAt {
+		t.Errorf("recovered snapshot's schema version = %d, want %d (the version before the migration that triggered the snapshot)", gotVersion, stuckAt)
+	}
+
+	var title string
+	if err := recovered.QueryRow(`SELECT title FROM projects WHERE key = 'REC'`).Scan(&title); err != nil {
+		t.Fatalf("query the seeded project in the recovered snapshot: %v", err)
+	}
+	if title != "Recovery Drill Project" {
+		t.Errorf("recovered project title = %q, want %q", title, "Recovery Drill Project")
+	}
+}
+
 // TestPruneOldPreMigrationBackupsKeepsOnlyTheMostRecent confirms
 // retention: only preMigrationBackupsKept filenames survive, and
 // they're the lexically-last (chronologically-last) ones.

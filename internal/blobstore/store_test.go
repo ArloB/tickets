@@ -10,6 +10,37 @@ import (
 	"testing"
 )
 
+// TestOpenUnusualPath is internal/store.TestOpenUnusualPath's
+// blobstore counterpart (Phase 6 Step 8's platform-testing drill, §15):
+// a data directory whose path contains a space and a non-ASCII
+// character must work here too, since the blobstore and the SQLite
+// database share the same data directory in real deployments.
+func TestOpenUnusualPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "tickets tëst dir")
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open(%q): %v", dir, err)
+	}
+
+	content := "hello from an unusual path"
+	hash, _, err := s.Put(strings.NewReader(content))
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	rc, err := s.Open(hash)
+	if err != nil {
+		t.Fatalf("Open blob: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("read blob: %v", err)
+	}
+	if string(got) != content {
+		t.Errorf("blob content = %q, want %q", got, content)
+	}
+}
+
 func TestPutOpenRoundTrip(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {

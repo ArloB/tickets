@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,8 +37,17 @@ func newTestService(t *testing.T, dataDir string) *service.Service {
 // made after it.
 func TestBackupThenRestoreReproducesState(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "data")
-	svc := newTestService(t, dataDir)
 	ctx := context.Background()
+
+	st, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	blobs, err := blobstore.Open(dataDir)
+	if err != nil {
+		t.Fatalf("blobstore.Open: %v", err)
+	}
+	svc := service.New(st, blobs)
 
 	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, "cid-1", "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
@@ -60,6 +70,15 @@ func TestBackupThenRestoreReproducesState(t *testing.T) {
 		t.Fatalf("create attachment: %v", err)
 	}
 
+	// Close before Backup/Restore below — mirrors the documented
+	// precondition ("the server must not be running") and, on Windows,
+	// is required: a rename over a still-open file handle is refused
+	// there (Access is denied), unlike POSIX, where it silently
+	// succeeds against the open handle's now-unlinked inode.
+	if err := st.Close(); err != nil {
+		t.Fatalf("close store before backup: %v", err)
+	}
+
 	outputDir := filepath.Join(t.TempDir(), "backup")
 	manifest, err := Backup(ctx, dataDir, outputDir)
 	if err != nil {
@@ -70,10 +89,19 @@ func TestBackupThenRestoreReproducesState(t *testing.T) {
 	}
 
 	// Mutate after the backup: this must NOT survive the restore below.
-	if _, err := svc.CreateTicket(ctx, service.CreateTicketRequest{
+	// Reopened and closed again immediately, for the same reason.
+	st2, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatalf("reopen store for post-backup mutation: %v", err)
+	}
+	svcMutate := service.New(st2, blobs)
+	if _, err := svcMutate.CreateTicket(ctx, service.CreateTicketRequest{
 		ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: "Post-backup ticket",
 	}, testActor, "cid-4", "", ""); err != nil {
 		t.Fatalf("create post-backup ticket: %v", err)
+	}
+	if err := st2.Close(); err != nil {
+		t.Fatalf("close store after post-backup mutation: %v", err)
 	}
 
 	if err := Restore(ctx, dataDir, outputDir, false); err != nil {
@@ -139,8 +167,17 @@ func TestRestoreRefusesCorruptedChecksumAndLeavesDataDirUntouched(t *testing.T) 
 
 func TestRestoreRefusesWhileServerRunningUnlessForced(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "data")
-	svc := newTestService(t, dataDir)
 	ctx := context.Background()
+
+	st, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	blobs, err := blobstore.Open(dataDir)
+	if err != nil {
+		t.Fatalf("blobstore.Open: %v", err)
+	}
+	svc := service.New(st, blobs)
 	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, "cid-1", "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
@@ -148,6 +185,15 @@ func TestRestoreRefusesWhileServerRunningUnlessForced(t *testing.T) {
 	outputDir := filepath.Join(t.TempDir(), "backup")
 	if _, err := Backup(ctx, dataDir, outputDir); err != nil {
 		t.Fatalf("Backup: %v", err)
+	}
+
+	// Close before the restore attempts below: WritePidfile alone is
+	// what this test means to simulate — "a stale pidfile left by a
+	// crash" (a real crash releases every OS handle the process held,
+	// it doesn't leave tickets.db open) — not an actual live store
+	// connection racing the restore.
+	if err := st.Close(); err != nil {
+		t.Fatalf("close store before restore attempts: %v", err)
 	}
 
 	if err := store.WritePidfile(dataDir); err != nil {
@@ -169,8 +215,17 @@ func TestRestoreRefusesWhileServerRunningUnlessForced(t *testing.T) {
 // output is self-contained and has no WAL of its own.
 func TestRestoreRemovesStaleWAL(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "data")
-	svc := newTestService(t, dataDir)
 	ctx := context.Background()
+
+	st, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	blobs, err := blobstore.Open(dataDir)
+	if err != nil {
+		t.Fatalf("blobstore.Open: %v", err)
+	}
+	svc := service.New(st, blobs)
 	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, "cid-1", "", ""); err != nil {
 		t.Fatalf("create project: %v", err)
 	}
@@ -192,6 +247,22 @@ func TestRestoreRemovesStaleWAL(t *testing.T) {
 		t.Skipf("no -wal file present to test against (driver/pragma behavior): %v", err)
 	}
 
+	// A clean Close() triggers SQLite's own auto-checkpoint-on-last-
+	// connection behavior and deletes the -wal file itself — so the
+	// stale-WAL scenario this test guards against (an *unclean*
+	// shutdown, a crash, leaving -wal behind) can't be reproduced by
+	// simply closing normally. Simulate the crash directly: close (so
+	// nothing holds an open handle — required for the rename below to
+	// succeed on Windows), then recreate a non-empty -wal file by hand,
+	// standing in for what a crash would have left on disk.
+	if err := st.Close(); err != nil {
+		t.Fatalf("close store before restore: %v", err)
+	}
+	walPath := filepath.Join(dataDir, dbFileName+"-wal")
+	if err := os.WriteFile(walPath, []byte("stale WAL bytes a crash left behind"), 0o600); err != nil {
+		t.Fatalf("recreate stale -wal file: %v", err)
+	}
+
 	if err := Restore(ctx, dataDir, outputDir, false); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
@@ -206,5 +277,92 @@ func TestRestoreRemovesStaleWAL(t *testing.T) {
 	}
 	if len(result.Tickets) != 0 {
 		t.Errorf("tickets after restore = %d, want 0 (backup predates the ticket)", len(result.Tickets))
+	}
+}
+
+// TestOnlineBackupDuringConcurrentWrites is Phase 6 Step 8's recovery
+// drill for §15's "online backup taken during concurrent writes":
+// Backup opens its own connection to the live database and runs
+// VACUUM INTO while a separate goroutine keeps writing through the
+// same service/store the "live server" would use — proving the
+// backup doesn't need the writer to pause (busy_timeout(5000), WAL
+// mode, ADR 0003) and that whatever snapshot it captures, mid-write or
+// not, restores into a consistent, queryable database rather than a
+// half-written or corrupted one.
+func TestOnlineBackupDuringConcurrentWrites(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "data")
+	svc := newTestService(t, dataDir)
+	ctx := context.Background()
+
+	if _, err := svc.CreateProject(ctx, service.CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, "cid-1", "", ""); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	stop := make(chan struct{})
+	done := make(chan int)
+	go func() {
+		created := 0
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				done <- created
+				return
+			default:
+				if _, err := svc.CreateTicket(ctx, service.CreateTicketRequest{
+					ProjectKey: "ABC", Type: domain.TicketTypeTask, Title: fmt.Sprintf("Concurrent ticket %d", i),
+				}, testActor, "cid-writer", "", ""); err != nil {
+					t.Errorf("concurrent CreateTicket: %v", err)
+					done <- created
+					return
+				}
+				created++
+			}
+		}
+	}()
+
+	outputDir := filepath.Join(t.TempDir(), "backup")
+	manifest, err := Backup(ctx, dataDir, outputDir)
+	if err != nil {
+		t.Fatalf("Backup during concurrent writes: %v", err)
+	}
+
+	close(stop)
+	totalCreated := <-done
+	if totalCreated == 0 {
+		t.Fatal("the concurrent writer never got a single ticket created before the backup finished — test isn't exercising real concurrency")
+	}
+	if len(manifest.Files) < 1 {
+		t.Fatalf("manifest.Files = %d, want at least the database", len(manifest.Files))
+	}
+
+	restoreDir := filepath.Join(t.TempDir(), "restored")
+	if err := Restore(ctx, restoreDir, outputDir, false); err != nil {
+		t.Fatalf("Restore the concurrently-taken backup: %v", err)
+	}
+
+	restoredStore, err := store.Open(restoreDir)
+	if err != nil {
+		t.Fatalf("open restored store: %v", err)
+	}
+	defer func() { _ = restoredStore.Close() }()
+	var integrityOK string
+	if err := restoredStore.DB().QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrityOK); err != nil {
+		t.Fatalf("PRAGMA integrity_check on restored database: %v", err)
+	}
+	if integrityOK != "ok" {
+		t.Fatalf("PRAGMA integrity_check = %q, want ok — a concurrently-taken backup produced a corrupted database", integrityOK)
+	}
+
+	restoredBlobs, err := blobstore.Open(restoreDir)
+	if err != nil {
+		t.Fatalf("open restored blobstore: %v", err)
+	}
+	restored := service.New(restoredStore, restoredBlobs)
+	result, err := restored.ListTickets(ctx, "ABC", service.TicketListViewPriorityQueue, 100, "")
+	if err != nil {
+		t.Fatalf("list tickets in restored database: %v", err)
+	}
+	if len(result.Tickets) > totalCreated {
+		t.Errorf("restored ticket count = %d, want at most %d (the writer's total, since the backup could only have captured a prefix of it)", len(result.Tickets), totalCreated)
 	}
 }
