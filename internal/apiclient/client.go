@@ -271,13 +271,50 @@ func (c *Client) SetProjectStatus(ctx context.Context, key, status string, expec
 	return proj, err
 }
 
+// TicketListFilters mirrors docs/contracts/list-filters.md's supported
+// GET /projects/{key}/tickets query parameters — every field "" means
+// unfiltered. Kept as apiclient's own struct (not internal/service's
+// TicketListFilters, which uses domain-typed fields) since apiclient
+// only ever forwards plain strings onto the query string; the server
+// does all enum/reference validation.
+type TicketListFilters struct {
+	Status, Type, Severity, Priority string
+	FeatureRef, Assignee, Creator    string
+	UpdatedSince                     string
+}
+
 // ListTickets is GET /projects/{key}/tickets. view selects
 // "priority_queue" (server default when empty) or "issue_register"
-// (product spec §7.2's tickets_list). Compact rows only.
-func (c *Client) ListTickets(ctx context.Context, projectKey, view string, limit int, cursor string) (TicketsPage, error) {
+// (product spec §7.2's tickets_list). filters is the zero value for an
+// unfiltered call. Compact rows only.
+func (c *Client) ListTickets(ctx context.Context, projectKey, view string, filters TicketListFilters, limit int, cursor string) (TicketsPage, error) {
 	q := url.Values{}
 	if view != "" {
 		q.Set("view", view)
+	}
+	if filters.Status != "" {
+		q.Set("status", filters.Status)
+	}
+	if filters.Type != "" {
+		q.Set("type", filters.Type)
+	}
+	if filters.Severity != "" {
+		q.Set("severity", filters.Severity)
+	}
+	if filters.Priority != "" {
+		q.Set("priority", filters.Priority)
+	}
+	if filters.FeatureRef != "" {
+		q.Set("feature_ref", filters.FeatureRef)
+	}
+	if filters.Assignee != "" {
+		q.Set("assignee", filters.Assignee)
+	}
+	if filters.Creator != "" {
+		q.Set("creator", filters.Creator)
+	}
+	if filters.UpdatedSince != "" {
+		q.Set("updated_since", filters.UpdatedSince)
 	}
 	var page TicketsPage
 	path := "/projects/" + url.PathEscape(projectKey) + "/tickets" + listQuery(q, limit, cursor)

@@ -124,10 +124,13 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:         "tickets_list",
-		Description:  "List tickets in a project, compact rows only (no description). view is priority_queue (default) or issue_register (bug/security tickets ordered by severity). Paginated — pass the previous call's next_cursor to continue.",
+		Description:  "List tickets in a project, compact rows only (no description). view is priority_queue (default) or issue_register (bug/security tickets ordered by severity). status/type/severity/priority/feature_ref/assignee/creator/updated_since are optional, AND-composed filters narrowing the base view — set assignee to your own actor reference to find your assigned work. Paginated — pass the previous call's next_cursor to continue (resupply the same filters on every page).",
 		OutputSchema: outputSchemaFor[TicketsListOutput](),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in ticketsListInput) (*mcp.CallToolResult, TicketsListOutput, error) {
-		out, err := backend.ListTickets(ctx, in.ProjectKey, in.View, in.Limit, in.Cursor)
+		out, err := backend.ListTickets(ctx, in.ProjectKey, in.View, TicketListFilters{
+			Status: in.Status, Type: in.Type, Severity: in.Severity, Priority: in.Priority,
+			FeatureRef: in.FeatureRef, Assignee: in.Assignee, Creator: in.Creator, UpdatedSince: in.UpdatedSince,
+		}, in.Limit, in.Cursor)
 		if err != nil {
 			return nil, TicketsListOutput{}, toolError(err)
 		}
@@ -484,10 +487,18 @@ type notificationsMarkReadOutput struct {
 }
 
 type ticketsListInput struct {
-	ProjectKey string `json:"project_key,omitempty" jsonschema:"the project key, e.g. ABC; falls back to the connection's configured default project if omitted"`
-	View       string `json:"view,omitempty" jsonschema:"priority_queue (default) or issue_register"`
-	Limit      int    `json:"limit,omitempty" jsonschema:"max rows to return (server default 20, max 100)"`
-	Cursor     string `json:"cursor,omitempty" jsonschema:"opaque pagination cursor from a previous call's next_cursor; never construct or parse this yourself, and never reuse it across a different view"`
+	ProjectKey   string `json:"project_key,omitempty" jsonschema:"the project key, e.g. ABC; falls back to the connection's configured default project if omitted"`
+	View         string `json:"view,omitempty" jsonschema:"priority_queue (default) or issue_register"`
+	Status       string `json:"status,omitempty" jsonschema:"filter to one workflow status: backlog, ready, in_progress, blocked, review, done, or cancelled"`
+	Type         string `json:"type,omitempty" jsonschema:"filter to one ticket type: task, bug, security, or chore"`
+	Severity     string `json:"severity,omitempty" jsonschema:"filter to one severity: critical, high, medium, or low (bug/security tickets only)"`
+	Priority     string `json:"priority,omitempty" jsonschema:"filter to one priority: critical, high, medium, or low"`
+	FeatureRef   string `json:"feature_ref,omitempty" jsonschema:"filter to one feature reference, e.g. ABC-F1 (must belong to the same project)"`
+	Assignee     string `json:"assignee,omitempty" jsonschema:"filter to one assignee, as kind:name (e.g. agent:codex or human:alice) — use this to find your own assigned work"`
+	Creator      string `json:"creator,omitempty" jsonschema:"filter to one creator, as kind:name"`
+	UpdatedSince string `json:"updated_since,omitempty" jsonschema:"filter to tickets updated at or after this RFC3339 timestamp"`
+	Limit        int    `json:"limit,omitempty" jsonschema:"max rows to return (server default 20, max 100)"`
+	Cursor       string `json:"cursor,omitempty" jsonschema:"opaque pagination cursor from a previous call's next_cursor; never construct or parse this yourself, and never reuse it across a different view or filter set"`
 }
 
 type ticketUpdateInput struct {

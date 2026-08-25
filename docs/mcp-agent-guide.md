@@ -116,7 +116,8 @@ writing:
 | `project_brief` | **Call this first** when starting work in a project: in-progress/upcoming tickets, issue-register highlights, the feature list with ticket-progress counts, recent activity, and recent accepted decisions and plans, each capped at 20 compact rows. `ticket_get`/`record_get` follow it for detail on any one record (Phase 6 Step 5). |
 | `project_get` / `projects_list` | Read a project / list projects, compact rows. |
 | `project_create` | Create a project. Always creates a General feature alongside it (ADR 0001). |
-| `ticket_get` / `tickets_list` | Read a ticket / list tickets. `tickets_list`'s `view` is `priority_queue` (default) or `issue_register`. |
+| `project_update` | Update a project's title/description and/or archive/unarchive status (ADR 0021) — only fields you set are changed. Archiving is visibility only: the project drops out of default `projects_list`/search results, but its tickets/features/knowledge records stay fully readable and writable. |
+| `ticket_get` / `tickets_list` | Read a ticket / list tickets. `tickets_list`'s `view` is `priority_queue` (default) or `issue_register`; `status`/`type`/`severity`/`priority`/`feature_ref`/`assignee`/`creator`/`updated_since` are optional, AND-composed filters (Phase 7) — set `assignee` to your own actor reference (e.g. `agent:codex`) to find your assigned work in one call, rather than paging through every ticket. |
 | `ticket_create` | Create a ticket — the one create tool that returns the full `domain.Ticket`, not a compact write result, since an agent that just created something usually needs its full state immediately. |
 | `ticket_update` | Partial update — see the instructions text above. |
 | `ticket_comment` | Add a Markdown comment to a ticket, feature, decision, plan, document, or project (despite the tool's name) — see the instructions text above. |

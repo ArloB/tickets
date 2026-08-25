@@ -80,10 +80,11 @@ and wasn't taken unilaterally. To actually close this out:
 3. Create a ticket and assign it to that agent (`tickets ticket create
    --project ABC --type task --title "Fix the drill" --priority high`,
    then `tickets ticket assign <ref> --assignee agent:drill --if-version 1`)
-   — `tickets_list` has no assignee filter (Phase 3's own finding, see
-   `cmd/tickets/exit_criterion_phase3_test.go`'s doc comment), so
-   "find assigned work" only actually works if a ticket is already
-   assigned to the agent before it looks.
+   so there is assigned work for the agent to find. Phase 7 added an
+   `assignee` filter to the `tickets_list` MCP tool
+   (`internal/mcpsrv/tools.go`'s `ticketsListInput`), closing the gap
+   Phase 3 originally found — "find assigned work" no longer depends
+   on the agent already knowing the ticket's reference.
 4. Register `tickets mcp --url http://127.0.0.1:8080/api/v1 --token
    <token>` as an MCP server in both a Claude Code session and a Codex
    session (`claude mcp add` / Codex's own MCP config).

@@ -85,7 +85,7 @@ func runTicketList(args []string) error {
 		return writeProjectedRows(os.Stdout, splitCommaList(*fields), page.Tickets, page.NextCursor)
 	}
 
-	page, err := cfg.newClient().ListTickets(context.Background(), cfg.Project, *view, *limit, *cursor)
+	page, err := cfg.newClient().ListTickets(context.Background(), cfg.Project, *view, apiclient.TicketListFilters{}, *limit, *cursor)
 	if err != nil {
 		return err
 	}

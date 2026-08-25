@@ -27,6 +27,17 @@ filtering over an unfiltered page doesn't hold up at that size.
 `updated_since` only — a feature has no type, severity, assignee, or
 containing feature (product spec §5.4).
 
+## MCP surface parity
+
+The `tickets_list` MCP tool exposes the same eight ticket filters
+above (Phase 7 — `internal/mcpsrv/tools.go`'s `ticketsListInput`).
+Before Phase 7 the tool took only `project_key`/`view`/`limit`/
+`cursor`, so "find my assigned work" (§16 criterion 10's first
+representative-workflow step) had no path over MCP even though the
+HTTP endpoint always supported an `assignee` filter — see
+`docs/mvp-acceptance.md` row 10. The CLI's `ticket list` still has no
+filter flags at all; that gap wasn't in this pass's scope.
+
 ## Composition
 
 - Every present filter is AND-composed with every other present filter

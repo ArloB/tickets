@@ -199,8 +199,13 @@ func (b *InProcessBackend) GetAssociations(ctx context.Context, ref string) (Ass
 	return out, nil
 }
 
-func (b *InProcessBackend) ListTickets(ctx context.Context, projectKey, view string, limit int, cursor string) (TicketsListOutput, error) {
-	result, err := b.Svc.ListTickets(ctx, projectKey, service.TicketListView(view), limit, cursor)
+func (b *InProcessBackend) ListTickets(ctx context.Context, projectKey, view string, filters TicketListFilters, limit int, cursor string) (TicketsListOutput, error) {
+	result, err := b.Svc.ListTicketsFiltered(ctx, projectKey, service.TicketListView(view), limit, cursor, service.TicketListFilters{
+		Status: domain.WorkflowStatus(filters.Status), Type: domain.TicketType(filters.Type),
+		Severity: domain.Severity(filters.Severity), Priority: domain.Priority(filters.Priority),
+		FeatureRef: filters.FeatureRef, Assignee: filters.Assignee, Creator: filters.Creator,
+		UpdatedSince: filters.UpdatedSince,
+	})
 	if err != nil {
 		return TicketsListOutput{}, err
 	}

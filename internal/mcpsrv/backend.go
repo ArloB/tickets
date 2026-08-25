@@ -29,7 +29,7 @@ type Backend interface {
 	UpdateProject(ctx context.Context, in UpdateProjectInput) (domain.Project, error)
 	CreateTicket(ctx context.Context, req CreateTicketInput) (domain.Ticket, error)
 	GetTicket(ctx context.Context, ref string) (domain.Ticket, error)
-	ListTickets(ctx context.Context, projectKey, view string, limit int, cursor string) (TicketsListOutput, error)
+	ListTickets(ctx context.Context, projectKey, view string, filters TicketListFilters, limit int, cursor string) (TicketsListOutput, error)
 	UpdateTicket(ctx context.Context, in UpdateTicketInput) (TicketWriteResult, error)
 	AddComment(ctx context.Context, ref, body, idempotencyKey string) (CommentWriteResult, error)
 	AddRelationship(ctx context.Context, sourceRef, relType, targetRef string) error
@@ -69,6 +69,20 @@ type SearchInput struct {
 	Status  string
 	Limit   int
 	Cursor  string
+}
+
+// TicketListFilters is tickets_list's Backend-facing filter set
+// (Phase 7 — docs/contracts/list-filters.md's HTTP filters were
+// previously invisible over MCP entirely, so "find my assigned work,"
+// §16 criterion 10's first workflow step, had no tool-level path).
+// Every field "" means unfiltered, mirroring apiclient.TicketListFilters'
+// plain-string convention — enum/reference validation happens
+// server-side either way (internal/service.TicketListFilters for
+// InProcessBackend, GET /projects/{key}/tickets for HTTPBackend).
+type TicketListFilters struct {
+	Status, Type, Severity, Priority string
+	FeatureRef, Assignee, Creator    string
+	UpdatedSince                     string
 }
 
 // CreateProjectInput mirrors CreateTicketInput's shape/reasoning.

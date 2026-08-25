@@ -232,7 +232,7 @@ func runWorkflowViaHTTPBackend(t *testing.T, apiURL, token, ticketRef, linkedDec
 	ctx := context.Background()
 
 	// 1. find assigned work
-	list, err := backend.ListTickets(ctx, "ABC", "priority_queue", 0, "")
+	list, err := backend.ListTickets(ctx, "ABC", "priority_queue", mcpsrv.TicketListFilters{}, 0, "")
 	if err != nil {
 		t.Fatalf("ListTickets: %v", err)
 	}

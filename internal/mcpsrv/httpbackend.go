@@ -422,14 +422,18 @@ func (b *HTTPBackend) GetAssociations(ctx context.Context, ref string) (Associat
 	return AssociationsOutput{Associated: page.Associated}, nil
 }
 
-func (b *HTTPBackend) ListTickets(ctx context.Context, projectKey, view string, limit int, cursor string) (TicketsListOutput, error) {
+func (b *HTTPBackend) ListTickets(ctx context.Context, projectKey, view string, filters TicketListFilters, limit int, cursor string) (TicketsListOutput, error) {
 	if projectKey == "" {
 		projectKey = b.DefaultProject
 	}
 	if projectKey == "" {
 		return TicketsListOutput{}, errMissingProjectKey()
 	}
-	page, err := b.Client.ListTickets(ctx, projectKey, view, limit, cursor)
+	page, err := b.Client.ListTickets(ctx, projectKey, view, apiclient.TicketListFilters{
+		Status: filters.Status, Type: filters.Type, Severity: filters.Severity, Priority: filters.Priority,
+		FeatureRef: filters.FeatureRef, Assignee: filters.Assignee, Creator: filters.Creator,
+		UpdatedSince: filters.UpdatedSince,
+	}, limit, cursor)
 	if err != nil {
 		return TicketsListOutput{}, toServiceError(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ArloB/tickets/internal/apiclient"
@@ -172,7 +173,7 @@ func TestHTTPBackendListMethods(t *testing.T) {
 		t.Errorf("ListProjects = %+v, want one project ABC with next_cursor=cursor-1", projects)
 	}
 
-	tickets, err := backend.ListTickets(t.Context(), "", "issue_register", 0, "")
+	tickets, err := backend.ListTickets(t.Context(), "", "issue_register", TicketListFilters{}, 0, "")
 	if err != nil {
 		t.Fatalf("ListTickets with omitted project key: %v", err)
 	}
@@ -181,6 +182,24 @@ func TestHTTPBackendListMethods(t *testing.T) {
 	}
 	if len(tickets.Tickets) != 1 || tickets.Tickets[0].Ref != "ABC-1" || tickets.Tickets[0].Severity == nil || *tickets.Tickets[0].Severity != "high" {
 		t.Errorf("ListTickets = %+v, want one bug ticket with severity=high", tickets)
+	}
+
+	// Phase 7: every TicketListFilters field forwards as its own query
+	// parameter, matching docs/contracts/list-filters.md's names.
+	if _, err := backend.ListTickets(t.Context(), "ABC", "priority_queue", TicketListFilters{
+		Status: "in_progress", Type: "bug", Severity: "high", Priority: "critical",
+		FeatureRef: "ABC-F1", Assignee: "agent:codex", Creator: "human:alice", UpdatedSince: "2024-01-01T00:00:00Z",
+	}, 0, ""); err != nil {
+		t.Fatalf("ListTickets with filters: %v", err)
+	}
+	wantParams := []string{
+		"view=priority_queue", "status=in_progress", "type=bug", "severity=high", "priority=critical",
+		"feature_ref=ABC-F1", "assignee=agent%3Acodex", "creator=human%3Aalice", "updated_since=2024-01-01T00%3A00%3A00Z",
+	}
+	for _, want := range wantParams {
+		if !strings.Contains(gotPath, want) {
+			t.Errorf("requested path = %q, want it to contain %q", gotPath, want)
+		}
 	}
 }
 

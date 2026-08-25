@@ -109,7 +109,7 @@ func TestExitCriterionPhase6SameOrderAcrossLayers(t *testing.T) {
 
 	// --- HTTP API ---
 	httpClient := &apiclient.Client{BaseURL: apiURL, Token: token}
-	httpPage, err := httpClient.ListTickets(ctx, "ABC", "priority_queue", 0, "")
+	httpPage, err := httpClient.ListTickets(ctx, "ABC", "priority_queue", apiclient.TicketListFilters{}, 0, "")
 	if err != nil {
 		t.Fatalf("HTTP ListTickets: %v", err)
 	}
