@@ -27,3 +27,9 @@ assumption.
 | [0018](0018-unified-search-index.md) | Unified search index: synthetic `search_documents` rowid over entities + comments, capped offset pagination, FTS5 query sanitization |
 | [0019](0019-subscriptions-and-notifications.md) | Subscriptions, notifications, and `@actor` mentions: append-only notification log, explicit emission at each mutation site, no self-notification |
 | [0020](0020-sse-change-hints.md) | SSE change hints: minimal `{kind, ref, project}`/`{kind, actor}` payloads, in-process hub, post-commit publish, graceful-shutdown hub close |
+
+A gap noted in an ADR's Consequences as deferred, future work, or "not
+built speculatively here" isn't necessarily still open — check
+[`docs/mvp-acceptance.md`](../mvp-acceptance.md)'s "Accepted for the MVP"
+section first, which is where Phase 6 records gaps it reviewed and
+deliberately chose not to change.

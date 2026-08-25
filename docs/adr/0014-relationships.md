@@ -96,9 +96,14 @@ of the driver).
   than sharing code with it, since the two differ enough (cycle
   detection, multiple types, direction) that a shared abstraction would
   cost more than the duplication it removes.
-- `resolveAssociationEndpoint` returns `validation_failed` (not a
-  500) for a syntactically valid reference to a `decision`/`plan`/
-  `document` — `domain.ValidAssociationKind` allows those kinds, but
-  Phase 1 has no tables for them (Phase 5 work). The caller supplied
-  well-formed input the server just can't act on yet, which is a
-  client-correctable 400, not a server error.
+- **Stale as of Phase 5, corrected in the Phase 6 Step 1 audit:**
+  `resolveAssociationEndpoint` returned `validation_failed` (not a 500)
+  for a syntactically valid reference to a `decision`/`plan`/`document`
+  when this ADR was written — `domain.ValidAssociationKind` allowed
+  those kinds, but Phase 1 had no tables for them. Phase 5's content-item
+  tables closed that gap; `resolveAssociationEndpoint` now resolves all
+  five `ValidAssociationKind` kinds (`internal/service/association.go`),
+  and this paragraph's `validation_failed` behavior no longer occurs for
+  those three kinds. It still applies to any kind outside the valid set
+  (a project or comment reference), which is the intended, permanent
+  behavior.

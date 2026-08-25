@@ -351,13 +351,15 @@ Small optional instruction packages for Codex and Claude may document recommende
 
 The exact schemas are contract-tested before implementation, but the initial tool surface should remain small and task-oriented:
 
-- `projects_list` and `project_get`
-- `work_search` (Phase 5 — needs real full-text search; Phase 3's tools rely on list filters instead)
+- `projects_list`, `project_get`, and `project_create` — `project_create` shipped in Phase 3 beyond this table's original list, closing a CLI/MCP parity gap found in live use
+- `search` (Phase 5 Step 6 — real full-text search; shipped under this name, not the placeholder `work_search` this table originally used; Phase 3's tools relied on list filters instead)
 - `tickets_list`, `ticket_get`, `ticket_create`, and `ticket_update`
-- `ticket_comment` and `ticket_link`
-- `feature_get`, `feature_create`, and `feature_update`
-- `record_get`, `record_create`, and `record_update` — Phase 3 scopes this to decisions only (a minimal slice: title/context/decision/rationale/status, no versioning/supersession); plans and documents join once Phase 5 builds those entities
-- `notifications_list` and `notifications_mark_read` (Phase 5 — no notification system exists yet)
+- `ticket_comment` and `ticket_link` — `ticket_comment` is ref-agnostic as of Phase 6 Step 2 (any commentable entity, not tickets only)
+- `feature_get`, `features_list`, `feature_create`, and `feature_update` — `features_list` shipped in Phase 3 beyond this table's original list
+- `ticket_relationships` and `ticket_associations` — read-side companions to `ticket_link`, shipped in Phase 3 beyond this table's original list
+- `record_get`, `record_create`, and `record_update` — Phase 3 scoped this to decisions only (a minimal slice: title/context/decision/rationale/status, no versioning/supersession); plans and documents joined in Phase 5
+- `notifications_list` and `notifications_mark_read` (Phase 5 Step 7)
+- `project_brief` (Phase 6) — a single aggregation read for orientation; see §14's Phase 6 bullet
 
 Tool responses default to compact summaries. List and search calls omit full Markdown bodies, comments, history, and attachment contents unless explicitly requested. Detail calls accept include fields, and all collections are paginated. Writes return the changed entity's stable reference, version, essential fields, and warnings rather than echoing an entire expanded record.
 

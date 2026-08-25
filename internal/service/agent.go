@@ -25,18 +25,12 @@ type CreateAgentRequest struct {
 // every other mutation does, and its resolved id becomes the new
 // agent's owner_id.
 //
-// There is no audit_events row for this, and none for
-// CreateAgentToken/RevokeAgentToken below: actors sit outside the
-// entities registry (ADR 0002), and audit_events.entity_id is
-// NOT NULL, so an actor-kind event has nothing to attach to as the
-// schema stands. Whether product spec §5.12's explicit "token
-// operation" auditing requirement is satisfied by agent_tokens' own
-// columns (created_at, revoked_at) or genuinely needs a real
-// audit_events row (which would mean widening entity_id to nullable)
-// is an open question, not a decision made here — this comment is a
-// placeholder for it, not a resolution. It belongs in an ADR (0012's
-// Step 16 touch-up is the natural place) before Phase 2 ships, not
-// left implicit in code.
+// Emits an agent_created audit event with the new agent as
+// target_actor_id (ADR 0012's amendment, Phase 6 Step 1) — resolving
+// this ADR's previously-open question of whether product spec §5.12's
+// "token operation" auditing is satisfied by agent_tokens' own
+// columns: it wasn't, since those columns record when but not who
+// performed the action.
 func (s *Service) CreateAgent(ctx context.Context, req CreateAgentRequest, actor domain.ActorRef, correlationID string) (AgentDetail, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -49,9 +43,13 @@ func (s *Service) CreateAgent(ctx context.Context, req CreateAgentRequest, actor
 		return AgentDetail{}, fmt.Errorf("service: check existing agent: %w", err)
 	}
 
-	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, ownerID int64, _ string, now string) error {
-		_, err := store.CreateActor(ctx, tx, domain.ActorAgent, name, req.Description, &ownerID, now)
-		return err
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, ownerID int64, corrID, now string) error {
+		agentID, err := store.CreateActor(ctx, tx, domain.ActorAgent, name, req.Description, &ownerID, now)
+		if err != nil {
+			return err
+		}
+		changes := auditChanges(map[string]any{"name": name})
+		return store.InsertActorAuditEvent(ctx, tx, agentID, ownerID, eventAgentCreated, corrID, changes, now)
 	})
 	if err != nil {
 		return AgentDetail{}, err
@@ -124,6 +122,11 @@ func (s *Service) ListAgents(ctx context.Context) ([]AgentDetail, error) {
 // expiresAt is nil for a token with no expiry (product spec §10:
 // "support optional expiry"); when set, VerifyBearerToken rejects the
 // token once it's in the past.
+//
+// Emits an agent_token_issued audit event (ADR 0012's amendment,
+// Phase 6 Step 1) with the token's id and description only — never the
+// raw value or its hash (product spec §10: "do not place token values
+// in ... audit events").
 func (s *Service) CreateAgentToken(ctx context.Context, agentRef domain.ActorRef, description string, expiresAt *time.Time, actor domain.ActorRef, correlationID string) (rawToken string, tokenID int64, err error) {
 	if agentRef.Kind != domain.ActorAgent {
 		return "", 0, newValidationError("agent", "tokens can only be issued to an agent actor, not %q", agentRef.Kind)
@@ -148,13 +151,14 @@ func (s *Service) CreateAgentToken(ctx context.Context, agentRef domain.ActorRef
 		expiresAtStr = &v
 	}
 
-	err = s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, _ int64, _ string, now string) error {
+	err = s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
 		id, err := store.CreateAgentToken(ctx, tx, agentID, hash, description, expiresAtStr, now)
 		if err != nil {
 			return err
 		}
 		tokenID = id
-		return nil
+		changes := auditChanges(map[string]any{"token_id": id, "description": description})
+		return store.InsertActorAuditEvent(ctx, tx, agentID, actorID, eventAgentTokenIssued, corrID, changes, now)
 	})
 	if err != nil {
 		return "", 0, err
@@ -164,9 +168,27 @@ func (s *Service) CreateAgentToken(ctx context.Context, agentRef domain.ActorRef
 
 // RevokeAgentToken permanently revokes a token by id (ADR 0004: there
 // is no un-revoke). actor is the admin performing the revoke.
+//
+// Emits an agent_token_revoked audit event (ADR 0012's amendment,
+// Phase 6 Step 1) targeting the owning agent, resolved from the token
+// row itself so a caller doesn't need to already know which agent owns
+// tokenID.
 func (s *Service) RevokeAgentToken(ctx context.Context, tokenID int64, actor domain.ActorRef, correlationID string) error {
-	return s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, _ int64, _ string, now string) error {
-		return store.RevokeAgentToken(ctx, tx, tokenID, now)
+	tokenRow, err := store.GetAgentTokenByID(ctx, s.store.DB(), tokenID)
+	if errors.Is(err, store.ErrNotFound) {
+		return newNotFoundError("token %d not found", tokenID)
+	}
+	if err != nil {
+		return fmt.Errorf("service: resolve token's agent: %w", err)
+	}
+	agentID := tokenRow.ActorID
+
+	return s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		if err := store.RevokeAgentToken(ctx, tx, tokenID, now); err != nil {
+			return err
+		}
+		changes := auditChanges(map[string]any{"token_id": tokenID})
+		return store.InsertActorAuditEvent(ctx, tx, agentID, actorID, eventAgentTokenRevoked, corrID, changes, now)
 	})
 }
 

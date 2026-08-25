@@ -110,3 +110,42 @@ each affected record gets its own entry in its own trail.
   that's a deliberate deferral (see this file's top doc on the DTO
   layer's "add on purpose" contract), not an oversight — add it there
   when a caller actually needs it.
+- **Resolved in Phase 6 Step 1** — the open question `internal/service/agent.go`
+  left as a placeholder ("belongs in an ADR before Phase 2 ships," missed):
+  whether product spec §5.12's "token operation" auditing requirement is
+  satisfied by `agent_tokens`' own `created_at`/`revoked_at` columns. It isn't
+  — those record *when*, not *who*. `CreateAgent`/`CreateAgentToken`/
+  `RevokeAgentToken` now emit real `audit_events` rows. Since actors sit
+  outside the `entities` registry (this ADR's own premise, and ADR 0002),
+  there is no `entities.id` for a token-operation event to attach to the way
+  every other event does — migration `0013_actor_audit_events.sql` widens
+  `audit_events.entity_id` to nullable and adds `target_actor_id INTEGER
+  REFERENCES actors(id)`, with a `CHECK` enforcing that exactly one of the
+  two is set per row. `store.InsertActorAuditEvent`/`store.ListActorAuditEvents`
+  are the actor-scoped counterparts of `InsertAuditEvent`/`ListAuditEvents`,
+  kept as separate functions rather than widening the existing ones to accept
+  an optional entity — consistent with this codebase's preference (ADR 0011)
+  for explicit per-purpose functions over one function parametrized by which
+  argument happens to be null.
+  `internal/store/activity.go`'s `ListActivityPage` joins `audit_events` to
+  `entities` with an INNER JOIN, so a `target_actor_id` row (`entity_id`
+  NULL) is excluded from every project activity feed automatically — no
+  extra filter was added, and none should be, since that would reintroduce a
+  coupling between actor-scoped and entity-scoped audit rows this design
+  avoids by construction. `TestAgentAuditEventsExcludedFromProjectActivityFeed`
+  (`internal/service/agent_test.go`) is the regression test.
+  `TestAgentLifecycleEmitsActorAuditTrail` is this fix's form of gate 3's
+  `TestTicketLifecycleAuditTrail` — drives `CreateAgent`/`CreateAgentToken`/
+  `RevokeAgentToken` and asserts the actor's trail is exactly that
+  three-event sequence.
+  `TestAgentTokenAuditEventNeverCarriesTokenValue` guards product spec §10's
+  "do not place token values in ... audit events": `changes` carries only the
+  token's id and description, never the raw value or its hash.
+  A side effect worth naming: `RevokeAgentToken` now resolves the token
+  first (to learn which agent owns it, for `target_actor_id`), so it reports
+  `not_found` for a nonexistent token id itself rather than
+  `store.RevokeAgentToken`'s idempotent-UPDATE silently no-op'ing — this
+  made `cmd/tickets/admin_agent.go`'s separate pre-existence check
+  redundant (removed) and, as an incidental fix, made
+  `DELETE /agents/{name}/tokens/{id}` return 404 for a bogus id over HTTP
+  instead of a false 200 "revoked" (no test asserted the old behavior).

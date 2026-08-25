@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -366,18 +365,11 @@ func runAdminTokenRevoke(args []string) error {
 	}
 	defer func() { _ = st.Close() }()
 
-	// store.RevokeAgentToken's UPDATE is deliberately idempotent (a
-	// second revoke of the same token is a success, not an error) and
-	// ignores RowsAffected, so on its own it can't distinguish "already
-	// revoked" from "no such token" — check existence first so revoking
-	// a bogus id reports failure instead of a false "revoked".
-	if _, err := store.GetAgentTokenByID(context.Background(), st.DB(), id); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return &service.Error{Code: domain.ErrNotFound, Field: "id", Message: fmt.Sprintf("token %d not found", id)}
-		}
-		return fmt.Errorf("look up token %d: %w", id, err)
-	}
-
+	// service.RevokeAgentToken resolves the token first (Phase 6 Step
+	// 1: it needs the owning agent's id to emit an audit event), so it
+	// now reports not_found itself instead of store.RevokeAgentToken's
+	// idempotent-UPDATE ambiguity — no separate existence check needed
+	// here.
 	if err := svc.RevokeAgentToken(context.Background(), id, actor, service.NewCorrelationID()); err != nil {
 		return err
 	}

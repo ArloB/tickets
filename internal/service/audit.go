@@ -38,6 +38,9 @@ const (
 	eventAttachmentAdded      = "attachment_added"
 	eventAttachmentReplaced   = "attachment_replaced"
 	eventAttachmentRemoved    = "attachment_removed"
+	eventAgentCreated         = "agent_created"
+	eventAgentTokenIssued     = "agent_token_issued"
+	eventAgentTokenRevoked    = "agent_token_revoked"
 )
 
 // auditChanges marshals a small before/after or field-summary map into

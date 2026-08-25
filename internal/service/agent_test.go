@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ArloB/tickets/internal/domain"
+	"github.com/ArloB/tickets/internal/store"
 )
 
 func TestCreateAgentAndListAgents(t *testing.T) {
@@ -201,5 +203,112 @@ func TestCreateAgentTokenRejectsNonAgentTarget(t *testing.T) {
 	var svcErr *Error
 	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrValidationFailed {
 		t.Fatalf("CreateAgentToken targeting a human actor: error = %v, want validation_failed", err)
+	}
+}
+
+// TestAgentLifecycleEmitsActorAuditTrail is Phase 6 Step 1's regression
+// test for ADR 0012's amendment: CreateAgent/CreateAgentToken/
+// RevokeAgentToken previously emitted no audit_events row at all
+// (agent.go's now-resolved placeholder comment). Drives all three and
+// asserts the actor's trail is exactly the expected three-event
+// sequence, mirroring TestTicketLifecycleAuditTrail's shape for an
+// entity's own trail.
+func TestAgentLifecycleEmitsActorAuditTrail(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+
+	agent, err := s.CreateAgent(ctx, CreateAgentRequest{Name: "codex"}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	_, tokenID, err := s.CreateAgentToken(ctx, agent.Ref, "ci token", nil, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("CreateAgentToken: %v", err)
+	}
+	if err := s.RevokeAgentToken(ctx, tokenID, testActor, testCorrelationID); err != nil {
+		t.Fatalf("RevokeAgentToken: %v", err)
+	}
+
+	agentID, err := store.GetActorIDByRef(ctx, s.store.DB(), domain.ActorAgent, "codex")
+	if err != nil {
+		t.Fatalf("resolve agent actor id: %v", err)
+	}
+	events, err := store.ListActorAuditEvents(ctx, s.store.DB(), agentID)
+	if err != nil {
+		t.Fatalf("ListActorAuditEvents: %v", err)
+	}
+	wantTypes := []string{eventAgentCreated, eventAgentTokenIssued, eventAgentTokenRevoked}
+	if len(events) != len(wantTypes) {
+		t.Fatalf("ListActorAuditEvents = %d events, want %d: %+v", len(events), len(wantTypes), events)
+	}
+	for i, want := range wantTypes {
+		if events[i].EventType != want {
+			t.Errorf("event %d type = %q, want %q", i, events[i].EventType, want)
+		}
+		if events[i].TargetActorID != agentID {
+			t.Errorf("event %d target_actor_id = %d, want %d", i, events[i].TargetActorID, agentID)
+		}
+	}
+}
+
+// TestAgentTokenAuditEventNeverCarriesTokenValue guards product spec
+// §10's "do not place token values in ... audit events": the raw
+// token and its hash must never appear in agent_token_issued's changes
+// column, only the token's id/description.
+func TestAgentTokenAuditEventNeverCarriesTokenValue(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+
+	agent, err := s.CreateAgent(ctx, CreateAgentRequest{Name: "codex"}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	raw, _, err := s.CreateAgentToken(ctx, agent.Ref, "ci token", nil, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("CreateAgentToken: %v", err)
+	}
+
+	agentID, err := store.GetActorIDByRef(ctx, s.store.DB(), domain.ActorAgent, "codex")
+	if err != nil {
+		t.Fatalf("resolve agent actor id: %v", err)
+	}
+	events, err := store.ListActorAuditEvents(ctx, s.store.DB(), agentID)
+	if err != nil {
+		t.Fatalf("ListActorAuditEvents: %v", err)
+	}
+	for _, e := range events {
+		if strings.Contains(e.Changes, raw) {
+			t.Fatalf("audit event %q changes contains the raw token value: %s", e.EventType, e.Changes)
+		}
+	}
+}
+
+// TestAgentAuditEventsExcludedFromProjectActivityFeed is Phase 6 Step
+// 1's regression test for the migration's deliberate design: a
+// target_actor_id-scoped audit row has entity_id NULL, and
+// ListActivityPage's INNER JOIN against entities excludes it
+// automatically — no separate filter should be needed, and none should
+// ever be added, since that would silently reintroduce a coupling
+// between actor-scoped and entity-scoped audit rows.
+func TestAgentAuditEventsExcludedFromProjectActivityFeed(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+
+	proj, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if _, err := s.CreateAgent(ctx, CreateAgentRequest{Name: "codex"}, testActor, testCorrelationID); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	page, err := s.ListActivity(ctx, proj.Key, ActivityListFilters{}, 20, "")
+	if err != nil {
+		t.Fatalf("ListActivity: %v", err)
+	}
+	for _, e := range page.Events {
+		if e.EventType == eventAgentCreated {
+			t.Fatalf("project activity feed unexpectedly includes an agent_created event: %+v", e)
+		}
 	}
 }

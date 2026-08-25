@@ -5,12 +5,14 @@ info:
   license:
     name: UNLICENSED
   description: >
-    Versioned HTTP API for Tickets. Covers project/ticket CRUD, health
-    endpoints, and Phase 2's identity surface: session login/logout,
-    the caller's own resolved principal, and admin agent/token
-    management. Comments, relationships, search, attachments, and SSE
-    are still out of scope until later phases — see docs/contracts/ and
-    the implementation plan.
+    Versioned HTTP API for Tickets. Covers the full MVP surface:
+    project/feature/ticket CRUD, comments, typed relationships and
+    associations, decisions/plans/documents with version history,
+    attachments, full-text search, subscriptions and notifications,
+    SSE change hints, health endpoints, and the identity surface
+    (session login/logout, the caller's own resolved principal, and
+    admin agent/token management) — see docs/contracts/ and the
+    implementation plan.
 servers:
   - url: /api/v1
 
