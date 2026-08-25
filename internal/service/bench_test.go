@@ -88,3 +88,66 @@ func BenchmarkCreateTicket(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkListActivityFirstPage is §11's "first-page list" target
+// applied to the project activity feed — activity.go:160-170 flags its
+// per-call actor/entity-ref caches as "worth revisiting if a benchmark
+// against the §11 reference dataset ever shows this page is still too
+// slow." This is that benchmark: the sample project's feed, built from
+// its 4,000 tickets' worth of ticket_created/comment_added events.
+func BenchmarkListActivityFirstPage(b *testing.B) {
+	svc, sum := fullFixtureSvc(b)
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := svc.ListActivity(ctx, sum.SampleProjectKey, ActivityListFilters{}, 20, ""); err != nil {
+			b.Fatalf("ListActivity: %v", err)
+		}
+	}
+}
+
+// BenchmarkConcurrentReadWrite is §11's "concurrent readers/writers"
+// requirement: b.RunParallel drives many goroutines reading the sample
+// ticket via GetTicketByRef while one dedicated goroutine keeps
+// creating tickets, so the read benchmark's timing reflects real
+// contention against SQLite's single writer (WAL mode, ADR 0003)
+// rather than an artificially read-only database.
+func BenchmarkConcurrentReadWrite(b *testing.B) {
+	svc, sum := fullFixtureSvc(b)
+	ctx := context.Background()
+	ref, err := domain.Parse(sum.SampleTicketRef)
+	if err != nil {
+		b.Fatalf("parse sample ref: %v", err)
+	}
+
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		req := CreateTicketRequest{ProjectKey: sum.SampleProjectKey, Type: domain.TicketTypeTask, Title: "Concurrent writer ticket"}
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				if _, err := svc.CreateTicket(ctx, req, testActor, testCorrelationID, "", ""); err != nil {
+					b.Error(err)
+					return
+				}
+			}
+		}
+	}()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, err := svc.GetTicket(ctx, ref); err != nil {
+				b.Fatalf("GetTicket: %v", err)
+			}
+		}
+	})
+	b.StopTimer()
+	close(stop)
+	<-writerDone
+}

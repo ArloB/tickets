@@ -166,11 +166,21 @@ type rebuildOwnerRef struct {
 // path, whether on a principal entity or on a comment — even a
 // tombstoned one; see store.DeleteSearchDocumentForComment's doc for
 // why a comment's own soft-delete doesn't remove its attachments'
-// search rows), and every external link, from scratch, in one
-// transaction (atomicity — never a half-rebuilt index — outweighs
-// lock duration for an offline admin command). It is the documented
-// recovery path for anything the incremental UpsertSearchDocument
-// call sites miss or get wrong.
+// search rows), and every external link, from scratch. It is the
+// documented recovery path for anything the incremental
+// UpsertSearchDocument call sites miss or get wrong.
+//
+// The caller MUST pass a *sql.Tx, not a *sql.DB (atomicity — never a
+// half-rebuilt index — outweighs lock duration for an offline admin
+// command; both real callers, cmd/tickets/admin.go's `admin
+// search-reindex` and internal/backup/import.go, do this). Passing the
+// raw pool instead doesn't fail — Querier accepts either — but silently
+// turns every one of this function's many UpsertSearchDocument calls
+// into its own autocommit transaction, each paying SQLite's WAL-commit
+// overhead individually. At product spec §11's reference dataset scale
+// (~610,000 rows to index) that mistake was measured at ~120 minutes
+// versus a few seconds wrapped in one transaction — see
+// docs/benchmarks.md.
 func RebuildSearchIndex(ctx context.Context, q Querier) (int, error) {
 	if err := DeleteAllSearchDocuments(ctx, q); err != nil {
 		return 0, err

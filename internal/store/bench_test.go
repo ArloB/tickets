@@ -51,6 +51,27 @@ func fullFixture(b *testing.B) (*store.Store, fixtures.Summary) {
 			fullFixtureErr = err
 			return
 		}
+		// RebuildSearchIndex must run inside one transaction (its own
+		// doc comment) — both real callers (cmd/tickets/admin.go,
+		// internal/backup/import.go) wrap it in a tx. Passing st.DB()
+		// directly would turn every one of ~610k UpsertSearchDocument
+		// calls into its own autocommit transaction, which is not
+		// representative of any real code path and is catastrophically
+		// slower than the transactional form this benchmark measures.
+		tx, err := st.DB().BeginTx(context.Background(), nil)
+		if err != nil {
+			fullFixtureErr = err
+			return
+		}
+		if _, err := store.RebuildSearchIndex(context.Background(), tx); err != nil {
+			_ = tx.Rollback()
+			fullFixtureErr = err
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			fullFixtureErr = err
+			return
+		}
 		fullFixtureStore = st
 		fullFixtureSummary = sum
 	})
@@ -140,6 +161,54 @@ func BenchmarkIssueRegisterFirstPage(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := store.IssueRegister(ctx, st.DB(), proj.ID, store.TicketFilters{}, 20, 0, 0, 0, "", 0); err != nil {
 			b.Fatalf("IssueRegister: %v", err)
+		}
+	}
+}
+
+// BenchmarkSearchFirstPage is §11's "full-text search first-page"
+// target (p95 < 200ms), against a search_fts index built by
+// RebuildSearchIndex over fullFixture's full reference dataset —
+// tickets, comments, decisions, plans, and documents are all indexed
+// (ADR 0018). The query is "2001 fixture": every fixture ticket embeds
+// its own sequence number in its title, and every one of its comments
+// repeats that number in the body (flushTicketBatch's "Fixture comment
+// %d on ticket %d" format), so this is a realistic *selective* search
+// — a handful of hits per project, ~150 total — not the pathological
+// case BenchmarkSearchFirstPageCommonTerm below measures separately.
+func BenchmarkSearchFirstPage(b *testing.B) {
+	st, _ := fullFixture(b)
+	ctx := context.Background()
+	query := domain.SanitizeFTSQuery("2001 fixture")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := store.Search(ctx, st.DB(), query, store.SearchFilters{}, 20, 0); err != nil {
+			b.Fatalf("Search: %v", err)
+		}
+	}
+}
+
+// BenchmarkSearchFirstPageCommonTerm is a deliberately worst-case
+// companion to BenchmarkSearchFirstPage: "fixture" appears in every
+// fixture-generated ticket/comment/decision/plan/document's title or
+// body, so this query matches essentially the entire ~615,000-row
+// corpus. SQLite FTS5's bm25() ranking cost scales with the number of
+// *matching* rows, not just the page size — ORDER BY bm25(...) LIMIT
+// still has to score the whole match set before it can sort and trim
+// — so this benchmark exists to measure and document that known
+// limitation (docs/benchmarks.md) rather than to represent typical
+// search traffic. A real installation's vocabulary is far more varied
+// than this generator's repeated filler text; BenchmarkSearchFirstPage
+// above is the representative case.
+func BenchmarkSearchFirstPageCommonTerm(b *testing.B) {
+	st, _ := fullFixture(b)
+	ctx := context.Background()
+	query := domain.SanitizeFTSQuery("fixture")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := store.Search(ctx, st.DB(), query, store.SearchFilters{}, 20, 0); err != nil {
+			b.Fatalf("Search: %v", err)
 		}
 	}
 }

@@ -31,26 +31,36 @@ import (
 
 // Scale controls how much data Generate creates.
 type Scale struct {
-	Projects           int
-	FeaturesPerProject int // includes the mandatory General feature
-	TicketsPerProject  int
-	CommentsPerTicket  int
+	Projects            int
+	FeaturesPerProject  int // includes the mandatory General feature
+	TicketsPerProject   int
+	CommentsPerTicket   int
+	DecisionsPerProject int
+	PlansPerProject     int
+	DocumentsPerProject int
 }
 
 // Small is the default scale — small enough to build in well under a
 // second, large enough to exercise pagination and priority-group
 // variety. Used by this package's own tests, which run as part of the
 // normal `go test ./...` suite (the Phase 1 plan's "small scale in
-// the normal test suite" requirement).
-var Small = Scale{Projects: 3, FeaturesPerProject: 4, TicketsPerProject: 60, CommentsPerTicket: 1}
+// the normal test suite" requirement). DecisionsPerProject/
+// PlansPerProject/DocumentsPerProject are small but non-zero so the
+// normal test suite exercises that code path too, not just Full.
+var Small = Scale{
+	Projects: 3, FeaturesPerProject: 4, TicketsPerProject: 60, CommentsPerTicket: 1,
+	DecisionsPerProject: 2, PlansPerProject: 2, DocumentsPerProject: 2,
+}
 
 // Full is product spec §11's reference performance dataset: 25
-// projects, 100,000 tickets, 500,000 comments
-// (Projects*TicketsPerProject and *CommentsPerTicket multiply out
-// exactly). §11 also specifies 10,000 decisions/plans/documents —
-// Phase 1 has no tables for those kinds yet (they're Phase 5 work),
-// so Full omits them; only `task bench` builds this scale.
-var Full = Scale{Projects: 25, FeaturesPerProject: 20, TicketsPerProject: 4000, CommentsPerTicket: 5}
+// projects, 100,000 tickets, 500,000 comments, and 10,000
+// decisions/plans/documents combined (Projects*TicketsPerProject and
+// *CommentsPerTicket multiply out exactly; 25 * (134+133+133) = 10,000
+// decisions/plans/documents). Only `task bench` builds this scale.
+var Full = Scale{
+	Projects: 25, FeaturesPerProject: 20, TicketsPerProject: 4000, CommentsPerTicket: 5,
+	DecisionsPerProject: 134, PlansPerProject: 133, DocumentsPerProject: 133,
+}
 
 // batchSize is how many tickets' worth of work (the ticket plus its
 // comments and audit events) lands in one transaction. Large enough
@@ -92,6 +102,9 @@ type Summary struct {
 	SampleTicketRef  string
 	TicketCount      int
 	CommentCount     int
+	DecisionCount    int
+	PlanCount        int
+	DocumentCount    int
 }
 
 // clock is a monotonically advancing, deterministic timestamp source
@@ -171,6 +184,10 @@ func Generate(ctx context.Context, st *store.Store, seed int64, scale Scale) (Su
 		flushCount += len(batch)
 	}
 	summary.CommentCount = flushCount * scale.CommentsPerTicket
+
+	if err := generateContentItems(ctx, db, sysID, clk, projects, scale, &summary); err != nil {
+		return Summary{}, err
+	}
 
 	if len(projects) > 0 {
 		mid := projects[len(projects)/2]
@@ -357,6 +374,130 @@ func flushTicketBatch(ctx context.Context, db *sql.DB, sysID, localID int64, clk
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("fixtures: commit ticket batch tx: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+// contentPlan is one decision/plan/document's chosen shape, decided
+// before any I/O — mirrors ticketPlan's split between planning and
+// writing.
+type contentPlan struct {
+	project projectPlan
+	kind    domain.EntityKind // KindDecision, KindPlan, or KindDocument
+	seq     int               // 1-based position within this project+kind, for title text only
+}
+
+// contentBatchSize mirrors batchSize but is smaller — decisions/plans/
+// documents have no per-row comments, so each row is cheaper and a
+// larger chunk doesn't risk holding the write lock disproportionately
+// long relative to a ticket batch.
+const contentBatchSize = 1000
+
+// generateContentItems builds every project's decisions, plans, and
+// documents (product spec §11's reference dataset also names these) in
+// contentBatchSize-row transactions, mirroring the ticket batch loop
+// above. Decisions alternate accepted/proposed so a fixture-backed
+// benchmark or manual check has both statuses to filter on.
+func generateContentItems(ctx context.Context, db *sql.DB, sysID int64, clk *clock, projects []projectPlan, scale Scale, summary *Summary) error {
+	var batch []contentPlan
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := flushContentBatch(ctx, db, sysID, clk, batch); err != nil {
+			return err
+		}
+		for _, cp := range batch {
+			switch cp.kind {
+			case domain.KindDecision:
+				summary.DecisionCount++
+			case domain.KindPlan:
+				summary.PlanCount++
+			case domain.KindDocument:
+				summary.DocumentCount++
+			}
+		}
+		batch = batch[:0]
+		return nil
+	}
+
+	for _, p := range projects {
+		for i := 0; i < scale.DecisionsPerProject; i++ {
+			batch = append(batch, contentPlan{project: p, kind: domain.KindDecision, seq: i + 1})
+			if len(batch) >= contentBatchSize {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+		for i := 0; i < scale.PlansPerProject; i++ {
+			batch = append(batch, contentPlan{project: p, kind: domain.KindPlan, seq: i + 1})
+			if len(batch) >= contentBatchSize {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+		for i := 0; i < scale.DocumentsPerProject; i++ {
+			batch = append(batch, contentPlan{project: p, kind: domain.KindDocument, seq: i + 1})
+			if len(batch) >= contentBatchSize {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return flush()
+}
+
+func flushContentBatch(ctx context.Context, db *sql.DB, sysID int64, clk *clock, batch []contentPlan) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("fixtures: begin content batch tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	for _, cp := range batch {
+		now := clk.next()
+		entityID, _, err := store.InsertEntity(ctx, tx, &cp.project.entityID, cp.kind, sysID, now)
+		if err != nil {
+			return fmt.Errorf("fixtures: insert %s entity: %w", cp.kind, err)
+		}
+		seq, err := store.AllocateReference(ctx, tx, cp.project.entityID, cp.kind)
+		if err != nil {
+			return fmt.Errorf("fixtures: allocate %s reference: %w", cp.kind, err)
+		}
+
+		if cp.kind == domain.KindDecision {
+			status := "accepted"
+			if cp.seq%2 == 0 {
+				status = "proposed"
+			}
+			title := fmt.Sprintf("Fixture decision %d for %s", cp.seq, cp.project.key)
+			if err := store.InsertDecision(ctx, tx, entityID, cp.project.entityID, seq, title,
+				fixtureDescription(cp.seq), "do the thing", "because fixtures", "generated by internal/fixtures", status); err != nil {
+				return fmt.Errorf("fixtures: insert decision: %w", err)
+			}
+			continue
+		}
+
+		title := fmt.Sprintf("Fixture %s %d for %s", cp.kind, cp.seq, cp.project.key)
+		if err := store.InsertContentItem(ctx, tx, entityID, cp.project.entityID, cp.kind, seq, title, store.ContentItemFields{
+			Representation: domain.ContentRepresentationMarkdown,
+			Body:           fixtureDescription(cp.seq),
+		}); err != nil {
+			return fmt.Errorf("fixtures: insert %s: %w", cp.kind, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("fixtures: commit content batch tx: %w", err)
 	}
 	committed = true
 	return nil

@@ -137,21 +137,21 @@ tasks:
 
   bench:
     desc: >
-      Run Phase 1's performance benchmarks (product spec §11) against
-      the full reference dataset — 25 projects, 100,000 tickets,
-      500,000 comments, generated once per package via
-      internal/fixtures.Full (~20s to build, per package). Deliberately
-      not part of `task ci`: this takes minutes, not seconds, and
-      Benchmark functions are never run by a plain `go test`, so
-      leaving it out costs nothing there. Records ns/op and allocs
-      (-benchmem); go test's own output header records goos/goarch/cpu
-      for you. "Cold vs warm" isn't independently controlled here —
-      each package's fixture is generated fresh at the start of that
-      package's run, and SQLite's own page cache warms up across a
-      benchmark's b.N iterations within it; report numbers as "first
-      run this process" rather than claiming precision this setup
-      doesn't have (product spec §11: "benchmarks must record dataset,
-      hardware, build, and cold/warm state").
+      Run product spec §11's performance benchmarks against the full
+      reference dataset — 25 projects, 100,000 tickets, 500,000
+      comments, 10,000 decisions/plans/documents, generated once per
+      package via internal/fixtures.Full (a few seconds to build, per
+      package). Deliberately not part of `task ci`: this takes minutes,
+      not seconds, and Benchmark functions are never run by a plain
+      `go test`, so leaving it out costs nothing there. Records ns/op
+      and allocs (-benchmem); go test's own output header records
+      goos/goarch/cpu for you. "Cold vs warm" isn't independently
+      controlled here — each package's fixture is generated fresh at
+      the start of that package's run, and SQLite's own page cache
+      warms up across a benchmark's b.N iterations within it; report
+      numbers as "first run this process" rather than claiming
+      precision this setup doesn't have (product spec §11: "benchmarks
+      must record dataset, hardware, build, and cold/warm state").
     cmds:
       - go version
-      - go test -run '^$' -bench=. -benchmem -timeout=30m ./internal/store/... ./internal/service/...
+      - go test -run '^$' -bench=. -benchmem -timeout=30m ./internal/store/... ./internal/service/... ./internal/httpapi/...

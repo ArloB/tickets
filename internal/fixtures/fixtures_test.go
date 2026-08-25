@@ -88,7 +88,7 @@ func TestGenerateSmallRowCounts(t *testing.T) {
 		t.Errorf("Summary.CommentCount = %d, want %d", sum.CommentCount, wantComments)
 	}
 
-	var gotProjects, gotFeatures, gotTickets, gotComments int
+	var gotProjects, gotFeatures, gotTickets, gotComments, gotDecisions, gotPlans, gotDocuments int
 	db := st.DB()
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&gotProjects); err != nil {
 		t.Fatalf("count projects: %v", err)
@@ -102,6 +102,15 @@ func TestGenerateSmallRowCounts(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM comments`).Scan(&gotComments); err != nil {
 		t.Fatalf("count comments: %v", err)
 	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM decisions`).Scan(&gotDecisions); err != nil {
+		t.Fatalf("count decisions: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM content_items WHERE kind = 'plan'`).Scan(&gotPlans); err != nil {
+		t.Fatalf("count plans: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM content_items WHERE kind = 'document'`).Scan(&gotDocuments); err != nil {
+		t.Fatalf("count documents: %v", err)
+	}
 
 	if gotProjects != Small.Projects {
 		t.Errorf("projects rows = %d, want %d", gotProjects, Small.Projects)
@@ -114,6 +123,15 @@ func TestGenerateSmallRowCounts(t *testing.T) {
 	}
 	if gotComments != wantComments {
 		t.Errorf("comments rows = %d, want %d", gotComments, wantComments)
+	}
+	if wantDecisions := Small.Projects * Small.DecisionsPerProject; gotDecisions != wantDecisions || sum.DecisionCount != wantDecisions {
+		t.Errorf("decisions rows = %d, Summary.DecisionCount = %d, want %d", gotDecisions, sum.DecisionCount, wantDecisions)
+	}
+	if wantPlans := Small.Projects * Small.PlansPerProject; gotPlans != wantPlans || sum.PlanCount != wantPlans {
+		t.Errorf("plan rows = %d, Summary.PlanCount = %d, want %d", gotPlans, sum.PlanCount, wantPlans)
+	}
+	if wantDocuments := Small.Projects * Small.DocumentsPerProject; gotDocuments != wantDocuments || sum.DocumentCount != wantDocuments {
+		t.Errorf("document rows = %d, Summary.DocumentCount = %d, want %d", gotDocuments, sum.DocumentCount, wantDocuments)
 	}
 }
 
