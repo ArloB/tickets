@@ -55,6 +55,10 @@ func main() {
 		err = runNotifications(os.Args[2:])
 	case "attachment":
 		err = runAttachment(os.Args[2:])
+	case "export":
+		err = runExport(os.Args[2:])
+	case "import":
+		err = runImport(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -99,7 +103,7 @@ commands:
   server   run the Tickets HTTP server (API and MCP Streamable HTTP)
   setup    first-run administrative setup
   mcp      run the MCP stdio bridge against a configured Tickets server
-  admin    maintenance operations (purge-idempotency-keys, search-reindex, integrity, agent, token)
+  admin    maintenance operations (purge-idempotency-keys, search-reindex, integrity, backup, restore, agent, token)
   project  client commands against a running Tickets server (list, create)
   feature  client commands against a running Tickets server (list, get, create, update)
   ticket   client commands against a running Tickets server (list, get, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
@@ -113,6 +117,8 @@ commands:
   subscribe   client command against a running Tickets server: subscribe to a reference
   unsubscribe client command against a running Tickets server: unsubscribe from a reference
   notifications client commands against a running Tickets server (list, read)
+  export   write a redacted, portable JSON export of a data directory's content
+  import   validate (default) or --commit a JSON export into a fresh data directory
 
   -h, --help, help        show this usage text
   -v, --version, version  print the build version and exit`)

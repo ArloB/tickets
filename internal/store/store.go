@@ -149,6 +149,16 @@ func (s *Store) CheckCompatibility(ctx context.Context) error {
 	return nil
 }
 
+// HighestEmbeddedMigrationVersion is highestEmbeddedMigrationVersion,
+// exported for internal/backup: admin restore refuses a backup whose
+// recorded schema version is newer than this build supports, the same
+// rule CheckCompatibility applies at ordinary startup, checked here
+// against the manifest before any file is touched rather than by
+// opening the restored database first.
+func HighestEmbeddedMigrationVersion() (int, error) {
+	return highestEmbeddedMigrationVersion()
+}
+
 func highestEmbeddedMigrationVersion() (int, error) {
 	entries, err := fs.Glob(migrationsFS, "migrations/*.sql")
 	if err != nil {

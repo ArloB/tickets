@@ -57,6 +57,11 @@ func runServer(args []string) error {
 	}
 	defer func() { _ = st.Close() }()
 
+	if err := store.WritePidfile(cfg.DataDir); err != nil {
+		return fmt.Errorf("write pidfile: %w", err)
+	}
+	defer func() { _ = store.RemovePidfile(cfg.DataDir) }()
+
 	blobs, err := blobstore.Open(cfg.DataDir)
 	if err != nil {
 		return fmt.Errorf("open blobstore at %s: %w", cfg.DataDir, err)

@@ -20,7 +20,7 @@ import (
 // runAdminAgent's doc comment.
 func runAdmin(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("admin: expected a subcommand (purge-idempotency-keys, search-reindex, integrity, agent, token)")
+		return fmt.Errorf("admin: expected a subcommand (purge-idempotency-keys, search-reindex, integrity, backup, restore, agent, token)")
 	}
 	switch args[0] {
 	case "purge-idempotency-keys":
@@ -29,6 +29,10 @@ func runAdmin(args []string) error {
 		return runAdminSearchReindex(args[1:])
 	case "integrity":
 		return runAdminIntegrity(args[1:])
+	case "backup":
+		return runAdminBackup(args[1:])
+	case "restore":
+		return runAdminRestore(args[1:])
 	case "agent":
 		return runAdminAgent(args[1:])
 	case "token":
