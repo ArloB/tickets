@@ -48,6 +48,23 @@ tokens while exposing `TokenInfo` to the tool handler.
   untyped `Server.AddTool` — its automatic schema inference and input
   validation directly implement §7.2's "actionable validation errors"
   requirement.
+- **Update:** `go-sdk` moved to v1.7.0 for MCP protocol version
+  2026-07-28 support. On the Streamable HTTP transport, the SDK only
+  advertises/negotiates >= 2026-07-28 when the transport is stateless
+  (`mcp.StreamableHTTPOptions.Stateless = true`); the stdio bridge is
+  unaffected (`mcp.StdioTransport` doesn't gate protocol versions by
+  transport mode). `NewStreamableHTTPHandler` now sets `Stateless:
+  true`. This is safe given how tickets already uses the SDK: auth is
+  per-request (`RequireBearerToken`, `TokenInfo` read off the request,
+  not off session state), no tool handler makes a server-to-client
+  request (sampling/roots/elicitation are unused — and sampling/roots
+  are exactly what SEP-2577 deprecates in the 2026-07-28 revision),
+  and nothing sends a server-initiated notification
+  (`notifications_list` is pull-only). Stateless mode's other
+  consequence — GET/DELETE on `/mcp` return 405, so there's no
+  standalone SSE push stream or session resumption — costs tickets
+  nothing today but forecloses adding server-initiated push without
+  revisiting this.
 
 ## Consequences
 
@@ -62,5 +79,5 @@ tokens while exposing `TokenInfo` to the tool handler.
   (`internal/mcpsrv/auth.go`) that calls `service.VerifyBearerToken`;
   an unauthenticated tool call is rejected, and a valid one attributes
   the calling agent correctly in the resulting audit trail.
-- No SDK fallback is needed; the API surface is pinned at v1.2.0 in
-  `go.mod`.
+- No SDK fallback is needed. The SDK version pinned in `go.mod` moved
+  from v1.2.0 to v1.7.0 (see the Decision-section update above).

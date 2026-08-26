@@ -104,7 +104,7 @@ func newServer(backend Backend) *mcp.Server {
 // link to yet.
 func NewStreamableHTTPHandler(backend *InProcessBackend) http.Handler {
 	server := newServer(backend)
-	streamable := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
+	streamable := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true})
 	requireToken := sdkauth.RequireBearerToken(tokenVerifier(backend.Svc), &sdkauth.RequireBearerTokenOptions{})
 	return requireToken(streamable)
 }
