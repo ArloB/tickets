@@ -1,0 +1,8 @@
+{"type":"system","subtype":"init","tools":["mcp__tickets__project_brief"]}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"ToolSearch","input":{}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__tickets__project_brief","input":{"key":"DRL"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"{\"key\":\"DRL\"}"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"mcp__tickets__tickets_list","input":{"project_key":"DRL"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","is_error":true,"content":"invalid argument"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t4","name":"mcp__tickets__ticket_update","input":{"ref":"DRL-1"}}]}}
+{"type":"result","subtype":"success","is_error":false,"num_turns":7}

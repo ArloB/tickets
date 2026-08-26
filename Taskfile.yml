@@ -174,3 +174,24 @@ tasks:
     cmds:
       - go version
       - go test -run '^$' -bench=. -benchmem -timeout=30m ./internal/store/... ./internal/service/... ./internal/httpapi/...
+
+  acceptance:row10:
+    desc: >
+      Run docs/mvp-acceptance.md row 10's live-agent drill: real Claude
+      Code and Codex sessions, headless, against a throwaway Tickets
+      server over MCP, performing §16 criterion 10's representative
+      workflow. Deliberately NOT part of `task ci`: it drives real LLM
+      hosts, so it needs the caller's own `claude`/`codex` credentials,
+      costs tokens, takes minutes, and is stochastic — a single run is
+      evidence, not a gate. Pass RUNS=5 to get a pass rate worth
+      quoting, and HOSTS=claude to drill one host. Every transcript,
+      server log, and a summary.json land in artifacts/row10/. See
+      docs/row10-live-agent-drill.md for the methodology, the assertion
+      tiers, and the host flags that matter.
+    deps: [build]
+    vars:
+      RUNS: '{{.RUNS | default "1"}}'
+      HOSTS: '{{.HOSTS | default "claude,codex"}}'
+      BIN: '{{if eq OS "windows"}}bin/tickets.exe{{else}}bin/tickets{{end}}'
+    cmds:
+      - go run ./tools/row10drill -bin {{.BIN}} -n {{.RUNS}} -hosts {{.HOSTS}}

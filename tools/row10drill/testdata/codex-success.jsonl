@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"x"}
+{"type":"item.started","item":{"id":"i1","type":"mcp_tool_call","server":"tickets","tool":"project_brief","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"i1","type":"mcp_tool_call","server":"tickets","tool":"project_brief","error":{"message":"tool call failed for `tickets/project_brief`"}}}
+{"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"retrying"}}
+{"type":"item.completed","item":{"id":"i3","type":"mcp_tool_call","server":"tickets","tool":"project_brief","error":null}}
+{"type":"item.completed","item":{"id":"i4","type":"mcp_tool_call","server":"tickets","tool":"ticket_update","error":null}}
+{"type":"turn.completed","usage":{"input_tokens":1}}

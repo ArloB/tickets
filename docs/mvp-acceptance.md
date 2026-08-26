@@ -14,6 +14,12 @@ prove the criterion today, and its status:
   as a scenario; unit/integration tests for the underlying pieces may still
   exist without covering the criterion as stated.
 - **not implemented** — no code path satisfies this yet.
+- **covered by live-agent drill** — an opt-in, stochastic live-agent
+  check asserts the criterion end-to-end against real agent hosts.
+  Because it is stochastic and needs the caller's own LLM credentials,
+  it stays out of `task ci` and the row quotes its run counts rather
+  than claiming a single green run as proof (row 10 is currently the
+  only one of these).
 - **not implemented (partial)** — most of the criterion is implemented
   and tested; a specific, named part of it has no code path at all
   (row 3 is currently the only one of these — see its notes for
@@ -44,7 +50,7 @@ re-run in isolation, and none is traceable to a Phase 6 change.
 | 7 | `#ABC-123` references create links and backlinks without being mistaken for dependencies; explicit dependencies support multiple tickets and reject cycles. | **covered** | `internal/domain/scan_test.go`, `internal/service/mentions_test.go` (verification gate 7); `internal/service/relationship_test.go` (`TestAddRelationshipDetectsBlocksCycle`, `TestAddRelationshipDetectsParentOfCycle`). | |
 | 8 | Markdown, uploaded files, paths, and URLs can be attached or represented as specified, with the correct kind of version history. | **covered** | `internal/service/attachment_test.go`, `internal/service/content_item_representations_test.go`, `internal/service/content_item_test.go` (version/diff tests), `web/e2e/attachments.spec.ts`, `web/e2e/content-item-representations.spec.ts`; security-focused backfill in Phase 6 Step 7: `TestAttachmentFilenameCannotInjectResponseHeaders`, `TestAttachmentPathReferenceNeverRead` and its content-item counterpart, `web/src/components/Markdown.test.tsx`'s XSS payload table, `web/e2e/csp.spec.ts`. | |
 | 9 | Two different agent tokens create separately attributed audit events, can be revoked independently, and never appear in logs or exports. | **covered** | `internal/httpapi/exit_criterion_test.go`; `internal/service/agent_test.go` (`TestAgentLifecycleEmitsActorAuditTrail`, `TestAgentTokenAuditEventNeverCarriesTokenValue`, both new in Phase 6 Step 1); `internal/httpapi/security_test.go` (`TestBearerTokenNeverAppearsInLogOutput`); `internal/backup.TestExportNeverContainsSecrets` (Phase 6 Step 4, extended in Step 7 with independent session/CSRF-token/agent-token-hash sentinels, not just a password hash); `internal/mcpsrv.TestToolsOverRealStreamableHTTPRejectsRevokedToken` (Phase 6 Step 7 — revocation proven at the MCP transport layer too, not just HTTP). | |
-| 10 | Codex and Claude Code can use MCP for the representative ticket workflow; the same workflow is possible through CLI JSON. | **implemented, untested (live two-host check)** | Protocol-level proof: `cmd/tickets/exit_criterion_phase3_test.go`'s `InProcessBackend_over_real_MCP_client` subtest drives the workflow through a genuine `mcp.Client` over real Streamable HTTP against the current tool surface (`project_brief` included). CLI JSON parity gap closed in Phase 6 Step 11: `tickets ticket create` (`cmd/tickets/ticket.go`'s `runTicketCreate`, tested by `TestTicketCreateJSON`/`TestTicketCreateRequiresTypeAndTitle`) — found missing during Step 9 documentation (every other principal entity already had a CLI `create`, MCP already had `ticket_create`), now added so CLI JSON can do the full workflow end to end, not just everything after ticket creation. | Deliberately **not** marked covered: §16's actual ask is that Codex *and* Claude Code, as live agents, can perform the workflow starting from `project_brief` — judging real agent behavior against the current tool descriptions (`project_brief` is new, `ticket_comment`'s description was rewritten in Step 5), which no Go test can substitute for. Not performed this step; see the note below this table for exactly what remains and how to run it. |
+| 10 | Codex and Claude Code can use MCP for the representative ticket workflow; the same workflow is possible through CLI JSON. | **covered by live-agent drill (Claude Code 2/2, Codex 2/2 post-ADR-0022)** | Live-agent proof: `tools/row10drill` (`task acceptance:row10`) drives real headless Claude Code (`claude -p`) and Codex (`codex exec`) sessions against a throwaway server with the Tickets MCP server attached as their only MCP server, then asserts the resulting **server state** — ticket `done`, at least two agent status changes (so a `backlog`→`done` jump can't pass as "started"), still assigned to `agent:drill`, a comment attributed to the agent, a decision recorded, and no call rejected by the tool surface (domain errors like `not_found` are recorded but don't fail a run). Both hosts pass 2/2 against the post-ADR-0022 surface. Because agent behaviour is stochastic these counts are small — re-run with `RUNS=5` before quoting a rate as settled. Methodology, assertion tiers, and the host flags that matter: `docs/row10-live-agent-drill.md`. Protocol-level proof: `cmd/tickets/exit_criterion_phase3_test.go`'s `InProcessBackend_over_real_MCP_client` subtest drives the workflow through a genuine `mcp.Client` over real Streamable HTTP against the current tool surface (`project_brief` included). CLI JSON parity gap closed in Phase 6 Step 11: `tickets ticket create` (`cmd/tickets/ticket.go`'s `runTicketCreate`, tested by `TestTicketCreateJSON`/`TestTicketCreateRequiresTypeAndTitle`) — found missing during Step 9 documentation (every other principal entity already had a CLI `create`, MCP already had `ticket_create`), now added so CLI JSON can do the full workflow end to end, not just everything after ticket creation. | §16's actual ask is that Codex *and* Claude Code, as live agents, can perform the workflow against the current tool descriptions — which no Go test can substitute for, and which the drill now measures directly. The drill also surfaced, and led to fixing, a real defect no Go test could have found: in 2 of 3 Codex sessions the agent called `project_brief {"project_key": …}`, got `-32602: invalid arguments`, and retried as `{"key": …}`. `internal/mcpsrv/tools.go` had spelled the project key three ways — `key` where a project was the tool's subject, `project` on `search`, `project_key` where it scoped the call — while `docs/mcp-agent-guide.md` documented only `project_key`, so an agent following the project's own guide produced exactly the failing call. **ADR 0022** unified every tool on `project_key`; `internal/mcpsrv.TestEveryToolNamesTheProjectKeyIdentically` guards it (confirmed to fail when the old name is restored). Codex went 1/2 → 2/2. Neither host has opened with `project_brief`: both call `projects_list` first when the prompt names no project key, which the drill records as evidence rather than failing on. |
 | 11 | The web UI receives live change hints and shows assignment/mention notifications. | **covered** | `web/e2e/sse.spec.ts`, `web/e2e/notifications.spec.ts`. | |
 | 12 | Full-text search returns compact, relevant results across all promised content types. | **covered** | `internal/service/search_test.go` (including `TestSearchFindsCommentsOnNonTicketEntities`, Phase 6 Step 2), `web/e2e/search.spec.ts`. | Re-verified after Step 2: a comment on a project and a comment on a plan are both indexed and findable, not just ticket comments. Phase 7: projects themselves are now indexed too (`indexProjectSearchDoc`, ADR 0021) — a project's own title/description are findable, and search is deliberately not filtered by a project's archived status (ADR 0021's rationale). Phase 7 also fixed a real pre-existing bug found while adding this: `RebuildSearchIndex`'s comment query was ticket-only and silently dropped comments on any non-ticket entity on every rebuild since Phase 6 Step 2 made comments ref-agnostic — `TestSearchRebuildIndexCoversCommentsOnNonTicketEntities` guards against it now. |
 | 13 | A stale concurrent edit receives a conflict and neither version is silently lost. | **covered** | `internal/service/concurrency_test.go` (verification gate 9); `web/e2e/conflict-resolution.spec.ts`. | |
@@ -53,10 +59,14 @@ re-run in isolation, and none is traceable to a Phase 6 change.
 | 16 | Backup and restore preserve records, attachments, references, versions, audit history, and checksums; portable export/import is validated separately. | **covered** | `internal/backup` (Phase 6 Step 4): `TestBackupThenRestoreReproducesState`, `TestRestoreRefusesCorruptedChecksumAndLeavesDataDirUntouched`, `TestRestoreRemovesStaleWAL`, `TestRestoreRefusesWhileServerRunningUnlessForced` (backup/restore); `TestExportThenImportRoundTrip` (records, attachment bytes, references, and comment history preserved through export→import), `TestImportRefusesWithoutAttachmentsDirWhenBlobsAreReferenced`, `TestImportDetectsInvalidReference`, `TestImportDetectsCorruptedSeedActor`, `TestImportRefusesNonEmptyTarget` (export/import validated separately from backup/restore, as the criterion asks). Phase 6 Step 8's recovery drills: `TestOnlineBackupDuringConcurrentWrites` (online backup taken while a separate goroutine keeps writing, `PRAGMA integrity_check` on the result), `internal/store.TestPreMigrationSnapshotIsUsableForRecovery` (the Step 3 pre-migration snapshot copied to a fresh directory and opened, not just inspected in place), `cmd/tickets.TestAdminSearchReindex` (the FTS rebuild drill at the actual CLI layer, not just the pre-existing service-layer `TestSearchRebuildIndexRepopulatesFromScratch`). | Phase 6 Step 11's cross-entity exit-criterion drill (`cmd/tickets/exit_criterion_phase6_test.go`, `TestExitCriterionPhase6BackupRestoreDrill`) is the end-to-end confirmation this row's "records, attachments, references, versions, audit history, and checksums" wording asks for in one run: seeds a ticket (with a version-producing status change, and a description carrying a "#ABC-D1"-style derived mention so "references" means the actual backlink graph criterion 7 is about, not just the external link tested alongside it), a decision (with a version-producing update), an attachment, an external link, and a comment (an audit event); backs up; mutates the live data directory in a way that must not survive; restores; runs the same integrity check `tickets admin integrity` performs for the checksum assertion; and compares every one of those against its pre-backup state. All of Step 8's new/modified tests were also run and passed on real Windows and real Linux, not just Linux (see row 1) — and this drill itself was re-verified on real Windows too (Phase 6 Step 11): the Step 8 finding was specifically about a backup/restore test keeping a store handle open across `Restore`'s file swap, so this new backup/restore test was a real candidate to repeat that bug, and `go test -count=1 ./cmd/tickets/...` on a native NTFS-path copy confirmed it does not. |
 | 17 | The release documentation covers secure LAN sharing and clearly warns about anonymous reads, bearer tokens without TLS, path references, and lack of malware scanning. | **covered (by review)** | Phase 6 Step 9: `README.md`, `docs/install.md`, `docs/admin.md`, `docs/cli.md`, `docs/api.md`, `docs/troubleshooting.md` (new); `docs/backup-recovery.md` (pre-existing) and `docs/security-model.md` (Phase 6 Step 7) already carried the full threat-model detail this criterion asks for. | This criterion is documentation content, not code behavior, so "covered" here means the required warnings are present and reviewed, not asserted by an automated test — there is no test suite over prose. Anonymous reads: `README.md`'s quickstart note, `docs/admin.md`'s config table, `docs/security-model.md`'s "Anonymous access" section. Bearer tokens without TLS: `docs/install.md`'s "Platform notes" TLS callout, `docs/troubleshooting.md`'s "Networking and security warnings" section, `docs/security-model.md`'s auth table. Path references: `docs/cli.md`'s plan/document representation note, `docs/security-model.md`'s "Path and URL references" section. No malware scanning: `docs/security-model.md`'s "Out of scope" section. |
 
-### Row 10's two-host MCP check — status as of Phase 6 Step 11
+### Row 10's two-host MCP check — now automated
 
-Not performed as a live agent session during this step, and that is
-recorded honestly here rather than assumed complete. What Step 11
+**Update:** this check is no longer manual — see the automated drill
+below. The rest of this section's history is kept because it records
+what was and wasn't proven before it existed.
+
+Not performed as a live agent session during Phase 6 Step 11, and that
+was recorded honestly rather than assumed complete. What Step 11
 *did* verify, automatically and for real: `cmd/tickets/exit_criterion_phase3_test.go`'s
 `InProcessBackend_over_real_MCP_client` subtest drives the workflow
 through a genuine `mcp.Client` speaking the real Streamable HTTP
@@ -68,49 +78,81 @@ the workflow without extra discovery calls, which is what §16
 criterion 10 and this row are actually asking for; no Go test can
 measure that.
 
-This agent session (Claude Code, running in this repo) has no way to
-add a new MCP server connection to itself mid-session — doing so
-requires `claude mcp add` plus a session restart, which is disruptive
-and wasn't taken unilaterally. To actually close this out:
+**This is now automated** — `tools/row10drill`, run via `task
+acceptance:row10`. The earlier conclusion that only a manual run could
+close this was too pessimistic: an agent session cannot attach a new
+MCP server *to itself* mid-session, but it can launch `claude -p` and
+`codex exec` as subprocesses with the Tickets MCP server attached to
+*them*, which is what the harness does. Full methodology, the
+assertion tiers, and the host flags that matter are in
+`docs/row10-live-agent-drill.md`.
 
-1. Build and run the server: `task build && ./bin/tickets server` (or
-   `tickets.exe` on Windows), then `tickets setup` and seed a project.
+Each run creates a throwaway data directory and server on a free
+loopback port, seeds a project and a ticket assigned to `agent:drill`,
+launches the host headless with the Tickets MCP server as its only
+MCP server, then checks the resulting **server state** (ticket `done`,
+still assigned to the agent, a comment attributed to the agent, a
+decision recorded, zero tool-call errors) and records the tool-call
+sequence as evidence. Phase 7's `assignee` filter on `tickets_list`
+(`internal/mcpsrv/tools.go`'s `ticketsListInput`) is what lets "find
+assigned work" succeed without the agent already knowing the ticket's
+reference.
+
+To run it by hand instead, the equivalent steps are:
+
+1. Build and run the server: `task build && ./bin/tickets server
+   --data-dir <dir> --port 8080` (`tickets.exe` on Windows); readiness
+   is `GET /healthz` at the **root**, not under `/api/v1`. Run
+   `tickets setup --data-dir <dir> --username <you> --password <pw>`
+   first — setup never prompts.
 2. Issue an agent bearer token: `tickets admin agent create --name
-   drill --as <you>` then `tickets admin token create drill --as <you>`.
+   drill --as <you>`, then `tickets admin token create drill --as
+   <you>` — the agent name is a positional argument and must come
+   **before** any flags.
 3. Create a ticket and assign it to that agent (`tickets ticket create
    --project ABC --type task --title "Fix the drill" --priority high`,
-   then `tickets ticket assign <ref> --assignee agent:drill --if-version 1`)
-   so there is assigned work for the agent to find. Phase 7 added an
-   `assignee` filter to the `tickets_list` MCP tool
-   (`internal/mcpsrv/tools.go`'s `ticketsListInput`), closing the gap
-   Phase 3 originally found — "find assigned work" no longer depends
-   on the agent already knowing the ticket's reference.
+   then `tickets ticket assign <ref> --assignee agent:drill
+   --if-version 1`) so there is assigned work to find.
 4. Register `tickets mcp --url http://127.0.0.1:8080/api/v1 --token
    <token>` as an MCP server in both a Claude Code session and a Codex
    session (`claude mcp add` / Codex's own MCP config).
 5. In each, ask the agent to perform §16's representative workflow
    (find assigned work, read linked context, start ticket, comment,
-   create decision, complete ticket) starting from `project_brief`,
-   and confirm it completes without the agent needing extra discovery
-   calls or getting confused by a tool description.
+   create decision, complete ticket), and confirm it completes without
+   getting confused by a tool description.
 
 ## Summary
 
 - **Covered:** 15 / 17 (1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16)
 - **Covered (by review):** 1 / 17 (17)
-- **Implemented, untested as a scenario:** 1 / 17 (10)
+- **Covered by live-agent drill:** 1 / 17 (10) — `task
+  acceptance:row10`, passing 2/2 on both hosts. Opt-in and stochastic
+  rather than part of `task ci`, so the row carries its run counts.
+  See row 10.
 
 Row 3 closed in Phase 7 (see its own row for detail): project edit and
 archive were built, ADR 0021 records the design decisions, and
 `web/e2e/project-edit.spec.ts` proves the criterion end to end in the
 web UI, which is what §16 criterion 3 actually asks for.
 
-One row stays open, deliberately rather than by oversight: row 10
-asks whether a live LLM agent, not a Go test, picks the right tool
-from its description — no code change can close that, only the manual
-two-host run described above. Every other row this file can close by
-code or by review now does.
+Row 10 — whether a live LLM agent, not a Go test, picks the right tool
+from its description — is now measurable rather than manual:
+`tools/row10drill` (`task acceptance:row10`) drives real headless
+Claude Code and Codex sessions and asserts the resulting server state.
+It stays out of `task ci`, because agent behaviour is stochastic and
+the drill needs the caller's own LLM credentials.
 
+The row is now **covered**. The drill's first outing found the reason
+it wasn't: the MCP tool surface spelled the project key three different
+ways, and a live Codex agent failed a call guessing the consistent one.
+ADR 0022 unified the surface on `project_key`, a regression test guards
+it, and both hosts now pass 2/2.
+
+That defect is the argument for the whole exercise. It survived every
+Go test — a test calls a tool with the argument names the code declares,
+so it can never discover that a *reader* of the surface would guess a
+different one — and it was actively contradicted by the project's own
+agent guide. Tests and tool schemas share an author; live agents don't.
 
 ## Accepted for the MVP, reviewed and not changed (Phase 6 Step 1 audit)
 

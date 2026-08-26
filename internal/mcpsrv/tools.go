@@ -435,7 +435,7 @@ func withCallerActor(ctx context.Context, req *mcp.CallToolRequest) context.Cont
 }
 
 type projectGetInput struct {
-	Key string `json:"key" jsonschema:"the project key, e.g. ABC"`
+	Key string `json:"project_key,omitempty" jsonschema:"the project key, e.g. ABC; falls back to the connection's configured default project if omitted"`
 }
 
 type projectsListInput struct {
@@ -444,14 +444,14 @@ type projectsListInput struct {
 }
 
 type projectCreateInput struct {
-	Key            string `json:"key" jsonschema:"the project key, e.g. ABC: uppercase letters/digits, 2-10 characters, starting with a letter"`
+	Key            string `json:"project_key" jsonschema:"the project key, e.g. ABC: uppercase letters/digits, 2-10 characters, starting with a letter"`
 	Title          string `json:"title" jsonschema:"the project title"`
 	Description    string `json:"description,omitempty" jsonschema:"optional Markdown description"`
 	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"optional: a client-chosen key to make a retried call safe. Reusing the same key with the same content returns the original project instead of creating a duplicate; reusing it with different content is rejected as idempotency_key_reused."`
 }
 
 type projectUpdateInput struct {
-	Key             string  `json:"key" jsonschema:"the project key, e.g. ABC"`
+	Key             string  `json:"project_key" jsonschema:"the project key, e.g. ABC"`
 	Title           *string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
 	Description     *string `json:"description,omitempty" jsonschema:"new Markdown description; omit to leave unchanged"`
 	Status          *string `json:"status,omitempty" jsonschema:"active or archived; omit to leave unchanged"`
@@ -464,7 +464,7 @@ type ticketGetInput struct {
 
 type searchInput struct {
 	Query   string   `json:"query" jsonschema:"the search text"`
-	Project string   `json:"project,omitempty" jsonschema:"restrict to one project's key; omitted searches every project"`
+	Project string   `json:"project_key,omitempty" jsonschema:"restrict to one project's key; omitted searches every project"`
 	Kind    []string `json:"kind,omitempty" jsonschema:"restrict to these kinds: ticket, feature, decision, plan, document, comment, attachment, link; omitted searches every kind"`
 	Status  string   `json:"status,omitempty" jsonschema:"restrict to one status value (workflow status for tickets/features, decision status for decisions); plans/documents/comments have no status, so this never matches them"`
 	Limit   int      `json:"limit,omitempty" jsonschema:"max rows to return (server default 20, max 100)"`

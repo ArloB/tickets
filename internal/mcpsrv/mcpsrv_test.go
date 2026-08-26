@@ -763,7 +763,7 @@ func TestProjectBriefOverRealStreamableHTTP(t *testing.T) {
 	}
 	defer func() { _ = session.Close() }()
 
-	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_brief", Arguments: map[string]any{"key": "ABC"}})
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_brief", Arguments: map[string]any{"project_key": "ABC"}})
 	if err != nil {
 		t.Fatalf("CallTool project_brief: %v", err)
 	}
@@ -1228,7 +1228,7 @@ func TestIdempotencyKeyOverRealStreamableHTTP(t *testing.T) {
 
 	createProject := func(key, title string) (*mcp.CallToolResult, domain.Project) {
 		res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_create", Arguments: map[string]any{
-			"key": "IDP", "title": title, "idempotency_key": key,
+			"project_key": "IDP", "title": title, "idempotency_key": key,
 		}})
 		if err != nil {
 			t.Fatalf("CallTool project_create: %v", err)
@@ -1285,7 +1285,7 @@ func TestGapClosingToolsOverRealStreamableHTTP(t *testing.T) {
 
 	// project_create
 	createRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "project_create", Arguments: map[string]any{
-		"key": "DEF", "title": "Second Project", "description": "Created live via project_create",
+		"project_key": "DEF", "title": "Second Project", "description": "Created live via project_create",
 	}})
 	if err != nil {
 		t.Fatalf("CallTool project_create: %v", err)

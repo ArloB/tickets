@@ -52,6 +52,12 @@ per bridge instance and every tool call can omit `project_key`
 entirely, unless the agent is legitimately working across projects in
 one session.
 
+Every tool that takes a project key spells it `project_key` — there is
+no `key` or `project` variant on any tool (ADR 0022). It is optional
+wherever the bridge's default project can stand in for it, and required
+only on `project_create` and `project_update`, where defaulting it
+would be wrong.
+
 ## What the server tells you at connect time
 
 The MCP `initialize` response's `instructions` field
