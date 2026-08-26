@@ -46,5 +46,6 @@ put a ticket somewhere else without a separate move afterward.
   and test to declare a feature choice it doesn't care about.
 - Moving a ticket to a different feature after creation
   (`MoveTicketFeature`) already existed at the service/HTTP/CLI layers
-  before this change; MCP still has no equivalent tool for it — a
-  known gap, not addressed here.
+  before this change; MCP had no equivalent at the time — a known gap,
+  not addressed here. ADR 0024's parity sweep later closed it as a
+  `ticket_update` operation group rather than a separate tool.

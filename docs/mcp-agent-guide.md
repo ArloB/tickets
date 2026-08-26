@@ -63,10 +63,11 @@ Every input named `expected_version` uses optimistic concurrency. Send the
 latest value returned by a read or write. A stale value returns
 `version_conflict` with `current_version`.
 
-`project_update`, `ticket_update`, and `feature_update` are partial. Status,
-ticket assignment, and ticket feature movement are separate operation groups;
-do not combine them with content changes. `record_update` replaces every field
-applicable to that record, so read it first and resend unchanged values.
+`project_update`, `ticket_update`, and `feature_update` are partial. Each call
+updates exactly one operation group (see the Tools tables below for which
+groups each supports); mixed groups are rejected. `record_update` replaces
+every field applicable to that record, so read it first and resend unchanged
+values.
 
 `ticket_create` requires exactly one of `feature` or `general:true`. There is no
 implicit General selection.
@@ -155,7 +156,7 @@ representation. Decision updates require `context`, `decision`, `rationale`,
 
 | Tool | Purpose |
 | --- | --- |
-| `search` | Search projects, records, comments, attachment names, and external links by relevance. |
+| `search` | Search projects, tickets, features, records, comments, attachment names, and external links by relevance. |
 | `project_activity` | Page through project audit events, optionally filtered by actor, entity kind, or event type. |
 | `notifications_list` | Page through the caller's notifications, optionally unread only. |
 | `notifications_mark_read` | Mark selected notifications, or all unread notifications, read. |

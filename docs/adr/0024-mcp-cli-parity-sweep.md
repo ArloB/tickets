@@ -44,8 +44,10 @@ architectural constraint, not scope-trimming).
   reason — `TestListToolsOmitFullBodies` catches a violation
   structurally, not by review), and `TicketWriteResult` gained an
   `Assignee` field rather than having `ticket_assign` return a full
-  `domain.Ticket` — `ticket_move_feature`/`ticket_create` remain the
-  two documented full-detail exceptions, not a new pattern.
+  `domain.Ticket` — the feature-move operation group on `ticket_update`
+  (closing ADR 0023's tracked gap) also returns the compact
+  `TicketWriteResult`, so `ticket_create` remains the one documented
+  full-detail exception, not a new pattern.
 - `cmd/tickets/mcp_parity_test.go` is the regression guard the
   underlying cause calls for: it reads `internal/httpapi.RouteList()`
   (a new exported accessor to the same `routeTable()`
@@ -57,10 +59,11 @@ architectural constraint, not scope-trimming).
 
 ## Consequences
 
-- The MCP tool surface roughly doubled (23 → 46 tools with ADR 0023's
-  `ticket_move_feature` and this sweep combined), a larger jump than
-  any prior single change. plan.md §7.2's "the initial tool surface
-  should remain small" was about the *initial* surface; the precedent
+- The MCP tool surface roughly doubled (23 → 49 tools with ADR 0023's
+  feature-move operation group on `ticket_update` and this sweep
+  combined), a larger jump than any prior single change. plan.md
+  §7.2's "the initial tool surface should remain small" was about the
+  *initial* surface; the precedent
   for growing it by closing real usage gaps was already established
   (`project_create`/`features_list`/`ticket_relationships`/
   `ticket_associations`, per `mcpsrv_test.go`'s
