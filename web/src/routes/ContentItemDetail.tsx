@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom'
 import {
   CONTENT_ITEM_LABELS,
   contentItemDownloadUrl,
@@ -15,15 +15,14 @@ import { listAssociations } from '../api/associations'
 import { listBacklinks } from '../api/backlinks'
 import { listAttachments } from '../api/attachments'
 import { listComments } from '../api/comments'
-import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { useEntityChanged } from '../api/events'
 import { Markdown } from '../components/Markdown'
 import { MarkdownEditor } from '../components/MarkdownEditor'
-import { AssociationsSection } from '../components/AssociationsSection'
-import { LinksSection } from '../components/LinksSection'
-import { AttachmentList } from '../components/AttachmentList'
 import { CommentsSection } from '../components/CommentsSection'
+import { DetailTabs } from '../components/DetailTabs'
+import { LinksTabView } from '../components/LinksTabView'
+import { AttachmentsTabView } from '../components/AttachmentsTabView'
 import { DiffView } from '../components/DiffView'
 import { SubscribeButton } from '../components/SubscribeButton'
 import { useAuth } from '../auth/AuthContext'
@@ -36,6 +35,25 @@ import type {
   ContentItemVersion,
   ExternalLink,
 } from '../api/types'
+
+interface ContentItemContext {
+  item: ContentItemDetailDto
+  urlKind: ContentItemUrlKind
+  comments: CommentDetail[]
+  setComments: (comments: CommentDetail[]) => void
+  links: ExternalLink[]
+  setLinks: (links: ExternalLink[]) => void
+  associated: string[]
+  setAssociated: (associated: string[]) => void
+  backlinks: Backlink[]
+  attachments: Attachment[]
+  setAttachments: (attachments: Attachment[]) => void
+  canEdit: boolean
+}
+
+function useContentItemContext() {
+  return useOutletContext<ContentItemContext>()
+}
 
 function VersionHistory({ urlKind, item }: { urlKind: ContentItemUrlKind; item: ContentItemDetailDto }) {
   const [versions, setVersions] = useState<ContentItemVersion[] | null>(null)
@@ -74,31 +92,33 @@ function VersionHistory({ urlKind, item }: { urlKind: ContentItemUrlKind; item: 
 
   return (
     <div>
-      <table>
-        <thead>
-          <tr>
-            <th>Version</th>
-            <th>Title</th>
-            <th>Edited by</th>
-            <th>Edited at</th>
-          </tr>
-        </thead>
-        <tbody>
-          {versions.map((v) => (
-            <tr key={v.version}>
-              <td>{v.version}</td>
-              <td>{v.title}</td>
-              <td>{v.edited_by}</td>
-              <td>{new Date(v.created_at).toLocaleString()}</td>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Version</th>
+              <th>Title</th>
+              <th>Edited by</th>
+              <th>Edited at</th>
             </tr>
-          ))}
-          <tr>
-            <td>{item.version} (current)</td>
-            <td>{item.title}</td>
-            <td colSpan={2}></td>
-          </tr>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {versions.map((v) => (
+              <tr key={v.version}>
+                <td>{v.version}</td>
+                <td>{v.title}</td>
+                <td>{v.edited_by}</td>
+                <td>{new Date(v.created_at).toLocaleString()}</td>
+              </tr>
+            ))}
+            <tr>
+              <td>{item.version} (current)</td>
+              <td>{item.title}</td>
+              <td colSpan={2}></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <form
         onSubmit={(e) => {
@@ -210,7 +230,9 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
   }, [editing, load]))
 
   if (error) return <p role="alert">{error}</p>
-  if (!item) return <p>Loading…</p>
+  if (!item || !links || !associated || !backlinks || !attachments || !comments) {
+    return <p>Loading…</p>
+  }
 
   const canEdit = me?.permission === 'editor'
   const { singular } = CONTENT_ITEM_LABELS[urlKind]
@@ -305,6 +327,8 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
     )
   }
 
+  const linksCount = associated.length + links.length + backlinks.length
+
   return (
     <main>
       <h1>
@@ -316,14 +340,48 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
       {canEdit && <button onClick={startEditing}>Edit</button>}
       <SubscribeButton targetRef={item.ref} canEdit={canEdit} />
 
+      <DetailTabs
+        tabs={[
+          { to: '.', label: 'Overview', end: true },
+          { to: 'links', label: 'Links', count: linksCount },
+          { to: 'attachments', label: 'Attachments', count: attachments.length },
+        ]}
+      />
+
+      <Outlet
+        context={
+          {
+            item,
+            urlKind,
+            comments,
+            setComments,
+            links,
+            setLinks,
+            associated,
+            setAssociated,
+            backlinks,
+            attachments,
+            setAttachments,
+            canEdit,
+          } satisfies ContentItemContext
+        }
+      />
+    </main>
+  )
+}
+
+export function ContentItemOverview() {
+  const { item, urlKind, comments, setComments, canEdit } = useContentItemContext()
+  return (
+    <>
       {item.representation === 'markdown' && (
-        <>
+        <section className="detail-section">
           <h2>Body</h2>
           <Markdown>{item.body}</Markdown>
-        </>
+        </section>
       )}
       {item.representation === 'file' && (
-        <>
+        <section className="detail-section">
           <h2>File</h2>
           <p>
             <a href={contentItemDownloadUrl(urlKind, item.ref)}>
@@ -331,69 +389,66 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
             </a>
             {item.file_size ? ` (${item.file_size} bytes)` : ''}
           </p>
-        </>
+        </section>
       )}
       {item.representation === 'path' && (
-        <>
+        <section className="detail-section">
           <h2>Path</h2>
           <p>{item.path_value}</p>
-        </>
+        </section>
       )}
       {item.representation === 'url' && (
-        <>
+        <section className="detail-section">
           <h2>URL</h2>
           <p>
             <a href={item.url_value} target="_blank" rel="noreferrer">
               {item.url_value}
             </a>
           </p>
-        </>
+        </section>
       )}
 
-      <h2>Associations</h2>
-      {associated && (
-        <AssociationsSection entityRef={item.ref} associated={associated} onChange={setAssociated} canEdit={canEdit} />
-      )}
+      <section className="detail-section">
+        <h2>Version history</h2>
+        <VersionHistory urlKind={urlKind} item={item} />
+      </section>
 
-      <h2>Links</h2>
-      {links && <LinksSection entityRef={item.ref} links={links} onChange={setLinks} canEdit={canEdit} />}
-
-      <h2>Attachments</h2>
-      {attachments && (
-        <AttachmentList
-          ownerRef={item.ref}
-          attachments={attachments}
-          onChange={setAttachments}
-          canEdit={canEdit}
-        />
-      )}
-
-      <h2>Backlinks</h2>
-      {!backlinks || backlinks.length === 0 ? (
-        <p>None.</p>
-      ) : (
-        <ul>
-          {backlinks.map((b) => (
-            <li key={`${b.ref}-${b.comment_id ?? 'body'}`}>
-              <Link to={detailRoute(b.ref)}>{b.ref}</Link>
-              {b.comment_id !== undefined ? ` (comment #${b.comment_id})` : ' (description)'}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <h2>Version history</h2>
-      <VersionHistory urlKind={urlKind} item={item} />
-
-      <h2>Comments</h2>
-      {comments && (
+      <section className="detail-section">
+        <h2>Comments</h2>
         <CommentsSection
           entityRef={item.ref}
           comments={comments}
           onChange={setComments}
           canEdit={canEdit}
         />
-      )}
-    </main>
+      </section>
+    </>
+  )
+}
+
+export function ContentItemLinksTab() {
+  const { item, associated, setAssociated, links, setLinks, backlinks, canEdit } = useContentItemContext()
+  return (
+    <LinksTabView
+      entityRef={item.ref}
+      associated={associated}
+      onAssociatedChange={setAssociated}
+      links={links}
+      onLinksChange={setLinks}
+      backlinks={backlinks}
+      canEdit={canEdit}
+    />
+  )
+}
+
+export function ContentItemAttachmentsTab() {
+  const { item, attachments, setAttachments, canEdit } = useContentItemContext()
+  return (
+    <AttachmentsTabView
+      ownerRef={item.ref}
+      attachments={attachments}
+      onChange={setAttachments}
+      canEdit={canEdit}
+    />
   )
 }

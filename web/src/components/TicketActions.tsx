@@ -70,26 +70,28 @@ function StatusControl({
   }
 
   return (
-    <div>
-      <label>
-        Status
-        <select value={value} onChange={(e) => setValue(e.target.value as WorkflowStatus)}>
-          {statuses.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        type="button"
-        disabled={saving || value === ticket.status}
-        onClick={() => void apply(ticket.version)}
-      >
-        Update status
-      </button>
+    <>
+      <div className="quick-edit-row">
+        <label>
+          <span>Status</span>
+          <select value={value} onChange={(e) => setValue(e.target.value as WorkflowStatus)}>
+            {statuses.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          disabled={saving || value === ticket.status}
+          onClick={() => void apply(ticket.version)}
+        >
+          Update status
+        </button>
+      </div>
       {conflict && (
-        <p role="alert">
+        <p className="quick-edit-message" role="alert">
           Someone changed the status to "{conflict.liveStatus}" (version {conflict.version}) since
           this page loaded.{' '}
           <button type="button" onClick={() => void apply(conflict.version)}>
@@ -97,8 +99,8 @@ function StatusControl({
           </button>
         </p>
       )}
-      {error && <p role="alert">{error}</p>}
-    </div>
+      {error && <p className="quick-edit-message" role="alert">{error}</p>}
+    </>
   )
 }
 
@@ -136,24 +138,26 @@ function AssignControl({
   }
 
   return (
-    <div>
-      <label>
-        Assignee
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="human:alice"
-        />
-      </label>
-      <button
-        type="button"
-        disabled={saving || value === (ticket.assignee ?? '')}
-        onClick={() => void apply(ticket.version)}
-      >
-        {saving ? 'Saving…' : 'Update assignee'}
-      </button>
+    <>
+      <div className="quick-edit-row">
+        <label>
+          <span>Assignee</span>
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="human:alice"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={saving || value === (ticket.assignee ?? '')}
+          onClick={() => void apply(ticket.version)}
+        >
+          {saving ? 'Saving…' : 'Update assignee'}
+        </button>
+      </div>
       {conflict && (
-        <p role="alert">
+        <p className="quick-edit-message" role="alert">
           Someone set the assignee to "{conflict.liveAssignee ?? 'unassigned'}" (version{' '}
           {conflict.version}) since this page loaded.{' '}
           <button type="button" onClick={() => void apply(conflict.version)}>
@@ -161,8 +165,8 @@ function AssignControl({
           </button>
         </p>
       )}
-      {error && <p role="alert">{error}</p>}
-    </div>
+      {error && <p className="quick-edit-message" role="alert">{error}</p>}
+    </>
   )
 }
 
@@ -198,20 +202,22 @@ function MoveControl({
   }
 
   return (
-    <div>
-      <label>
-        Feature
-        <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="ABC-F1" />
-      </label>
-      <button
-        type="button"
-        disabled={saving || value === ticket.feature}
-        onClick={() => void apply(ticket.version)}
-      >
-        {saving ? 'Moving…' : 'Move to feature'}
-      </button>
+    <>
+      <div className="quick-edit-row">
+        <label>
+          <span>Feature</span>
+          <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="ABC-F1" />
+        </label>
+        <button
+          type="button"
+          disabled={saving || value === ticket.feature}
+          onClick={() => void apply(ticket.version)}
+        >
+          {saving ? 'Moving…' : 'Move to feature'}
+        </button>
+      </div>
       {conflict && (
-        <p role="alert">
+        <p className="quick-edit-message" role="alert">
           Someone moved this ticket to "{conflict.liveFeature}" (version {conflict.version}) since
           this page loaded.{' '}
           <button type="button" onClick={() => void apply(conflict.version)}>
@@ -219,7 +225,7 @@ function MoveControl({
           </button>
         </p>
       )}
-      {error && <p role="alert">{error}</p>}
-    </div>
+      {error && <p className="quick-edit-message" role="alert">{error}</p>}
+    </>
   )
 }

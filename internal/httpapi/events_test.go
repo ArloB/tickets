@@ -158,7 +158,7 @@ func TestEventsEndpointStreamsEntityChangedHint(t *testing.T) {
 		t.Fatalf("create project: status %d, body %s", projResp.StatusCode, projBody)
 	}
 
-	ticketBody := mustJSON(t, map[string]string{"type": "task", "title": "Watch me"})
+	ticketBody := mustJSON(t, map[string]any{"type": "task", "title": "Watch me", "general": true})
 	tResp, tBody := ts.do(http.MethodPost, "/projects/SSE/tickets", nil, ticketBody)
 	if tResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create ticket: status %d, body %s", tResp.StatusCode, tBody)

@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import DecisionDetail from './DecisionDetail'
+import DecisionDetail, { DecisionOverview } from './DecisionDetail'
 import * as decisionsApi from '../api/decisions'
 import * as linksApi from '../api/links'
 import * as associationsApi from '../api/associations'
@@ -59,7 +59,9 @@ function renderDecisionDetail() {
   return render(
     <MemoryRouter initialEntries={['/decisions/ABC-D1']}>
       <Routes>
-        <Route path="/decisions/:ref" element={<DecisionDetail />} />
+        <Route path="/decisions/:ref" element={<DecisionDetail />}>
+          <Route index element={<DecisionOverview />} />
+        </Route>
       </Routes>
     </MemoryRouter>,
   )

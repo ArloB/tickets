@@ -14,7 +14,7 @@ import (
 func TestDecisionLifecycleOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 	// --- create ---
 	createResp, createBody := ts.do(http.MethodPost, "/projects/ABC/decisions", nil,
@@ -115,7 +115,7 @@ func TestDecisionLifecycleOverHTTP(t *testing.T) {
 func TestDecisionGetRejectsTicketReference(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 	resp, body := ts.do(http.MethodGet, "/decisions/ABC-1", nil, nil)
 	if resp.StatusCode != http.StatusBadRequest {

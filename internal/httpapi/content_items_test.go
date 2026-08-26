@@ -18,7 +18,7 @@ func TestContentItemLifecycleOverHTTP(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			ts := newTestServer(t)
 			ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-			ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+			ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 			// --- create ---
 			createResp, createBody := ts.do(http.MethodPost, "/projects/ABC/"+kind, nil,
@@ -147,7 +147,7 @@ func TestPlanAndDocumentNumberIndependently(t *testing.T) {
 func TestContentItemGetRejectsTicketReference(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 	resp, body := ts.do(http.MethodGet, "/plans/ABC-1", nil, nil)
 	if resp.StatusCode != http.StatusBadRequest {
@@ -284,7 +284,7 @@ func TestContentItemMentionBacklinkOverHTTP(t *testing.T) {
 	_ = json.Unmarshal(planBody, &plan)
 	planRef, _ := plan["ref"].(string)
 
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T", "description": "See #" + planRef}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "description": "See #" + planRef, "general": true}))
 
 	resp, body := ts.do(http.MethodGet, "/plans/"+planRef+"/backlinks", nil, nil)
 	if resp.StatusCode != http.StatusOK {

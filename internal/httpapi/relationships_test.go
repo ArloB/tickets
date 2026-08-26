@@ -11,8 +11,8 @@ import (
 func TestRelationshipLifecycleOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "A"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "B"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "A", "general": true}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "B", "general": true}))
 
 	addResp, addBody := ts.do(http.MethodPost, "/tickets/ABC-1/relationships", nil,
 		mustJSON(t, map[string]string{"target": "ABC-2", "type": "blocks"}))
@@ -81,8 +81,8 @@ func TestRelationshipLifecycleOverHTTP(t *testing.T) {
 func TestRelationshipCycleRejectedOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "A"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "B"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "A", "general": true}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "B", "general": true}))
 
 	resp, body := ts.do(http.MethodPost, "/tickets/ABC-1/relationships", nil,
 		mustJSON(t, map[string]string{"target": "ABC-2", "type": "blocks"}))
@@ -110,7 +110,7 @@ func TestRelationshipCycleRejectedOverHTTP(t *testing.T) {
 func TestAssociationLifecycleOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "A"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "A", "general": true}))
 	ts.do(http.MethodPost, "/projects/ABC/features", nil, mustJSON(t, map[string]string{"title": "Payments", "priority": "medium"}))
 
 	addResp, addBody := ts.do(http.MethodPost, "/tickets/ABC-1/associations", nil,

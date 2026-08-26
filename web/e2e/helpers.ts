@@ -100,6 +100,8 @@ export async function createTicket(
     description: string
     priority: string
     severity: string | null
+    feature: string
+    general: boolean
   }> = {},
 ): Promise<CreatedTicket> {
   return apiPost<CreatedTicket>(ctx, `/projects/${projectKey}/tickets`, {
@@ -107,6 +109,9 @@ export async function createTicket(
     title: 'e2e seed ticket',
     description: 'seeded by the e2e suite',
     priority: 'medium',
+    // Only one of feature/general may be set (ADR 0023) — default to
+    // general unless the caller asked for a specific feature.
+    ...(overrides.feature ? {} : { general: true }),
     ...overrides,
   })
 }

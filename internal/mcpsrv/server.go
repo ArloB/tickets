@@ -14,80 +14,66 @@ import (
 // scattered per-tool descriptions. It only states things that are
 // actually true of the current tool surface — no forward-looking
 // claims about tools that don't exist yet.
-const serverInstructions = `Tickets is a self-hosted issue tracker. References use the form
-PROJECTKEY-N: a ticket is "ABC-123" (no letter code), a feature is
-"ABC-F1", a decision is "ABC-D1". Writing "#ABC-123" inside a ticket's
-description or a comment body creates a backlink to that entity — it
-does not create a dependency; use ticket_link for that.
+const serverInstructions = `Tickets is a self-hosted issue tracker.
 
-Call project_brief FIRST when starting work in a project. It returns
-in-progress/upcoming tickets, issue-register highlights, the feature
-list with ticket-progress counts, recent activity, and recent accepted
-decisions/plans in one call — orientation before ticket_get/record_get
-narrow in on any one record's full detail.
+References are immutable. Projects use a bare key such as ABC. Other
+entities use ABC-123 (ticket), ABC-F1 (feature), ABC-D1 (decision),
+ABC-P1 (plan), or ABC-DOC1 (document).
 
-List tools (projects_list, tickets_list) return compact rows only —
-no description/context/decision/rationale body text — to keep
-responses small. Call the matching *_get tool (ticket_get, feature_get,
-record_get) for an entity's full detail before acting on its content.
+References found in Markdown create backlinks. Both ABC-123 and
+#ABC-123 are recognized; #123 also identifies a ticket in a
+project-scoped comment. A backlink is only a mention, not a dependency
+or other typed relationship.
 
-ticket_link's type is either "associated_with" (a loose reference for
-context, e.g. linking a ticket to the decision that explains it — no
-dependency implied) or one of 8 explicit relationship types
-(parent_of, child_of, blocks, blocked_by, related_to, duplicate_of,
-supersedes, superseded_by), which are ticket-to-ticket only.
+Use project_brief when you need broad project context. If you already
+have the exact entity reference and task, call its *_get tool directly.
+List and search tools return compact rows or hits; use project_get,
+ticket_get, feature_get, record_get, or comment_get before relying on
+an entity's full content.
 
-ticket_update is a partial update: only the fields you set are
-changed. feature_update and record_update are full-representation
-updates instead, with no merge: their schema marks every text field
-required, so a compliant client will refuse to send a call missing
-one (rather than silently wiping it) — but the value each field
-carries still replaces what is stored, unchanged or not. Call
-feature_get/record_get first and resend every field's current value
-(you need that call's version for expected_version anyway).
-record_update's superseded_by is the one optional field: omit it (or
-send "") to clear an existing supersession link, the same as any other
-omitted field there — it isn't a partial-update exception.
+project_key may be omitted only when using a tickets mcp stdio bridge
+configured with --project or TICKETS_PROJECT. Direct /mcp connections
+must supply it.
 
-record_* covers decisions, plans, and documents. record_create's kind
-is "decision" (default), "plan", or "document". Decisions use
-title/context/decision/rationale/consequences/status/superseded_by;
-plans and documents use title plus representation ("markdown" default,
-"path", or "url") to pick which of body/path/url applies — the other
-kind's fields are simply omitted from that call. A plan or document's
-representation is fixed at creation and can never be changed by
-record_update; there is no file-upload representation over MCP at all
-(a tool call has no multipart transport) — upload one via the HTTP API
-or CLI instead. record_get/record_update infer which kind a reference
-names from the reference itself (ABC-D1 is a decision, ABC-P1 a plan,
-ABC-DOC1 a document), so neither needs a kind argument. ticket_comment
-is the only comment tool, despite its name — ref accepts a ticket,
-feature, decision, plan, or document reference, or a bare project key,
-so it works on any of those six kinds.
+Any tool with expected_version uses optimistic concurrency. Send the
+latest version returned by a read or write. A stale version returns
+version_conflict with current_version. project_update, ticket_update,
+and feature_update are partial. Send status separately from content
+fields; ticket assignee and feature moves are also separate operation
+groups. Mixed groups are rejected so each call is atomic. record_update
+replaces every applicable field, so read the record first and resend
+unchanged values. Decision updates require context, decision, rationale,
+consequences, and status. Omit or empty superseded_by to clear it.
 
-ticket_comment and record_create accept an optional idempotency_key:
-reusing the same key with identical arguments returns the original
-result instead of creating a duplicate, and reusing it with different
-content is rejected as idempotency_key_reused — useful when retrying
-after a dropped connection.
+ticket_create requires exactly one of feature or general:true. There
+is no implicit General selection.
 
-search is a full-text search over tickets, features, decisions, plans,
-documents, comments, attachment names, and external link titles/URLs,
-ranked by relevance — use it to find a record when you don't already
-have its reference, rather than paging through
-tickets_list/features_list. project/kind/status narrow an otherwise
-cross-project search; a comment, attachment, or link hit's ref names
-its owning ticket/feature/decision/plan/document, not the comment or
-attachment/link itself.
+record_* handles decisions, plans, and documents. record_create kind
+defaults to decision, and new decisions start as proposed. Plans and
+documents use one immutable representation: markdown, path, url, or a
+file created outside MCP. Set only body, path, or url as selected by
+the representation. MCP cannot transfer binary content; attachment_*
+tools expose metadata only.
 
-Creating or commenting on a record subscribes you to it automatically;
-you are notified (assignment, an @kind:name mention, a reply/comment,
-or a status/field change) on anything you're subscribed to, unless you
-caused the change yourself. notifications_list/notifications_mark_read
-read and clear your own notification inbox. There is no
-subscribe/unsubscribe tool — manage subscriptions over HTTP or the CLI
-(tickets subscribe / tickets unsubscribe <ref>) if you need to opt in
-or out of something you didn't create or comment on.`
+associated_with is a symmetric contextual association between tickets,
+features, decisions, plans, or documents. The other relationship types
+are directional and ticket-to-ticket only. External URLs are bookmarks,
+not entity relationships.
+
+search covers projects, tickets, features, decisions, plans, documents,
+comments, attachment names, and external-link titles and URLs. A
+comment, attachment, or external-link hit uses ref for its owning
+entity.
+
+project_create, ticket_create, feature_create, comment_create, and
+record_create accept an optional idempotency_key. Reuse a key only when
+retrying identical input; different input with the same key returns
+idempotency_key_reused.
+
+Creating a ticket, feature, decision, plan, or document subscribes the
+caller to it. Commenting subscribes the caller to the comment's owner.
+Notifications are not generated for the caller's own changes. Use
+subscription_update to opt in or out.`
 
 // newServer builds an *mcp.Server with the shared tool set registered
 // against backend. Both entry points below call this — no tool is ever

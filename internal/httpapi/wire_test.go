@@ -49,8 +49,8 @@ func TestToTicketDetailFieldExposure(t *testing.T) {
 	if fields["creator"] != creator.String() {
 		t.Errorf("ticketDetail JSON creator = %v, want %q", fields["creator"], creator.String())
 	}
-	if _, ok := fields["deleted_at"]; ok {
-		t.Errorf("ticketDetail JSON has a \"deleted_at\" key: %s", b)
+	if fields["deleted_at"] != deletedAt.Format(time.RFC3339Nano) {
+		t.Errorf("ticketDetail JSON deleted_at = %v, want %q", fields["deleted_at"], deletedAt.Format(time.RFC3339Nano))
 	}
 }
 

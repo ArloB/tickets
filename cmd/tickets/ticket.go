@@ -201,6 +201,8 @@ func runTicketCreate(args []string) error {
 	descriptionFile := fs.String("description-file", "", "path to a file containing the Markdown description, or - for stdin")
 	priority := fs.String("priority", "", "critical, high, medium, or low (default medium)")
 	severity := fs.String("severity", "", "critical, high, medium, or low (bug/security tickets only)")
+	feature := fs.String("feature", "", "the destination feature reference, e.g. ABC-F2 (required unless --general)")
+	general := fs.Bool("general", false, "explicitly create the ticket in the project's General feature (required unless --feature)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -220,6 +222,12 @@ func runTicketCreate(args []string) error {
 	if set["description"] && set["description-file"] {
 		return fmt.Errorf("ticket create: --description and --description-file are mutually exclusive")
 	}
+	if set["feature"] && *general {
+		return fmt.Errorf("ticket create: --feature and --general are mutually exclusive")
+	}
+	if !set["feature"] && !*general {
+		return fmt.Errorf("ticket create: --feature or --general is required")
+	}
 
 	desc := *description
 	if set["description-file"] {
@@ -231,6 +239,7 @@ func runTicketCreate(args []string) error {
 
 	t, err := cfg.newClient().CreateTicket(context.Background(), cfg.Project, apiclient.CreateTicketRequest{
 		Type: *ticketType, Title: *title, Description: desc, Priority: *priority, Severity: *severity,
+		Feature: *feature, General: *general,
 	})
 	if err != nil {
 		return err

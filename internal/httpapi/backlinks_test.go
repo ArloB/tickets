@@ -13,8 +13,8 @@ import (
 func TestBacklinksOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "Target"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "Source", "description": "See ABC-1"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "Target", "general": true}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "Source", "description": "See ABC-1", "general": true}))
 
 	resp, body := ts.do(http.MethodGet, "/tickets/ABC-1/backlinks", nil, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -47,7 +47,7 @@ func TestBacklinksOverHTTP(t *testing.T) {
 func TestBacklinkFromProjectCommentOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "Target"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "Target", "general": true}))
 	createResp, createBody := ts.do(http.MethodPost, "/projects/ABC/comments", nil, mustJSON(t, map[string]string{"body": "See ABC-1"}))
 	if createResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create project comment status = %d, body=%s", createResp.StatusCode, createBody)

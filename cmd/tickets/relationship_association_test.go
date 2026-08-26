@@ -17,7 +17,7 @@ func createSecondTicket(t *testing.T, apiURL, token string) string {
 	t.Helper()
 	c := &apiclient.Client{BaseURL: apiURL, Token: token}
 	ticket, err := c.CreateTicket(context.Background(), "ABC", apiclient.CreateTicketRequest{
-		Type: "task", Title: "Second ticket", Priority: "medium",
+		Type: "task", Title: "Second ticket", Priority: "medium", General: true,
 	})
 	if err != nil {
 		t.Fatalf("createSecondTicket: %v", err)

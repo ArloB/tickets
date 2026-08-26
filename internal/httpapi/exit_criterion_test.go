@@ -55,7 +55,7 @@ func TestPhase2ExitCriterion(t *testing.T) {
 
 	// --- agent A creates a ticket: Creator must be agent:codex ---
 	createResp, createBody := ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", agentAHeaders,
-		mustJSON(t, map[string]string{"type": "task", "title": "Exit criterion ticket"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "Exit criterion ticket", "general": true}))
 	if createResp.StatusCode != http.StatusCreated {
 		t.Fatalf("agent A create ticket: status = %d, body=%s", createResp.StatusCode, createBody)
 	}

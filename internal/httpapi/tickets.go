@@ -15,8 +15,17 @@ type createTicketRequest struct {
 	Description string  `json:"description"`
 	Priority    string  `json:"priority"`
 	Severity    *string `json:"severity"`
+	Feature     string  `json:"feature"`
+	General     bool    `json:"general"`
 }
 
+// createTicket requires exactly one of feature/general (ADR 0001
+// addendum: creation used to land silently in General with no way to
+// choose otherwise; every human/agent-facing entry point — this
+// handler, the CLI, and the MCP in-process backend — now forces an
+// explicit choice instead of defaulting). service.CreateTicketRequest
+// itself stays permissive so internal Go callers (tests, batch
+// tooling) don't have to make that choice too.
 func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 	projectKey := r.PathValue("key")
 
@@ -37,6 +46,24 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Feature != "" && req.General {
+		writeError(w, r, &service.Error{Code: domain.ErrValidationFailed, Field: "feature", Message: "specify feature or general, not both"})
+		return
+	}
+	if req.Feature == "" && !req.General {
+		writeError(w, r, &service.Error{Code: domain.ErrValidationFailed, Field: "feature", Message: "feature or general is required"})
+		return
+	}
+	var featureRef domain.Reference
+	if req.Feature != "" {
+		var svcErr *service.Error
+		featureRef, svcErr = parseFeatureRef(req.Feature)
+		if svcErr != nil {
+			writeError(w, r, svcErr)
+			return
+		}
+	}
+
 	var severity *domain.Severity
 	if req.Severity != nil {
 		sev := domain.Severity(*req.Severity)
@@ -44,12 +71,14 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ticket, err := s.svc.CreateTicket(r.Context(), service.CreateTicketRequest{
-		ProjectKey:  projectKey,
-		Type:        domain.TicketType(req.Type),
-		Title:       req.Title,
-		Description: req.Description,
-		Priority:    domain.Priority(req.Priority),
-		Severity:    severity,
+		ProjectKey:        projectKey,
+		Type:              domain.TicketType(req.Type),
+		Title:             req.Title,
+		Description:       req.Description,
+		Priority:          domain.Priority(req.Priority),
+		Severity:          severity,
+		FeatureRef:        featureRef,
+		UseGeneralFeature: req.General,
 	}, requestActor(r), correlationID(r), idempotencyKey(r), fp)
 	if err != nil {
 		writeError(w, r, err)
@@ -134,7 +163,13 @@ func (s *Server) getTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, svcErr)
 		return
 	}
-	ticket, err := s.svc.GetTicket(r.Context(), ref)
+	var ticket domain.Ticket
+	var err error
+	if r.URL.Query().Get("include_deleted") == "true" {
+		ticket, err = s.svc.GetTicketIncludingDeleted(r.Context(), ref)
+	} else {
+		ticket, err = s.svc.GetTicket(r.Context(), ref)
+	}
 	if err != nil {
 		writeError(w, r, err)
 		return

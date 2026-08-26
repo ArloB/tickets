@@ -3,7 +3,9 @@ package httpapi
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ArloB/tickets/internal/domain"
 	"github.com/ArloB/tickets/internal/service"
@@ -42,8 +44,16 @@ func toActivityEvent(e service.ActivityEvent) activityEvent {
 		excerpt := *e.CommentBody
 		if runes := []rune(excerpt); len(runes) > activityCommentExcerptLimit {
 			// Truncate by rune, not byte: a byte-offset cut can land inside
-			// a multi-byte UTF-8 character and corrupt the tail.
-			excerpt = string(runes[:activityCommentExcerptLimit])
+			// a multi-byte UTF-8 character and corrupt the tail. Then back
+			// up to the last word boundary within that cut so the excerpt
+			// doesn't end mid-word (e.g. "...and the e") — LastIndexFunc
+			// walks rune-by-rune, so the byte index it returns is always a
+			// valid rune boundary to slice on.
+			cut := string(runes[:activityCommentExcerptLimit])
+			if boundary := strings.LastIndexFunc(cut, unicode.IsSpace); boundary > 0 {
+				cut = cut[:boundary]
+			}
+			excerpt = strings.TrimRight(cut, " \t\n\r") + "…"
 		}
 		out.CommentExcerpt = &excerpt
 	}

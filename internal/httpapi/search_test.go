@@ -12,7 +12,7 @@ import (
 func TestSearchOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "Reticulate the splines"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "Reticulate the splines", "general": true}))
 	ts.do(http.MethodPost, "/projects/ABC/decisions", nil, mustJSON(t, map[string]string{"title": "Spline policy", "decision": "we reticulate quadratically"}))
 	ts.do(http.MethodPost, "/tickets/ABC-1/comments", nil, mustJSON(t, map[string]string{"body": "reticulation looks fixed now"}))
 
@@ -49,7 +49,7 @@ func TestSearchOverHTTP(t *testing.T) {
 func TestSearchFindsAttachmentAndLinkOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "Host ticket"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "Host ticket", "general": true}))
 	ts.do(http.MethodPost, "/tickets/ABC-1/attachments", nil, mustJSON(t, map[string]string{"title": "gronkulator spec", "path": "/docs/gronkulator.pdf"}))
 	ts.do(http.MethodPost, "/tickets/ABC-1/links", nil, mustJSON(t, map[string]string{"title": "gronkulator tracker", "url": "https://example.com/gronkulator"}))
 

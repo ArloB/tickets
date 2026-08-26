@@ -73,7 +73,7 @@ func (ts *testServer) doMultipart(method, path string, headers map[string]string
 func createTestTicket(t *testing.T, ts *testServer) string {
 	t.Helper()
 	ts.doUnvalidated(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	_, body := ts.doUnvalidated(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	_, body := ts.doUnvalidated(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	var ticket map[string]any
 	if err := json.Unmarshal(body, &ticket); err != nil {
 		t.Fatalf("unmarshal ticket: %v", err)

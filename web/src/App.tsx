@@ -7,12 +7,28 @@ import ProjectOverview from './routes/ProjectOverview'
 import Backlog from './routes/Backlog'
 import TicketBoard from './routes/TicketBoard'
 import FeatureBoard from './routes/FeatureBoard'
-import TicketDetail from './routes/TicketDetail'
-import FeatureDetail from './routes/FeatureDetail'
+import TicketDetail, {
+  TicketOverview,
+  TicketLinksTab,
+  TicketAttachmentsTab,
+} from './routes/TicketDetail'
+import FeatureDetail, {
+  FeatureOverview,
+  FeatureLinksTab,
+  FeatureAttachmentsTab,
+} from './routes/FeatureDetail'
 import DecisionRegister from './routes/DecisionRegister'
-import DecisionDetail from './routes/DecisionDetail'
+import DecisionDetail, {
+  DecisionOverview,
+  DecisionLinksTab,
+  DecisionAttachmentsTab,
+} from './routes/DecisionDetail'
 import ContentLibrary from './routes/ContentLibrary'
-import ContentItemDetail from './routes/ContentItemDetail'
+import ContentItemDetail, {
+  ContentItemOverview,
+  ContentItemLinksTab,
+  ContentItemAttachmentsTab,
+} from './routes/ContentItemDetail'
 import ActivityFeed from './routes/ActivityFeed'
 import Search from './routes/Search'
 import Notifications from './routes/Notifications'
@@ -36,11 +52,31 @@ export default function App() {
           <Route path="/projects/:key/activity" element={<ActivityFeed />} />
           <Route path="/search" element={<Search />} />
           <Route path="/notifications" element={<Notifications />} />
-          <Route path="/tickets/:ref" element={<TicketDetail />} />
-          <Route path="/features/:ref" element={<FeatureDetail />} />
-          <Route path="/decisions/:ref" element={<DecisionDetail />} />
-          <Route path="/plans/:ref" element={<ContentItemDetail urlKind="plans" />} />
-          <Route path="/documents/:ref" element={<ContentItemDetail urlKind="documents" />} />
+          <Route path="/tickets/:ref" element={<TicketDetail />}>
+            <Route index element={<TicketOverview />} />
+            <Route path="links" element={<TicketLinksTab />} />
+            <Route path="attachments" element={<TicketAttachmentsTab />} />
+          </Route>
+          <Route path="/features/:ref" element={<FeatureDetail />}>
+            <Route index element={<FeatureOverview />} />
+            <Route path="links" element={<FeatureLinksTab />} />
+            <Route path="attachments" element={<FeatureAttachmentsTab />} />
+          </Route>
+          <Route path="/decisions/:ref" element={<DecisionDetail />}>
+            <Route index element={<DecisionOverview />} />
+            <Route path="links" element={<DecisionLinksTab />} />
+            <Route path="attachments" element={<DecisionAttachmentsTab />} />
+          </Route>
+          <Route path="/plans/:ref" element={<ContentItemDetail urlKind="plans" />}>
+            <Route index element={<ContentItemOverview />} />
+            <Route path="links" element={<ContentItemLinksTab />} />
+            <Route path="attachments" element={<ContentItemAttachmentsTab />} />
+          </Route>
+          <Route path="/documents/:ref" element={<ContentItemDetail urlKind="documents" />}>
+            <Route index element={<ContentItemOverview />} />
+            <Route path="links" element={<ContentItemLinksTab />} />
+            <Route path="attachments" element={<ContentItemAttachmentsTab />} />
+          </Route>
           <Route path="/admin/agents" element={<AdminAgents />} />
           <Route path="/admin/accounts" element={<AdminAccounts />} />
           <Route path="*" element={<Navigate to="/" replace />} />

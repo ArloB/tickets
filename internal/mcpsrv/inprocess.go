@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/ArloB/tickets/internal/auth"
 	"github.com/ArloB/tickets/internal/domain"
@@ -59,8 +61,9 @@ func (b *InProcessBackend) GetProject(ctx context.Context, key string) (domain.P
 	return b.Svc.GetProject(ctx, key)
 }
 
-func (b *InProcessBackend) ListProjects(ctx context.Context, limit int, cursor string) (ProjectsListOutput, error) {
-	result, err := b.Svc.ListProjects(ctx, limit, cursor, false)
+func (b *InProcessBackend) ListProjects(ctx context.Context, limit int, cursor string, includeArchivedValues ...bool) (ProjectsListOutput, error) {
+	includeArchived := len(includeArchivedValues) > 0 && includeArchivedValues[0]
+	result, err := b.Svc.ListProjects(ctx, limit, cursor, includeArchived)
 	if err != nil {
 		return ProjectsListOutput{}, err
 	}
@@ -144,8 +147,11 @@ func (b *InProcessBackend) UpdateProject(ctx context.Context, in UpdateProjectIn
 	return result, nil
 }
 
-func (b *InProcessBackend) ListFeatures(ctx context.Context, projectKey string, limit int, cursor string) (FeaturesListOutput, error) {
-	result, err := b.Svc.ListFeatures(ctx, projectKey, limit, cursor)
+func (b *InProcessBackend) ListFeatures(ctx context.Context, projectKey string, filters FeatureListFilters, limit int, cursor string) (FeaturesListOutput, error) {
+	result, err := b.Svc.ListFeaturesFiltered(ctx, projectKey, limit, cursor, service.FeatureListFilters{
+		Status: domain.WorkflowStatus(filters.Status), Priority: domain.Priority(filters.Priority),
+		Creator: filters.Creator, UpdatedSince: filters.UpdatedSince,
+	})
 	if err != nil {
 		return FeaturesListOutput{}, err
 	}
@@ -216,13 +222,16 @@ func (b *InProcessBackend) ListTickets(ctx context.Context, projectKey, view str
 	return out, nil
 }
 
-func (b *InProcessBackend) GetTicket(ctx context.Context, ref string) (domain.Ticket, error) {
+func (b *InProcessBackend) GetTicket(ctx context.Context, ref string, includeDeleted ...bool) (domain.Ticket, error) {
 	parsed, err := domain.Parse(ref)
 	if err != nil {
 		return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: err.Error()}
 	}
 	if parsed.Kind != domain.KindTicket {
 		return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a ticket reference"}
+	}
+	if len(includeDeleted) > 0 && includeDeleted[0] {
+		return b.Svc.GetTicketIncludingDeleted(ctx, parsed)
 	}
 	return b.Svc.GetTicket(ctx, parsed)
 }
@@ -240,6 +249,123 @@ func (b *InProcessBackend) UpdateTicket(ctx context.Context, in UpdateTicketInpu
 		return TicketWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a ticket reference"}
 	}
 	ticket, err := updateTicketInProcess(ctx, b.Svc, ref, in, actor, service.NewCorrelationID())
+	if err != nil {
+		return TicketWriteResult{}, err
+	}
+	return toTicketWriteResult(ticket), nil
+}
+
+// MoveTicketFeature moves ref to a different feature within the same
+// project (ADR 0001's cross-project guard lives in service). Returns
+// the full domain.Ticket, not a TicketWriteResult, since the changed
+// field (feature) isn't one of TicketWriteResult's — mirroring
+// ticket_create's same reasoning for returning full detail.
+func (b *InProcessBackend) MoveTicketFeature(ctx context.Context, ref, featureRef string, expectedVersion int64) (domain.Ticket, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return domain.Ticket{}, err
+	}
+	parsedRef, perr := domain.Parse(ref)
+	if perr != nil {
+		return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	if parsedRef.Kind != domain.KindTicket {
+		return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a ticket reference"}
+	}
+	parsedFeature, perr := domain.Parse(featureRef)
+	if perr != nil {
+		return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "feature", Message: perr.Error()}
+	}
+	if parsedFeature.Kind != domain.KindFeature {
+		return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "feature", Message: "reference must be a feature reference"}
+	}
+	return b.Svc.MoveTicketFeature(ctx, service.MoveTicketFeatureRequest{
+		Ref: parsedRef, NewFeatureRef: parsedFeature, ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID())
+}
+
+func (b *InProcessBackend) AssignTicket(ctx context.Context, ref string, assignee *string, expectedVersion int64) (TicketWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return TicketWriteResult{}, err
+	}
+	parsedRef, perr := domain.Parse(ref)
+	if perr != nil {
+		return TicketWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	var actorRef *domain.ActorRef
+	if assignee != nil {
+		parsed, aerr := domain.ParseActorRef(*assignee)
+		if aerr != nil {
+			return TicketWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "assignee", Message: aerr.Error()}
+		}
+		actorRef = &parsed
+	}
+	ticket, err := b.Svc.AssignTicket(ctx, service.AssignTicketRequest{
+		Ref: parsedRef, Assignee: actorRef, ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return TicketWriteResult{}, err
+	}
+	return toTicketWriteResult(ticket), nil
+}
+
+func (b *InProcessBackend) ReorderTicket(ctx context.Context, ref string, afterRef *string, expectedVersion int64) (TicketWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return TicketWriteResult{}, err
+	}
+	parsedRef, perr := domain.Parse(ref)
+	if perr != nil {
+		return TicketWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	var parsedAfter *domain.Reference
+	if afterRef != nil {
+		p, perr := domain.Parse(*afterRef)
+		if perr != nil {
+			return TicketWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "after_ref", Message: perr.Error()}
+		}
+		parsedAfter = &p
+	}
+	ticket, err := b.Svc.ReorderTicket(ctx, service.ReorderTicketRequest{
+		Ref: parsedRef, AfterRef: parsedAfter, ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return TicketWriteResult{}, err
+	}
+	return toTicketWriteResult(ticket), nil
+}
+
+func (b *InProcessBackend) DeleteTicket(ctx context.Context, ref string, expectedVersion int64) (DeleteWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return DeleteWriteResult{}, err
+	}
+	parsedRef, perr := domain.Parse(ref)
+	if perr != nil {
+		return DeleteWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	newVersion, err := b.Svc.DeleteTicket(ctx, service.DeleteTicketRequest{
+		Ref: parsedRef, ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return DeleteWriteResult{}, err
+	}
+	return DeleteWriteResult{Ref: ref, Version: newVersion}, nil
+}
+
+func (b *InProcessBackend) RestoreTicket(ctx context.Context, ref string, expectedVersion int64) (TicketWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return TicketWriteResult{}, err
+	}
+	parsedRef, perr := domain.Parse(ref)
+	if perr != nil {
+		return TicketWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	ticket, err := b.Svc.RestoreTicket(ctx, service.RestoreTicketRequest{
+		Ref: parsedRef, ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID())
 	if err != nil {
 		return TicketWriteResult{}, err
 	}
@@ -279,7 +405,7 @@ func (b *InProcessBackend) AddComment(ctx context.Context, commentRef, body, ide
 	}
 	var fingerprint string
 	if idempotencyKey != "" {
-		fingerprint, err = mcpFingerprint("ticket_comment", struct{ Ref, Body string }{commentRef, body})
+		fingerprint, err = mcpFingerprint("comment_create", struct{ Ref, Body string }{commentRef, body})
 		if err != nil {
 			return CommentWriteResult{}, err
 		}
@@ -289,6 +415,61 @@ func (b *InProcessBackend) AddComment(ctx context.Context, commentRef, body, ide
 		return CommentWriteResult{}, err
 	}
 	return CommentWriteResult{ID: comment.ID, Version: comment.Version, CreatedAt: comment.CreatedAt}, nil
+}
+
+func (b *InProcessBackend) GetComment(ctx context.Context, id int64) (domain.Comment, error) {
+	return b.Svc.GetComment(ctx, id)
+}
+
+func (b *InProcessBackend) ListComments(ctx context.Context, commentRef string) (CommentsListOutput, error) {
+	ref, svcErr := parseCommentRef(commentRef)
+	if svcErr != nil {
+		return CommentsListOutput{}, svcErr
+	}
+	comments, err := b.Svc.ListComments(ctx, ref)
+	if err != nil {
+		return CommentsListOutput{}, err
+	}
+	out := CommentsListOutput{Comments: make([]CommentCompact, len(comments))}
+	for i, c := range comments {
+		out.Comments[i] = toCommentCompact(c)
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) UpdateComment(ctx context.Context, id, expectedVersion int64, body string) (CommentWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return CommentWriteResult{}, err
+	}
+	comment, err := b.Svc.EditComment(ctx, service.EditCommentRequest{
+		CommentID: id, Body: body, ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return CommentWriteResult{}, err
+	}
+	return CommentWriteResult{ID: comment.ID, Version: comment.Version, CreatedAt: comment.CreatedAt}, nil
+}
+
+func (b *InProcessBackend) DeleteComment(ctx context.Context, id, expectedVersion int64) (CommentDeleteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return CommentDeleteResult{}, err
+	}
+	if err := b.Svc.DeleteComment(ctx, service.DeleteCommentRequest{
+		CommentID: id, ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID()); err != nil {
+		return CommentDeleteResult{}, err
+	}
+	return CommentDeleteResult{ID: id}, nil
+}
+
+func (b *InProcessBackend) GetCommentHistory(ctx context.Context, id int64) (CommentHistoryOutput, error) {
+	versions, err := b.Svc.GetCommentHistory(ctx, id)
+	if err != nil {
+		return CommentHistoryOutput{}, err
+	}
+	return CommentHistoryOutput{Versions: versions}, nil
 }
 
 func (b *InProcessBackend) AddRelationship(ctx context.Context, sourceRef, relType, targetRef string) error {
@@ -325,13 +506,169 @@ func (b *InProcessBackend) AddAssociation(ctx context.Context, sourceRef, target
 	return b.Svc.AddAssociation(ctx, service.AddAssociationRequest{SourceRef: src, TargetRef: tgt}, actor, service.NewCorrelationID())
 }
 
-func (b *InProcessBackend) GetFeature(ctx context.Context, ref string) (domain.Feature, error) {
+func (b *InProcessBackend) RemoveRelationship(ctx context.Context, sourceRef, relType, targetRef string) error {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return err
+	}
+	src, perr := domain.Parse(sourceRef)
+	if perr != nil {
+		return &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	tgt, perr := domain.Parse(targetRef)
+	if perr != nil {
+		return &service.Error{Code: domain.ErrValidationFailed, Field: "target", Message: perr.Error()}
+	}
+	return b.Svc.RemoveRelationship(ctx, service.RemoveRelationshipRequest{
+		SourceRef: src, TargetRef: tgt, Type: domain.RelationshipType(relType),
+	}, actor, service.NewCorrelationID())
+}
+
+func (b *InProcessBackend) RemoveAssociation(ctx context.Context, sourceRef, targetRef string) error {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return err
+	}
+	src, perr := domain.Parse(sourceRef)
+	if perr != nil {
+		return &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	tgt, perr := domain.Parse(targetRef)
+	if perr != nil {
+		return &service.Error{Code: domain.ErrValidationFailed, Field: "target", Message: perr.Error()}
+	}
+	return b.Svc.RemoveAssociation(ctx, service.RemoveAssociationRequest{SourceRef: src, TargetRef: tgt}, actor, service.NewCorrelationID())
+}
+
+func (b *InProcessBackend) AddLink(ctx context.Context, ref, title, url string) (LinkView, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return LinkView{}, err
+	}
+	parsedRef, perr := domain.Parse(ref)
+	if perr != nil {
+		return LinkView{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	link, err := b.Svc.AddExternalLink(ctx, service.AddExternalLinkRequest{
+		Ref: parsedRef, Title: title, URL: url,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return LinkView{}, err
+	}
+	return LinkView{ID: link.ID, Title: link.Title, URL: link.URL}, nil
+}
+
+func (b *InProcessBackend) ListLinks(ctx context.Context, ref string) ([]LinkView, error) {
+	parsedRef, perr := domain.Parse(ref)
+	if perr != nil {
+		return nil, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	links, err := b.Svc.GetExternalLinks(ctx, parsedRef)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LinkView, len(links))
+	for i, l := range links {
+		out[i] = LinkView{ID: l.ID, Title: l.Title, URL: l.URL}
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) RemoveLink(ctx context.Context, ref string, id int64) error {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return err
+	}
+	parsedRef, perr := domain.Parse(ref)
+	if perr != nil {
+		return &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	return b.Svc.RemoveExternalLink(ctx, service.RemoveExternalLinkRequest{
+		Ref: parsedRef, LinkID: id,
+	}, actor, service.NewCorrelationID())
+}
+
+func (b *InProcessBackend) GetBacklinks(ctx context.Context, ref string) ([]BacklinkView, error) {
+	parsedRef, perr := domain.Parse(ref)
+	if perr != nil {
+		return nil, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	backlinks, err := b.Svc.GetBacklinks(ctx, parsedRef)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BacklinkView, len(backlinks))
+	for i, bl := range backlinks {
+		out[i] = BacklinkView{Ref: bl.SourceRef, CommentID: bl.SourceCommentID}
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) GetAttachment(ctx context.Context, id int64) (AttachmentView, error) {
+	a, err := b.Svc.GetAttachment(ctx, id)
+	if err != nil {
+		return AttachmentView{}, err
+	}
+	return attachmentViewFromDomain(a), nil
+}
+
+func (b *InProcessBackend) ListAttachments(ctx context.Context, ref string, commentID int64) ([]AttachmentView, error) {
+	var attachments []domain.Attachment
+	var err error
+	if commentID != 0 {
+		attachments, err = b.Svc.ListAttachmentsForComment(ctx, commentID)
+	} else {
+		parsed, parseErr := domain.Parse(ref)
+		if parseErr != nil {
+			return nil, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: parseErr.Error()}
+		}
+		attachments, err = b.Svc.ListAttachmentsForRef(ctx, parsed)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AttachmentView, len(attachments))
+	for i, a := range attachments {
+		out[i] = attachmentViewFromDomain(a)
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) ListAttachmentVersions(ctx context.Context, id int64) ([]AttachmentVersionView, error) {
+	versions, err := b.Svc.ListAttachmentVersions(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AttachmentVersionView, len(versions))
+	for i, v := range versions {
+		out[i] = AttachmentVersionView{
+			Version: v.Version, Kind: string(v.Kind), FileName: v.FileName, FileSize: v.FileSize,
+			MediaType: v.MediaType, Checksum: v.Checksum, PathValue: v.PathValue,
+			UploadedBy: string(v.UploadedBy.Kind) + ":" + v.UploadedBy.Name, CreatedAt: v.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
+func attachmentViewFromDomain(a domain.Attachment) AttachmentView {
+	return AttachmentView{
+		ID: a.ID, OwnerRef: a.OwnerRef, CommentID: a.CommentID, Kind: string(a.Kind), Title: a.Title,
+		CurrentVersion: a.CurrentVersion, FileName: a.FileName, FileSize: a.FileSize, MediaType: a.MediaType,
+		Checksum: a.Checksum, PathValue: a.PathValue, CreatedAt: a.CreatedAt,
+		Creator: string(a.Creator.Kind) + ":" + a.Creator.Name, DeletedAt: a.DeletedAt,
+	}
+}
+
+func (b *InProcessBackend) GetFeature(ctx context.Context, ref string, includeDeleted ...bool) (domain.Feature, error) {
 	parsed, err := domain.Parse(ref)
 	if err != nil {
 		return domain.Feature{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: err.Error()}
 	}
 	if parsed.Kind != domain.KindFeature {
 		return domain.Feature{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a feature reference"}
+	}
+	if len(includeDeleted) > 0 && includeDeleted[0] {
+		return b.Svc.GetFeatureIncludingDeleted(ctx, parsed)
 	}
 	return b.Svc.GetFeature(ctx, parsed)
 }
@@ -341,9 +678,20 @@ func (b *InProcessBackend) CreateFeature(ctx context.Context, in CreateFeatureIn
 	if err != nil {
 		return FeatureWriteResult{}, err
 	}
-	f, err := b.Svc.CreateFeature(ctx, service.CreateFeatureRequest{
+	if in.ProjectKey == "" {
+		return FeatureWriteResult{}, errMissingProjectKey()
+	}
+	req := service.CreateFeatureRequest{
 		ProjectKey: in.ProjectKey, Title: in.Title, Description: in.Description, Priority: domain.Priority(in.Priority),
-	}, actor, service.NewCorrelationID())
+	}
+	var fingerprint string
+	if in.IdempotencyKey != "" {
+		fingerprint, err = mcpFingerprint("feature_create", req)
+		if err != nil {
+			return FeatureWriteResult{}, err
+		}
+	}
+	f, err := b.Svc.CreateFeature(ctx, req, actor, service.NewCorrelationID(), in.IdempotencyKey, fingerprint)
 	if err != nil {
 		return FeatureWriteResult{}, err
 	}
@@ -355,15 +703,103 @@ func (b *InProcessBackend) UpdateFeature(ctx context.Context, in UpdateFeatureIn
 	if err != nil {
 		return FeatureWriteResult{}, err
 	}
-	ref, perr := domain.Parse(in.Ref)
+	ref, perr := parseFeatureRefMCP(in.Ref)
 	if perr != nil {
-		return FeatureWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
-	}
-	if ref.Kind != domain.KindFeature {
-		return FeatureWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a feature reference"}
+		return FeatureWriteResult{}, perr
 	}
 	f, err := b.Svc.UpdateFeature(ctx, service.UpdateFeatureRequest{
 		Ref: ref, Title: in.Title, Description: in.Description, Priority: domain.Priority(in.Priority), ExpectedVersion: in.ExpectedVersion,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return FeatureWriteResult{}, err
+	}
+	return toFeatureWriteResult(f), nil
+}
+
+func parseFeatureRefMCP(ref string) (domain.Reference, *service.Error) {
+	parsed, perr := domain.Parse(ref)
+	if perr != nil {
+		return domain.Reference{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	if parsed.Kind != domain.KindFeature {
+		return domain.Reference{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a feature reference"}
+	}
+	return parsed, nil
+}
+
+func (b *InProcessBackend) SetFeatureStatus(ctx context.Context, ref, status string, expectedVersion int64) (FeatureWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return FeatureWriteResult{}, err
+	}
+	parsedRef, perr := parseFeatureRefMCP(ref)
+	if perr != nil {
+		return FeatureWriteResult{}, perr
+	}
+	f, err := b.Svc.UpdateFeatureStatus(ctx, service.UpdateFeatureStatusRequest{
+		Ref: parsedRef, NewStatus: domain.WorkflowStatus(status), ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return FeatureWriteResult{}, err
+	}
+	return toFeatureWriteResult(f), nil
+}
+
+func (b *InProcessBackend) ReorderFeature(ctx context.Context, ref string, afterRef *string, expectedVersion int64) (FeatureWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return FeatureWriteResult{}, err
+	}
+	parsedRef, perr := parseFeatureRefMCP(ref)
+	if perr != nil {
+		return FeatureWriteResult{}, perr
+	}
+	var parsedAfter *domain.Reference
+	if afterRef != nil {
+		p, aerr := domain.Parse(*afterRef)
+		if aerr != nil {
+			return FeatureWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "after_ref", Message: aerr.Error()}
+		}
+		parsedAfter = &p
+	}
+	f, err := b.Svc.ReorderFeature(ctx, service.ReorderFeatureRequest{
+		Ref: parsedRef, AfterRef: parsedAfter, ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return FeatureWriteResult{}, err
+	}
+	return toFeatureWriteResult(f), nil
+}
+
+func (b *InProcessBackend) DeleteFeature(ctx context.Context, ref string, cascade bool, expectedVersion int64) (DeleteWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return DeleteWriteResult{}, err
+	}
+	parsedRef, perr := parseFeatureRefMCP(ref)
+	if perr != nil {
+		return DeleteWriteResult{}, perr
+	}
+	newVersion, err := b.Svc.DeleteFeature(ctx, service.DeleteFeatureRequest{
+		Ref: parsedRef, Cascade: cascade, ExpectedVersion: expectedVersion,
+	}, actor, service.NewCorrelationID())
+	if err != nil {
+		return DeleteWriteResult{}, err
+	}
+	return DeleteWriteResult{Ref: ref, Version: newVersion}, nil
+}
+
+func (b *InProcessBackend) RestoreFeature(ctx context.Context, ref string, expectedVersion int64) (FeatureWriteResult, error) {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return FeatureWriteResult{}, err
+	}
+	parsedRef, perr := parseFeatureRefMCP(ref)
+	if perr != nil {
+		return FeatureWriteResult{}, perr
+	}
+	f, err := b.Svc.RestoreFeature(ctx, service.RestoreFeatureRequest{
+		Ref: parsedRef, ExpectedVersion: expectedVersion,
 	}, actor, service.NewCorrelationID())
 	if err != nil {
 		return FeatureWriteResult{}, err
@@ -383,6 +819,9 @@ func (b *InProcessBackend) GetDecision(ctx context.Context, ref string) (domain.
 }
 
 func (b *InProcessBackend) CreateDecision(ctx context.Context, in CreateDecisionInput) (DecisionWriteResult, error) {
+	if in.ProjectKey == "" {
+		return DecisionWriteResult{}, errMissingProjectKey()
+	}
 	actor, err := mcpActor(ctx)
 	if err != nil {
 		return DecisionWriteResult{}, err
@@ -440,6 +879,9 @@ func (b *InProcessBackend) GetContentItem(ctx context.Context, ref string) (doma
 }
 
 func (b *InProcessBackend) CreateContentItem(ctx context.Context, in CreateContentItemInput) (ContentItemWriteResult, error) {
+	if in.ProjectKey == "" {
+		return ContentItemWriteResult{}, errMissingProjectKey()
+	}
 	actor, err := mcpActor(ctx)
 	if err != nil {
 		return ContentItemWriteResult{}, err
@@ -482,6 +924,116 @@ func (b *InProcessBackend) UpdateContentItem(ctx context.Context, in UpdateConte
 		return ContentItemWriteResult{}, err
 	}
 	return toContentItemWriteResult(c), nil
+}
+
+func (b *InProcessBackend) ListDecisions(ctx context.Context, projectKey string, limit int, cursor string) (RecordsListOutput, error) {
+	result, err := b.Svc.ListDecisions(ctx, projectKey, limit, cursor)
+	if err != nil {
+		return RecordsListOutput{}, err
+	}
+	out := RecordsListOutput{Records: make([]RecordCompact, len(result.Decisions)), NextCursor: result.NextCursor}
+	for i, d := range result.Decisions {
+		out.Records[i] = RecordCompact{Ref: d.Ref, Kind: "decision", Title: d.Title, Status: string(d.Status), Version: d.Version, UpdatedAt: d.UpdatedAt}
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) GetDecisionVersions(ctx context.Context, ref string) (RecordVersionsOutput, error) {
+	parsed, perr := domain.Parse(ref)
+	if perr != nil {
+		return RecordVersionsOutput{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	if parsed.Kind != domain.KindDecision {
+		return RecordVersionsOutput{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a decision reference"}
+	}
+	versions, err := b.Svc.ListDecisionVersions(ctx, parsed)
+	if err != nil {
+		return RecordVersionsOutput{}, err
+	}
+	out := RecordVersionsOutput{Versions: make([]RecordVersion, len(versions))}
+	for i, v := range versions {
+		out.Versions[i] = RecordVersion{
+			Version: v.Version, Title: v.Title, Context: v.Context, Decision: v.Decision,
+			Rationale: v.Rationale, Consequences: v.Consequences, Status: string(v.Status),
+			EditedBy: string(v.EditedBy.Kind) + ":" + v.EditedBy.Name, CreatedAt: v.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) GetDecisionDiff(ctx context.Context, ref string, from, to int64) (RecordDiff, error) {
+	parsed, perr := domain.Parse(ref)
+	if perr != nil {
+		return RecordDiff{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	if parsed.Kind != domain.KindDecision {
+		return RecordDiff{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a decision reference"}
+	}
+	diff, err := b.Svc.GetDecisionDiff(ctx, parsed, from, to)
+	if err != nil {
+		return RecordDiff{}, err
+	}
+	return RecordDiff{
+		FromVersion: diff.FromVersion, ToVersion: diff.ToVersion,
+		Title: toDiffLineViews(diff.Fields.Title), Context: toDiffLineViews(diff.Fields.Context),
+		Decision: toDiffLineViews(diff.Fields.Decision), Rationale: toDiffLineViews(diff.Fields.Rationale),
+		Consequences: toDiffLineViews(diff.Fields.Consequences),
+		StatusFrom:   string(diff.StatusFrom), StatusTo: string(diff.StatusTo),
+	}, nil
+}
+
+func (b *InProcessBackend) ListContentItems(ctx context.Context, projectKey, kind string, limit int, cursor string) (RecordsListOutput, error) {
+	result, err := b.Svc.ListContentItems(ctx, projectKey, domain.EntityKind(kind), limit, cursor)
+	if err != nil {
+		return RecordsListOutput{}, err
+	}
+	out := RecordsListOutput{Records: make([]RecordCompact, len(result.Items)), NextCursor: result.NextCursor}
+	for i, c := range result.Items {
+		out.Records[i] = RecordCompact{Ref: c.Ref, Kind: string(c.Kind), Title: c.Title, Version: c.Version, UpdatedAt: c.UpdatedAt}
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) GetContentItemVersions(ctx context.Context, ref string) (RecordVersionsOutput, error) {
+	parsed, perr := domain.Parse(ref)
+	if perr != nil {
+		return RecordVersionsOutput{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	if parsed.Kind != domain.KindPlan && parsed.Kind != domain.KindDocument {
+		return RecordVersionsOutput{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
+	}
+	versions, err := b.Svc.ListContentItemVersions(ctx, parsed)
+	if err != nil {
+		return RecordVersionsOutput{}, err
+	}
+	out := RecordVersionsOutput{Versions: make([]RecordVersion, len(versions))}
+	for i, v := range versions {
+		out.Versions[i] = RecordVersion{
+			Version: v.Version, Title: v.Title, Representation: v.Representation, Body: v.Body,
+			FileName: v.FileName, FileSize: v.FileSize, MediaType: v.MediaType, Checksum: v.Checksum,
+			PathValue: v.PathValue, URLValue: v.URLValue,
+			EditedBy: string(v.EditedBy.Kind) + ":" + v.EditedBy.Name, CreatedAt: v.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
+func (b *InProcessBackend) GetContentItemDiff(ctx context.Context, ref string, from, to int64) (RecordDiff, error) {
+	parsed, perr := domain.Parse(ref)
+	if perr != nil {
+		return RecordDiff{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	if parsed.Kind != domain.KindPlan && parsed.Kind != domain.KindDocument {
+		return RecordDiff{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
+	}
+	diff, err := b.Svc.GetContentItemDiff(ctx, parsed, from, to)
+	if err != nil {
+		return RecordDiff{}, err
+	}
+	return RecordDiff{
+		FromVersion: diff.FromVersion, ToVersion: diff.ToVersion,
+		Title: toDiffLineViews(diff.Title), Body: toDiffLineViews(diff.Body),
+	}, nil
 }
 
 func (b *InProcessBackend) Search(ctx context.Context, in SearchInput) (SearchOutput, error) {
@@ -529,6 +1081,51 @@ func (b *InProcessBackend) GetProjectBrief(ctx context.Context, key string) (Pro
 	return toProjectBrief(brief), nil
 }
 
+// activityCommentExcerptLimit mirrors internal/httpapi/activity.go's
+// activityCommentExcerptLimit — this backend bypasses that handler
+// entirely, so it needs its own copy of the same truncation.
+const activityCommentExcerptLimit = 200
+
+// truncateActivityExcerpt mirrors internal/httpapi/activity.go's
+// toActivityEvent truncation: cut by rune (never mid-UTF-8-byte), then
+// back up to the last word boundary within that cut so the excerpt
+// never ends mid-word, and mark a real truncation with an ellipsis.
+func truncateActivityExcerpt(body string) string {
+	runes := []rune(body)
+	if len(runes) <= activityCommentExcerptLimit {
+		return body
+	}
+	cut := string(runes[:activityCommentExcerptLimit])
+	if boundary := strings.LastIndexFunc(cut, unicode.IsSpace); boundary > 0 {
+		cut = cut[:boundary]
+	}
+	return strings.TrimRight(cut, " \t\n\r") + "…"
+}
+
+func (b *InProcessBackend) ListActivity(ctx context.Context, projectKey, actor, entityKind, eventType string, limit int, cursor string) (ActivityListOutput, error) {
+	result, err := b.Svc.ListActivity(ctx, projectKey, service.ActivityListFilters{
+		Actor: actor, EntityKind: entityKind, EventType: eventType,
+	}, limit, cursor)
+	if err != nil {
+		return ActivityListOutput{}, err
+	}
+	out := ActivityListOutput{Events: make([]ActivityEventView, len(result.Events)), NextCursor: result.NextCursor}
+	for i, e := range result.Events {
+		v := ActivityEventView{
+			ID: e.ID, Entity: e.EntityRef, EntityKind: string(e.EntityKind),
+			Actor: e.Actor.String(), EventType: e.EventType, CreatedAt: e.CreatedAt,
+		}
+		if e.CommentID != nil {
+			v.CommentID = *e.CommentID
+		}
+		if e.CommentBody != nil {
+			v.CommentExcerpt = truncateActivityExcerpt(*e.CommentBody)
+		}
+		out.Events[i] = v
+	}
+	return out, nil
+}
+
 func (b *InProcessBackend) MarkNotificationsRead(ctx context.Context, ids []int64, all bool) (int64, error) {
 	actor, err := mcpActor(ctx)
 	if err != nil {
@@ -537,10 +1134,50 @@ func (b *InProcessBackend) MarkNotificationsRead(ctx context.Context, ids []int6
 	return b.Svc.MarkNotificationsRead(ctx, service.MarkNotificationsReadRequest{IDs: ids, All: all}, actor, service.NewCorrelationID())
 }
 
+func (b *InProcessBackend) SetSubscription(ctx context.Context, ref string, subscribed bool) error {
+	actor, err := mcpActor(ctx)
+	if err != nil {
+		return err
+	}
+	parsed, perr := domain.Parse(ref)
+	if perr != nil {
+		return &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	req := service.SubscribeRequest{Ref: parsed}
+	if subscribed {
+		return b.Svc.Subscribe(ctx, req, actor, service.NewCorrelationID())
+	}
+	return b.Svc.Unsubscribe(ctx, req, actor, service.NewCorrelationID())
+}
+
+// CreateTicket requires exactly one of in.Feature/in.General, the same
+// requirement the HTTP API's createTicket handler enforces
+// (internal/httpapi/tickets.go) — this backend calls service directly,
+// bypassing that handler, so it can't rely on it to reject an
+// ambiguous or fully-default request.
 func (b *InProcessBackend) CreateTicket(ctx context.Context, in CreateTicketInput) (domain.Ticket, error) {
+	if in.ProjectKey == "" {
+		return domain.Ticket{}, errMissingProjectKey()
+	}
 	actor, err := mcpActor(ctx)
 	if err != nil {
 		return domain.Ticket{}, err
+	}
+	if in.Feature != "" && in.General {
+		return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "feature", Message: "specify feature or general, not both"}
+	}
+	if in.Feature == "" && !in.General {
+		return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "feature", Message: "feature or general is required"}
+	}
+	var featureRef domain.Reference
+	if in.Feature != "" {
+		featureRef, err = domain.Parse(in.Feature)
+		if err != nil {
+			return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "feature", Message: err.Error()}
+		}
+		if featureRef.Kind != domain.KindFeature {
+			return domain.Ticket{}, &service.Error{Code: domain.ErrValidationFailed, Field: "feature", Message: "reference must be a feature reference"}
+		}
 	}
 	var severity *domain.Severity
 	if in.Severity != "" {
@@ -548,12 +1185,21 @@ func (b *InProcessBackend) CreateTicket(ctx context.Context, in CreateTicketInpu
 		severity = &s
 	}
 	req := service.CreateTicketRequest{
-		ProjectKey:  in.ProjectKey,
-		Type:        domain.TicketType(in.Type),
-		Title:       in.Title,
-		Description: in.Description,
-		Priority:    domain.Priority(in.Priority),
-		Severity:    severity,
+		ProjectKey:        in.ProjectKey,
+		Type:              domain.TicketType(in.Type),
+		Title:             in.Title,
+		Description:       in.Description,
+		Priority:          domain.Priority(in.Priority),
+		Severity:          severity,
+		FeatureRef:        featureRef,
+		UseGeneralFeature: in.General,
 	}
-	return b.Svc.CreateTicket(ctx, req, actor, service.NewCorrelationID(), "", "")
+	var fingerprint string
+	if in.IdempotencyKey != "" {
+		fingerprint, err = mcpFingerprint("ticket_create", req)
+		if err != nil {
+			return domain.Ticket{}, err
+		}
+	}
+	return b.Svc.CreateTicket(ctx, req, actor, service.NewCorrelationID(), in.IdempotencyKey, fingerprint)
 }

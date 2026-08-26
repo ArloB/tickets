@@ -49,7 +49,7 @@ export default function ActivityFeed() {
       ) : (
         <ul>
           {events.map((e) => (
-            <li key={e.id}>
+            <li key={e.id} className={e.comment_excerpt ? undefined : 'activity-mechanical'}>
               <time dateTime={e.created_at}>{new Date(e.created_at).toLocaleString()}</time>{' '}
               <span>{e.actor}</span> <span>{e.event_type}</span>{' '}
               {e.entity ? <Link to={detailRoute(e.entity)}>{e.entity}</Link> : <span>({key})</span>}

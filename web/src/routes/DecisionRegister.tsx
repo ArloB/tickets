@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { createDecision, listDecisions } from '../api/decisions'
 import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { StatusChip } from '../components/StatusChip'
 import type { DecisionCompact } from '../api/types'
 
 function NewDecisionForm({
@@ -105,7 +106,7 @@ export default function DecisionRegister() {
           {decisions.map((d) => (
             <li key={d.ref}>
               <Link to={`/decisions/${d.ref}`}>{d.title}</Link> <span>({d.ref})</span>{' '}
-              <span>{d.status}</span>
+              <StatusChip value={d.status} kind="decision" />
             </li>
           ))}
         </ul>

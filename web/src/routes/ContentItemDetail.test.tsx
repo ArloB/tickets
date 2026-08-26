@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import ContentItemDetail from './ContentItemDetail'
+import ContentItemDetail, { ContentItemOverview } from './ContentItemDetail'
 import * as contentItemsApi from '../api/content-items'
 import * as linksApi from '../api/links'
 import * as associationsApi from '../api/associations'
@@ -62,7 +62,9 @@ function renderContentItemDetail() {
   return render(
     <MemoryRouter initialEntries={['/plans/ABC-P1']}>
       <Routes>
-        <Route path="/plans/:ref" element={<ContentItemDetail urlKind="plans" />} />
+        <Route path="/plans/:ref" element={<ContentItemDetail urlKind="plans" />}>
+          <Route index element={<ContentItemOverview />} />
+        </Route>
       </Routes>
     </MemoryRouter>,
   )

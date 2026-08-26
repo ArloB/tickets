@@ -44,13 +44,18 @@ func (s *Server) createFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, svcErr)
 		return
 	}
+	fp, ferr := service.Fingerprint(r.Method, r.URL.Path, body)
+	if ferr != nil {
+		writeError(w, r, &service.Error{Code: domain.ErrValidationFailed, Message: ferr.Error()})
+		return
+	}
 
 	feature, err := s.svc.CreateFeature(r.Context(), service.CreateFeatureRequest{
 		ProjectKey:  projectKey,
 		Title:       req.Title,
 		Description: req.Description,
 		Priority:    domain.Priority(req.Priority),
-	}, requestActor(r), correlationID(r))
+	}, requestActor(r), correlationID(r), idempotencyKey(r), fp)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -104,7 +109,13 @@ func (s *Server) getFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, svcErr)
 		return
 	}
-	feature, err := s.svc.GetFeature(r.Context(), ref)
+	var feature domain.Feature
+	var err error
+	if r.URL.Query().Get("include_deleted") == "true" {
+		feature, err = s.svc.GetFeatureIncludingDeleted(r.Context(), ref)
+	} else {
+		feature, err = s.svc.GetFeature(r.Context(), ref)
+	}
 	if err != nil {
 		writeError(w, r, err)
 		return

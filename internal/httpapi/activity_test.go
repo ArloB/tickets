@@ -16,7 +16,7 @@ import (
 func TestActivityFeedOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	ts.do(http.MethodPost, "/tickets/ABC-1/comments", nil, mustJSON(t, map[string]string{"body": "First comment"}))
 
 	resp, body := ts.do(http.MethodGet, "/projects/ABC/activity", nil, nil)
@@ -56,7 +56,10 @@ func TestActivityFeedOverHTTP(t *testing.T) {
 // truncates on a rune boundary, not a byte boundary — a byte-offset cut
 // through a multi-byte UTF-8 character would corrupt the tail of the
 // excerpt (and, via json.Marshal, surface as U+FFFD replacement
-// characters in the wire response).
+// characters in the wire response). The fixture is one unbroken run
+// with no whitespace at all, so there's no word boundary to back up
+// to — the excerpt is the limit's worth of runes, plus the ellipsis
+// that always marks a truncation.
 func TestToActivityEventExcerptTruncatesByRune(t *testing.T) {
 	body := strings.Repeat("é", 250) // 250 runes, 2 bytes each = 500 bytes
 	out := toActivityEvent(service.ActivityEvent{CommentID: ptr(int64(1)), CommentBody: &body})
@@ -68,11 +71,41 @@ func TestToActivityEventExcerptTruncatesByRune(t *testing.T) {
 	if !utf8.ValidString(excerpt) {
 		t.Fatalf("excerpt is not valid UTF-8: %q", excerpt)
 	}
-	if got := utf8.RuneCountInString(excerpt); got != activityCommentExcerptLimit {
-		t.Errorf("excerpt rune count = %d, want %d", got, activityCommentExcerptLimit)
+	if !strings.HasSuffix(excerpt, "…") {
+		t.Errorf("excerpt = %q, want it to end with an ellipsis marking the truncation", excerpt)
+	}
+	if got := utf8.RuneCountInString(strings.TrimSuffix(excerpt, "…")); got != activityCommentExcerptLimit {
+		t.Errorf("excerpt rune count (excluding the ellipsis) = %d, want %d", got, activityCommentExcerptLimit)
 	}
 	if strings.Contains(excerpt, "�") {
 		t.Errorf("excerpt contains a replacement character (a byte-boundary cut through a multi-byte rune): %q", excerpt)
+	}
+}
+
+// TestToActivityEventExcerptTruncatesAtWordBoundary proves a truncated
+// excerpt never ends mid-word: the fixture's 200th rune falls inside a
+// word ("abcde"), so a naive hard cut would produce a fragment like
+// "...abcd" — the excerpt must instead back up to the last complete
+// word and mark the cut with an ellipsis.
+func TestToActivityEventExcerptTruncatesAtWordBoundary(t *testing.T) {
+	body := strings.Repeat("abcde ", 40) // 240 runes; rune 200 lands mid-word
+	out := toActivityEvent(service.ActivityEvent{CommentID: ptr(int64(1)), CommentBody: &body})
+
+	if out.CommentExcerpt == nil {
+		t.Fatal("CommentExcerpt = nil, want a truncated excerpt")
+	}
+	excerpt := *out.CommentExcerpt
+	if !strings.HasSuffix(excerpt, "…") {
+		t.Fatalf("excerpt = %q, want it to end with an ellipsis", excerpt)
+	}
+	trimmed := strings.TrimSuffix(excerpt, "…")
+	if strings.HasSuffix(trimmed, " ") {
+		t.Errorf("excerpt = %q, want no trailing space before the ellipsis", excerpt)
+	}
+	for _, word := range strings.Fields(trimmed) {
+		if word != "abcde" {
+			t.Errorf("excerpt = %q, contains a partial word %q — truncation cut mid-word", excerpt, word)
+		}
 	}
 }
 
@@ -84,7 +117,7 @@ func ptr[T any](v T) *T { return &v }
 func TestActivityFeedFiltersByEventType(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	ts.do(http.MethodPost, "/tickets/ABC-1/comments", nil, mustJSON(t, map[string]string{"body": "Hi"}))
 
 	resp, body := ts.do(http.MethodGet, "/projects/ABC/activity?event_type=ticket_created", nil, nil)

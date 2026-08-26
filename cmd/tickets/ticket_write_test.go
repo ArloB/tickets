@@ -70,7 +70,7 @@ func TestTicketCreateJSON(t *testing.T) {
 	out := captureStdout(t, func() {
 		if err := runTicket([]string{
 			"create", "--url", apiURL, "--project", "ABC",
-			"--type", "task", "--title", "Newly created ticket", "--priority", "high", "--json",
+			"--type", "task", "--title", "Newly created ticket", "--priority", "high", "--general", "--json",
 		}); err != nil {
 			t.Fatalf("runTicket create: %v", err)
 		}
@@ -118,7 +118,7 @@ func TestTicketCreateDefaultsPriorityWhenOmitted(t *testing.T) {
 	out := captureStdout(t, func() {
 		if err := runTicket([]string{
 			"create", "--url", apiURL, "--project", "ABC",
-			"--type", "task", "--title", "No priority given", "--json",
+			"--type", "task", "--title", "No priority given", "--general", "--json",
 		}); err != nil {
 			t.Fatalf("runTicket create with no --priority: %v", err)
 		}

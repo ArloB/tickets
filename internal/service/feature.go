@@ -25,7 +25,7 @@ type CreateFeatureRequest struct {
 // creates, nothing in Phase 1's plan calls for retry-safety on this
 // below-the-API-line operation, and adding it speculatively would be
 // untested surface no caller exercises.
-func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, actor domain.ActorRef, correlationID string) (domain.Feature, error) {
+func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, actor domain.ActorRef, correlationID string, idempotency ...string) (domain.Feature, error) {
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		return domain.Feature{}, newValidationError("title", "title is required")
@@ -40,7 +40,24 @@ func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, a
 
 	var result domain.Reference
 	var notifiedIDs []int64
+	idemKey, fingerprint := "", ""
+	if len(idempotency) > 0 {
+		idemKey = idempotency[0]
+	}
+	if len(idempotency) > 1 {
+		fingerprint = idempotency[1]
+	}
 	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		if cached, found, err := checkIdempotency(ctx, tx, idemKey, actorID, fingerprint); err != nil {
+			return err
+		} else if found {
+			ref, perr := domain.Parse(cached)
+			if perr != nil {
+				return fmt.Errorf("service: parse cached feature ref %q: %w", cached, perr)
+			}
+			result = ref
+			return nil
+		}
 		proj, err := store.GetProjectByKey(ctx, tx, req.ProjectKey)
 		if errors.Is(err, store.ErrNotFound) {
 			return newNotFoundError("project %q not found", req.ProjectKey)
@@ -88,6 +105,9 @@ func (s *Service) CreateFeature(ctx context.Context, req CreateFeatureRequest, a
 		if err := store.InsertAuditEvent(ctx, tx, featureEntityID, actorID, eventFeatureCreated, corrID, nil, changes, now); err != nil {
 			return fmt.Errorf("service: record audit event: %w", err)
 		}
+		if err := recordIdempotency(ctx, tx, idemKey, actorID, fingerprint, refStr, now); err != nil {
+			return err
+		}
 		result = ref
 		return nil
 	})
@@ -111,6 +131,17 @@ func (s *Service) GetFeature(ctx context.Context, ref domain.Reference) (domain.
 	}
 	if err != nil {
 		return domain.Feature{}, fmt.Errorf("service: get feature: %w", err)
+	}
+	return row.Entity, nil
+}
+
+func (s *Service) GetFeatureIncludingDeleted(ctx context.Context, ref domain.Reference) (domain.Feature, error) {
+	row, err := store.GetFeatureByRefAnyDeletion(ctx, s.store.DB(), ref)
+	if errors.Is(err, store.ErrNotFound) {
+		return domain.Feature{}, newNotFoundError("feature not found")
+	}
+	if err != nil {
+		return domain.Feature{}, fmt.Errorf("service: get feature including deleted: %w", err)
 	}
 	return row.Entity, nil
 }

@@ -27,6 +27,8 @@ assumption.
 | [0018](0018-unified-search-index.md) | Unified search index: synthetic `search_documents` rowid over entities + comments, capped offset pagination, FTS5 query sanitization |
 | [0019](0019-subscriptions-and-notifications.md) | Subscriptions, notifications, and `@actor` mentions: append-only notification log, explicit emission at each mutation site, no self-notification |
 | [0020](0020-sse-change-hints.md) | SSE change hints: minimal `{kind, ref, project}`/`{kind, actor}` payloads, in-process hub, post-commit publish, graceful-shutdown hub close |
+| [0023](0023-explicit-feature-selection-required.md) | Explicit feature selection required at creation: `feature`/`general` xor enforced at every human/agent-facing entry point, service layer stays permissive |
+| [0024](0024-mcp-cli-parity-sweep.md) | MCP/CLI/HTTP API parity sweep: closed 21 undocumented gaps between the HTTP route table and the MCP tool surface, added `cmd/tickets/mcp_parity_test.go` as a standing regression guard |
 
 A gap noted in an ADR's Consequences as deferred, future work, or "not
 built speculatively here" isn't necessarily still open — check

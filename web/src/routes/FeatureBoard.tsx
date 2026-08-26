@@ -4,6 +4,7 @@ import { listFeatures, updateFeatureStatus } from '../api/features'
 import { ApiError } from '../api/client'
 import { useProjectChanged } from '../api/events'
 import { useAuth } from '../auth/AuthContext'
+import { StatusChip } from '../components/StatusChip'
 import type { FeatureCompact, WorkflowStatus } from '../api/types'
 
 const statuses: WorkflowStatus[] = [
@@ -147,35 +148,41 @@ export default function FeatureBoard() {
           const col = columns[status]
           return (
             <section key={status} className="board-column">
-              <h2>{status}</h2>
+              <h2>
+                <StatusChip value={status} kind="status" />
+              </h2>
               {col.error && <p role="alert">{col.error}</p>}
               {!col.features ? (
                 <p>Loading…</p>
               ) : (
-                <ul>
-                  {col.features.map((f) => (
-                    <li key={f.ref} className="board-card">
-                      <Link to={`/features/${f.ref}`}>{f.ref}</Link>
-                      <p>{f.title}</p>
-                      <p>{f.priority}</p>
-                      {canEdit && (
-                        <label>
-                          Move to
-                          <select
-                            value={status}
-                            onChange={(e) => void moveCard(f, e.target.value as WorkflowStatus)}
-                          >
-                            {statuses.map((s) => (
-                              <option key={s} value={s}>
-                                {s}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                <div className="board-column-list">
+                  <ul>
+                    {col.features.map((f) => (
+                      <li key={f.ref} className="board-card">
+                        <Link to={`/features/${f.ref}`}>{f.ref}</Link>
+                        <p>{f.title}</p>
+                        <p>
+                          <StatusChip value={f.priority} kind="priority" />
+                        </p>
+                        {canEdit && (
+                          <label>
+                            Move to
+                            <select
+                              value={status}
+                              onChange={(e) => void moveCard(f, e.target.value as WorkflowStatus)}
+                            >
+                              {statuses.map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {col.nextCursor && <button onClick={() => void loadMore(status)}>Load more</button>}
             </section>

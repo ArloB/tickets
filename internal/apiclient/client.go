@@ -178,6 +178,12 @@ func (c *Client) GetTicket(ctx context.Context, ref string) (Ticket, error) {
 	return ticket, err
 }
 
+func (c *Client) GetTicketIncludingDeleted(ctx context.Context, ref string) (Ticket, error) {
+	var ticket Ticket
+	err := c.do(ctx, http.MethodGet, "/tickets/"+url.PathEscape(ref)+"?include_deleted=true", nil, &ticket, requestOptions{})
+	return ticket, err
+}
+
 // GetTicketFields is GET /tickets/{ref} with ?fields=/?include=
 // (docs/contracts/representations.md), for a caller that wants the
 // server's own projected/expanded JSON rather than GetTicket's always-
@@ -208,9 +214,13 @@ func (c *Client) GetTicketFields(ctx context.Context, ref string, fields, includ
 }
 
 // CreateTicket is POST /projects/{key}/tickets.
-func (c *Client) CreateTicket(ctx context.Context, projectKey string, req CreateTicketRequest) (Ticket, error) {
+func (c *Client) CreateTicket(ctx context.Context, projectKey string, req CreateTicketRequest, idempotencyKeys ...string) (Ticket, error) {
+	idempotencyKey := ""
+	if len(idempotencyKeys) > 0 {
+		idempotencyKey = idempotencyKeys[0]
+	}
 	var ticket Ticket
-	err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectKey)+"/tickets", req, &ticket, requestOptions{})
+	err := c.do(ctx, http.MethodPost, "/projects/"+url.PathEscape(projectKey)+"/tickets", req, &ticket, requestOptions{IdempotencyKey: idempotencyKey})
 	return ticket, err
 }
 
@@ -473,7 +483,11 @@ func (c *Client) UpdateTicket(ctx context.Context, ref string, opts UpdateTicket
 			req.Priority = *opts.Priority
 		}
 		if opts.Severity != nil {
-			req.Severity = opts.Severity
+			if *opts.Severity == "" {
+				req.Severity = nil
+			} else {
+				req.Severity = opts.Severity
+			}
 		}
 		t, err := c.updateTicketFields(ctx, ref, req, ifMatch)
 		if err != nil {
@@ -509,6 +523,17 @@ func (c *Client) MoveTicket(ctx context.Context, ref, featureRef string, expecte
 		struct {
 			Feature string `json:"feature"`
 		}{Feature: featureRef},
+		&ticket, requestOptions{IfMatch: &expectedVersion})
+	return ticket, err
+}
+
+// ReorderTicket is POST /tickets/{ref}/reorder.
+func (c *Client) ReorderTicket(ctx context.Context, ref string, afterRef *string, expectedVersion int64) (Ticket, error) {
+	var ticket Ticket
+	err := c.do(ctx, http.MethodPost, "/tickets/"+url.PathEscape(ref)+"/reorder",
+		struct {
+			AfterRef *string `json:"after_ref"`
+		}{AfterRef: afterRef},
 		&ticket, requestOptions{IfMatch: &expectedVersion})
 	return ticket, err
 }

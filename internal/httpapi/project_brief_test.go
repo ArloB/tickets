@@ -12,7 +12,7 @@ import (
 func TestGetProjectBriefOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "A ticket"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "A ticket", "general": true}))
 
 	resp, body := ts.do(http.MethodGet, "/projects/ABC/brief", nil, nil)
 	if resp.StatusCode != http.StatusOK {

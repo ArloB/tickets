@@ -95,12 +95,148 @@ type TicketWriteResult struct {
 	Ref       string    `json:"ref"`
 	Status    string    `json:"status"`
 	Priority  string    `json:"priority"`
+	Assignee  string    `json:"assignee,omitempty"`
+	Feature   string    `json:"feature,omitempty"`
 	Version   int64     `json:"version"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func toTicketWriteResult(t domain.Ticket) TicketWriteResult {
-	return TicketWriteResult{Ref: t.Ref, Status: string(t.Status), Priority: string(t.Priority), Version: t.Version, UpdatedAt: t.UpdatedAt}
+	out := TicketWriteResult{Ref: t.Ref, Status: string(t.Status), Priority: string(t.Priority), Feature: t.FeatureRef, Version: t.Version, UpdatedAt: t.UpdatedAt}
+	if t.Assignee != nil {
+		out.Assignee = string(t.Assignee.Kind) + ":" + t.Assignee.Name
+	}
+	return out
+}
+
+// DeleteWriteResult is ticket_delete/feature_delete's output — a soft
+// delete leaves nothing new to report beyond the ref and the version
+// the delete itself produced, same "essential fields only" rule as
+// TicketWriteResult/FeatureWriteResult.
+type DeleteWriteResult struct {
+	Ref     string `json:"ref"`
+	Version int64  `json:"version"`
+}
+
+// CommentCompact is comments_list's row shape — no Body, same
+// compact/detail split every other *_list tool follows (product spec
+// §7.2, enforced by TestListToolsOmitFullBodies). comment_get follows
+// up with the full body for any one row.
+type CommentCompact struct {
+	ID        int64     `json:"id"`
+	Author    string    `json:"author"`
+	Version   int64     `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func toCommentCompact(c domain.Comment) CommentCompact {
+	return CommentCompact{
+		ID: c.ID, Author: string(c.Author.Kind) + ":" + c.Author.Name,
+		Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+	}
+}
+
+// CommentsListOutput is comments_list's output — unpaginated on the
+// wire, matching GET .../comments' own contract (no next_cursor).
+type CommentsListOutput struct {
+	Comments   []CommentCompact `json:"comments"`
+	NextCursor string           `json:"next_cursor,omitempty"`
+}
+
+// CommentHistoryOutput is comment_history's output — comment_update
+// archives the prior body into a version row on every edit
+// (service.EditComment), so this is the only way to see a comment's
+// earlier text.
+type CommentHistoryOutput struct {
+	Versions   []domain.CommentVersion `json:"versions"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
+// ActivityEventView mirrors internal/httpapi/activity.go's
+// activityEvent field-for-field (product spec §5.10's project
+// activity feed).
+type ActivityEventView struct {
+	ID             int64     `json:"id"`
+	Entity         string    `json:"entity,omitempty"`
+	EntityKind     string    `json:"entity_kind"`
+	Actor          string    `json:"actor"`
+	EventType      string    `json:"event_type"`
+	CommentID      int64     `json:"comment_id,omitempty"`
+	CommentExcerpt string    `json:"comment_excerpt,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// ActivityListOutput is project_activity's output.
+type ActivityListOutput struct {
+	Events     []ActivityEventView `json:"events"`
+	NextCursor string              `json:"next_cursor,omitempty"`
+}
+
+// BacklinkView is one entity/comment currently mentioning a ref via a
+// #ref backlink (product spec §6.1) — mirrors service.Backlink with
+// string fields, the same reasoning every other Backend-facing type
+// gives for uniform string shapes across both implementations.
+type BacklinkView struct {
+	Ref       string `json:"ref"`
+	CommentID int64  `json:"comment_id,omitempty"`
+}
+
+// LinkView is one named external link (product spec §5.11) — the
+// shape link_add and links_list both return. No version column and no
+// in-place edit (service.ExternalLink's doc): change a link by
+// removing and re-adding it.
+type LinkView struct {
+	ID    int64  `json:"id"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+type AttachmentView struct {
+	ID             int64      `json:"id"`
+	OwnerRef       string     `json:"owner_ref,omitempty"`
+	CommentID      int64      `json:"comment_id,omitempty"`
+	Kind           string     `json:"kind"`
+	Title          string     `json:"title"`
+	CurrentVersion int64      `json:"current_version"`
+	FileName       string     `json:"file_name,omitempty"`
+	FileSize       int64      `json:"file_size,omitempty"`
+	MediaType      string     `json:"media_type,omitempty"`
+	Checksum       string     `json:"checksum,omitempty"`
+	PathValue      string     `json:"path_value,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	Creator        string     `json:"creator"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
+}
+
+type AttachmentVersionView struct {
+	Version    int64     `json:"version"`
+	Kind       string    `json:"kind"`
+	FileName   string    `json:"file_name,omitempty"`
+	FileSize   int64     `json:"file_size,omitempty"`
+	MediaType  string    `json:"media_type,omitempty"`
+	Checksum   string    `json:"checksum,omitempty"`
+	PathValue  string    `json:"path_value,omitempty"`
+	UploadedBy string    `json:"uploaded_by"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type AttachmentsListOutput struct {
+	Attachments []AttachmentView `json:"attachments"`
+	NextCursor  string           `json:"next_cursor,omitempty"`
+}
+
+type AttachmentVersionsOutput struct {
+	Versions   []AttachmentVersionView `json:"versions"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
+// CommentDeleteResult is comment_delete's output. The server's own
+// response to DELETE /comments/{id} carries nothing but a status
+// string (apiclient.DeleteComment's doc) — id is enough to confirm
+// which comment was affected.
+type CommentDeleteResult struct {
+	ID int64 `json:"id"`
 }
 
 // CommentWriteResult is ticket_comment's output — product spec §7.2's
@@ -127,6 +263,7 @@ type RelationshipView struct {
 // RelationshipsOutput is ticket_relationships' output.
 type RelationshipsOutput struct {
 	Relationships []RelationshipView `json:"relationships"`
+	NextCursor    string             `json:"next_cursor,omitempty"`
 }
 
 // AssociationsOutput is ticket_associations' output — a bare list of
@@ -135,6 +272,7 @@ type RelationshipsOutput struct {
 // an association carries no type or version of its own to echo back).
 type AssociationsOutput struct {
 	Associated []string `json:"associated"`
+	NextCursor string   `json:"next_cursor,omitempty"`
 }
 
 // LinkWriteResult is ticket_link's output — an edge has no version or
@@ -447,6 +585,85 @@ func toRecordDetailFromContentItem(c domain.ContentItem) RecordDetail {
 		FileName: c.FileName, MediaType: c.MediaType, PathValue: c.PathValue, URLValue: c.URLValue,
 		Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
+}
+
+// RecordCompact is records_list's row shape — no Context/Decision/
+// Rationale/Consequences/Body, the same compact/detail split every
+// other *_list tool follows (enforced by TestListToolsOmitFullBodies).
+// Status is "" for a plan/document (content items have no status).
+type RecordCompact struct {
+	Ref       string    `json:"ref"`
+	Kind      string    `json:"kind"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status,omitempty"`
+	Version   int64     `json:"version"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// RecordsListOutput is records_list's output.
+type RecordsListOutput struct {
+	Records    []RecordCompact `json:"records"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+// RecordVersion mirrors RecordDetail's union-of-fields approach — one
+// archived state of a decision, plan, or document.
+type RecordVersion struct {
+	Version        int64     `json:"version"`
+	Title          string    `json:"title"`
+	Context        string    `json:"context,omitempty"`
+	Decision       string    `json:"decision,omitempty"`
+	Rationale      string    `json:"rationale,omitempty"`
+	Consequences   string    `json:"consequences,omitempty"`
+	Status         string    `json:"status,omitempty"`
+	Representation string    `json:"representation,omitempty"`
+	Body           string    `json:"body,omitempty"`
+	FileName       string    `json:"file_name,omitempty"`
+	FileSize       int64     `json:"file_size,omitempty"`
+	MediaType      string    `json:"media_type,omitempty"`
+	Checksum       string    `json:"checksum,omitempty"`
+	PathValue      string    `json:"path_value,omitempty"`
+	URLValue       string    `json:"url_value,omitempty"`
+	EditedBy       string    `json:"edited_by"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// RecordVersionsOutput is record_versions' output.
+type RecordVersionsOutput struct {
+	Versions   []RecordVersion `json:"versions"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+// DiffLineView mirrors domain.DiffLine with a string Op, the same
+// string-fields convention every Backend-facing type uses.
+type DiffLineView struct {
+	Op   string `json:"op"`
+	Text string `json:"text"`
+}
+
+func toDiffLineViews(lines []domain.DiffLine) []DiffLineView {
+	out := make([]DiffLineView, len(lines))
+	for i, l := range lines {
+		out[i] = DiffLineView{Op: string(l.Op), Text: l.Text}
+	}
+	return out
+}
+
+// RecordDiff mirrors RecordDetail's union-of-fields approach for a
+// line-level diff between two versions of a decision, plan, or
+// document. Title is always present; the rest apply to one kind or
+// the other.
+type RecordDiff struct {
+	FromVersion  int64          `json:"from_version"`
+	ToVersion    int64          `json:"to_version"`
+	Title        []DiffLineView `json:"title"`
+	Context      []DiffLineView `json:"context,omitempty"`
+	Decision     []DiffLineView `json:"decision,omitempty"`
+	Rationale    []DiffLineView `json:"rationale,omitempty"`
+	Consequences []DiffLineView `json:"consequences,omitempty"`
+	Body         []DiffLineView `json:"body,omitempty"`
+	StatusFrom   string         `json:"status_from,omitempty"`
+	StatusTo     string         `json:"status_to,omitempty"`
 }
 
 // RecordWriteResult is what record_create/record_update actually

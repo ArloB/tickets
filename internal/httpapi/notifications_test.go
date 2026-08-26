@@ -57,7 +57,7 @@ func TestAssignTicketOverHTTPNotifiesAssignee(t *testing.T) {
 	ts, adminHeaders, agentHeaders := twoActorFixture(t)
 
 	ts.doNoAuth(http.MethodPost, "/projects", adminHeaders, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", adminHeaders, mustJSON(t, map[string]string{"type": "task", "title": "Assign me"}))
+	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", adminHeaders, mustJSON(t, map[string]any{"type": "task", "title": "Assign me", "general": true}))
 	ts.doNoAuth(http.MethodPost, "/tickets/ABC-1/assign", withIfMatch(adminHeaders, 1), mustJSON(t, map[string]string{"assignee": "agent:codex"}))
 
 	resp, body := ts.doNoAuth(http.MethodGet, "/notifications", agentHeaders, nil)
@@ -86,7 +86,7 @@ func TestCommentNotifiesSubscriberAndSubscribesCommenter(t *testing.T) {
 	ts, adminHeaders, agentHeaders := twoActorFixture(t)
 
 	ts.doNoAuth(http.MethodPost, "/projects", adminHeaders, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", adminHeaders, mustJSON(t, map[string]string{"type": "task", "title": "Discuss"}))
+	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", adminHeaders, mustJSON(t, map[string]any{"type": "task", "title": "Discuss", "general": true}))
 	// admin created the ticket, so admin is already auto-subscribed.
 
 	ts.doNoAuth(http.MethodPost, "/tickets/ABC-1/comments", agentHeaders, mustJSON(t, map[string]string{"body": "agent's reply"}))
@@ -125,7 +125,7 @@ func TestUnsubscribeOverHTTPStopsNotifications(t *testing.T) {
 	ts, adminHeaders, agentHeaders := twoActorFixture(t)
 
 	ts.doNoAuth(http.MethodPost, "/projects", adminHeaders, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", adminHeaders, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", adminHeaders, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 	unsubResp, unsubBody := ts.doNoAuth(http.MethodDelete, "/tickets/ABC-1/subscribe", adminHeaders, nil)
 	if unsubResp.StatusCode != http.StatusOK {
@@ -155,7 +155,7 @@ func TestMarkNotificationsReadOverHTTP(t *testing.T) {
 	ts, adminHeaders, agentHeaders := twoActorFixture(t)
 
 	ts.doNoAuth(http.MethodPost, "/projects", adminHeaders, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", adminHeaders, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", adminHeaders, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	ts.doNoAuth(http.MethodPost, "/tickets/ABC-1/assign", withIfMatch(adminHeaders, 1), mustJSON(t, map[string]string{"assignee": "agent:codex"}))
 
 	listResp, listBody := ts.doNoAuth(http.MethodGet, "/notifications", agentHeaders, nil)

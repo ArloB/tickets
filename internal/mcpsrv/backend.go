@@ -24,38 +24,70 @@ import (
 // logic" holds either way tools are registered.
 type Backend interface {
 	GetProject(ctx context.Context, key string) (domain.Project, error)
-	ListProjects(ctx context.Context, limit int, cursor string) (ProjectsListOutput, error)
+	ListProjects(ctx context.Context, limit int, cursor string, includeArchived ...bool) (ProjectsListOutput, error)
 	CreateProject(ctx context.Context, in CreateProjectInput) (domain.Project, error)
 	UpdateProject(ctx context.Context, in UpdateProjectInput) (domain.Project, error)
 	CreateTicket(ctx context.Context, req CreateTicketInput) (domain.Ticket, error)
-	GetTicket(ctx context.Context, ref string) (domain.Ticket, error)
+	GetTicket(ctx context.Context, ref string, includeDeleted ...bool) (domain.Ticket, error)
 	ListTickets(ctx context.Context, projectKey, view string, filters TicketListFilters, limit int, cursor string) (TicketsListOutput, error)
 	UpdateTicket(ctx context.Context, in UpdateTicketInput) (TicketWriteResult, error)
+	MoveTicketFeature(ctx context.Context, ref, featureRef string, expectedVersion int64) (domain.Ticket, error)
+	AssignTicket(ctx context.Context, ref string, assignee *string, expectedVersion int64) (TicketWriteResult, error)
+	ReorderTicket(ctx context.Context, ref string, afterRef *string, expectedVersion int64) (TicketWriteResult, error)
+	DeleteTicket(ctx context.Context, ref string, expectedVersion int64) (DeleteWriteResult, error)
+	RestoreTicket(ctx context.Context, ref string, expectedVersion int64) (TicketWriteResult, error)
 	AddComment(ctx context.Context, ref, body, idempotencyKey string) (CommentWriteResult, error)
+	GetComment(ctx context.Context, id int64) (domain.Comment, error)
+	ListComments(ctx context.Context, ref string) (CommentsListOutput, error)
+	UpdateComment(ctx context.Context, id, expectedVersion int64, body string) (CommentWriteResult, error)
+	DeleteComment(ctx context.Context, id, expectedVersion int64) (CommentDeleteResult, error)
+	GetCommentHistory(ctx context.Context, id int64) (CommentHistoryOutput, error)
 	AddRelationship(ctx context.Context, sourceRef, relType, targetRef string) error
 	AddAssociation(ctx context.Context, sourceRef, targetRef string) error
+	RemoveRelationship(ctx context.Context, sourceRef, relType, targetRef string) error
+	RemoveAssociation(ctx context.Context, sourceRef, targetRef string) error
+	AddLink(ctx context.Context, ref, title, url string) (LinkView, error)
+	ListLinks(ctx context.Context, ref string) ([]LinkView, error)
+	RemoveLink(ctx context.Context, ref string, id int64) error
+	GetBacklinks(ctx context.Context, ref string) ([]BacklinkView, error)
 	GetTicketRelationships(ctx context.Context, ref string) (RelationshipsOutput, error)
 	GetAssociations(ctx context.Context, ref string) (AssociationsOutput, error)
+	GetAttachment(ctx context.Context, id int64) (AttachmentView, error)
+	ListAttachments(ctx context.Context, ref string, commentID int64) ([]AttachmentView, error)
+	ListAttachmentVersions(ctx context.Context, id int64) ([]AttachmentVersionView, error)
 
-	GetFeature(ctx context.Context, ref string) (domain.Feature, error)
-	ListFeatures(ctx context.Context, projectKey string, limit int, cursor string) (FeaturesListOutput, error)
+	GetFeature(ctx context.Context, ref string, includeDeleted ...bool) (domain.Feature, error)
+	ListFeatures(ctx context.Context, projectKey string, filters FeatureListFilters, limit int, cursor string) (FeaturesListOutput, error)
 	CreateFeature(ctx context.Context, in CreateFeatureInput) (FeatureWriteResult, error)
 	UpdateFeature(ctx context.Context, in UpdateFeatureInput) (FeatureWriteResult, error)
+	SetFeatureStatus(ctx context.Context, ref, status string, expectedVersion int64) (FeatureWriteResult, error)
+	ReorderFeature(ctx context.Context, ref string, afterRef *string, expectedVersion int64) (FeatureWriteResult, error)
+	DeleteFeature(ctx context.Context, ref string, cascade bool, expectedVersion int64) (DeleteWriteResult, error)
+	RestoreFeature(ctx context.Context, ref string, expectedVersion int64) (FeatureWriteResult, error)
 
 	GetDecision(ctx context.Context, ref string) (domain.Decision, error)
 	CreateDecision(ctx context.Context, in CreateDecisionInput) (DecisionWriteResult, error)
 	UpdateDecision(ctx context.Context, in UpdateDecisionInput) (DecisionWriteResult, error)
+	ListDecisions(ctx context.Context, projectKey string, limit int, cursor string) (RecordsListOutput, error)
+	GetDecisionVersions(ctx context.Context, ref string) (RecordVersionsOutput, error)
+	GetDecisionDiff(ctx context.Context, ref string, from, to int64) (RecordDiff, error)
 
 	GetContentItem(ctx context.Context, ref string) (domain.ContentItem, error)
 	CreateContentItem(ctx context.Context, in CreateContentItemInput) (ContentItemWriteResult, error)
 	UpdateContentItem(ctx context.Context, in UpdateContentItemInput) (ContentItemWriteResult, error)
+	ListContentItems(ctx context.Context, projectKey, kind string, limit int, cursor string) (RecordsListOutput, error)
+	GetContentItemVersions(ctx context.Context, ref string) (RecordVersionsOutput, error)
+	GetContentItemDiff(ctx context.Context, ref string, from, to int64) (RecordDiff, error)
 
 	Search(ctx context.Context, in SearchInput) (SearchOutput, error)
 
 	ListNotifications(ctx context.Context, unreadOnly bool, limit int, cursor string) (NotificationsListOutput, error)
 	MarkNotificationsRead(ctx context.Context, ids []int64, all bool) (int64, error)
+	SetSubscription(ctx context.Context, ref string, subscribed bool) error
 
 	GetProjectBrief(ctx context.Context, key string) (ProjectBrief, error)
+
+	ListActivity(ctx context.Context, projectKey, actor, entityKind, eventType string, limit int, cursor string) (ActivityListOutput, error)
 }
 
 // SearchInput is Search's input — Kind is a slice of kind strings, not
@@ -83,6 +115,13 @@ type TicketListFilters struct {
 	Status, Type, Severity, Priority string
 	FeatureRef, Assignee, Creator    string
 	UpdatedSince                     string
+}
+
+type FeatureListFilters struct {
+	Status       string
+	Priority     string
+	Creator      string
+	UpdatedSince string
 }
 
 // CreateProjectInput mirrors CreateTicketInput's shape/reasoning.
@@ -174,10 +213,11 @@ type UpdateContentItemInput struct {
 
 // CreateFeatureInput mirrors CreateTicketInput's shape/reasoning.
 type CreateFeatureInput struct {
-	ProjectKey  string
-	Title       string
-	Description string
-	Priority    string
+	ProjectKey     string
+	Title          string
+	Description    string
+	Priority       string
+	IdempotencyKey string
 }
 
 // UpdateFeatureInput is feature_update's input — unlike
@@ -196,12 +236,17 @@ type UpdateFeatureInput struct {
 
 // CreateTicketInput mirrors service.CreateTicketRequest but with string
 // fields, since it's the shape both Backend implementations (typed
-// service call vs. JSON over HTTP) can produce uniformly.
+// service call vs. JSON over HTTP) can produce uniformly. Feature/
+// General are mutually exclusive and exactly one is required — see
+// ticket_create's tool description (tools.go).
 type CreateTicketInput struct {
-	ProjectKey  string
-	Type        string
-	Title       string
-	Description string
-	Priority    string
-	Severity    string
+	ProjectKey     string
+	Type           string
+	Title          string
+	Description    string
+	Priority       string
+	Severity       string
+	Feature        string
+	General        bool
+	IdempotencyKey string
 }

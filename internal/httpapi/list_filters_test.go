@@ -22,13 +22,13 @@ func TestListTicketsFilterByStatusOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 
-	_, backlogBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"title": "stays backlog", "type": "task"}))
+	_, backlogBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"title": "stays backlog", "type": "task", "general": true}))
 	var backlog struct {
 		Ref string `json:"ref"`
 	}
 	_ = json.Unmarshal(backlogBody, &backlog)
 
-	_, movedBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"title": "moves along", "type": "task"}))
+	_, movedBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"title": "moves along", "type": "task", "general": true}))
 	var moved struct {
 		Ref     string `json:"ref"`
 		Version int64  `json:"version"`

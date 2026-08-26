@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, Outlet, useNavigate } from 'react-router-dom'
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { connectChangeHints } from '../api/events'
 
@@ -11,7 +11,19 @@ import { connectChangeHints } from '../api/events'
 export default function Layout() {
   const { me, ready, bootstrapError, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [query, setQuery] = useState('')
+
+  // Keeps the nav search box showing the query actually in effect
+  // (rather than always reading empty) whenever /search is reached
+  // directly — a shared link, browser back/forward, or editing the
+  // URL bar all land here without ever going through this form's own
+  // onSubmit, which is otherwise the only place `query` gets set.
+  useEffect(() => {
+    if (location.pathname === '/search') {
+      setQuery(new URLSearchParams(location.search).get('q') ?? '')
+    }
+  }, [location.pathname, location.search])
 
   // Opened once the shell actually renders (i.e. never for the
   // sign-in page, which mounts SignIn directly, not Layout) — every

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom'
 import { getDecision, getDecisionDiff, listDecisionVersions } from '../api/decisions'
 import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
@@ -11,12 +11,13 @@ import { ApiError } from '../api/client'
 import { useEntityChanged } from '../api/events'
 import { Markdown } from '../components/Markdown'
 import { DecisionFieldsForm } from '../components/DecisionFieldsForm'
-import { AssociationsSection } from '../components/AssociationsSection'
-import { LinksSection } from '../components/LinksSection'
-import { AttachmentList } from '../components/AttachmentList'
 import { CommentsSection } from '../components/CommentsSection'
+import { DetailTabs } from '../components/DetailTabs'
+import { LinksTabView } from '../components/LinksTabView'
+import { AttachmentsTabView } from '../components/AttachmentsTabView'
 import { DiffView } from '../components/DiffView'
 import { SubscribeButton } from '../components/SubscribeButton'
+import { StatusChip } from '../components/StatusChip'
 import { useAuth } from '../auth/AuthContext'
 import type {
   Attachment,
@@ -27,6 +28,24 @@ import type {
   DecisionVersion,
   ExternalLink,
 } from '../api/types'
+
+interface DecisionContext {
+  decision: DecisionDetailDto
+  comments: CommentDetail[]
+  setComments: (comments: CommentDetail[]) => void
+  links: ExternalLink[]
+  setLinks: (links: ExternalLink[]) => void
+  associated: string[]
+  setAssociated: (associated: string[]) => void
+  backlinks: Backlink[]
+  attachments: Attachment[]
+  setAttachments: (attachments: Attachment[]) => void
+  canEdit: boolean
+}
+
+function useDecisionContext() {
+  return useOutletContext<DecisionContext>()
+}
 
 function VersionHistory({ decision }: { decision: DecisionDetailDto }) {
   const [versions, setVersions] = useState<DecisionVersion[] | null>(null)
@@ -65,34 +84,40 @@ function VersionHistory({ decision }: { decision: DecisionDetailDto }) {
 
   return (
     <div>
-      <table>
-        <thead>
-          <tr>
-            <th>Version</th>
-            <th>Title</th>
-            <th>Status</th>
-            <th>Edited by</th>
-            <th>Edited at</th>
-          </tr>
-        </thead>
-        <tbody>
-          {versions.map((v) => (
-            <tr key={v.version}>
-              <td>{v.version}</td>
-              <td>{v.title}</td>
-              <td>{v.status}</td>
-              <td>{v.edited_by}</td>
-              <td>{new Date(v.created_at).toLocaleString()}</td>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Version</th>
+              <th>Title</th>
+              <th>Status</th>
+              <th>Edited by</th>
+              <th>Edited at</th>
             </tr>
-          ))}
-          <tr>
-            <td>{decision.version} (current)</td>
-            <td>{decision.title}</td>
-            <td>{decision.status}</td>
-            <td colSpan={2}></td>
-          </tr>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {versions.map((v) => (
+              <tr key={v.version}>
+                <td>{v.version}</td>
+                <td>{v.title}</td>
+                <td>
+                  <StatusChip value={v.status} kind="decision" />
+                </td>
+                <td>{v.edited_by}</td>
+                <td>{new Date(v.created_at).toLocaleString()}</td>
+              </tr>
+            ))}
+            <tr>
+              <td>{decision.version} (current)</td>
+              <td>{decision.title}</td>
+              <td>
+                <StatusChip value={decision.status} kind="decision" />
+              </td>
+              <td colSpan={2}></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <form
         onSubmit={(e) => {
@@ -203,7 +228,9 @@ export default function DecisionDetail() {
   }, [editing, load]))
 
   if (error) return <p role="alert">{error}</p>
-  if (!decision) return <p>Loading decision…</p>
+  if (!decision || !links || !associated || !backlinks || !attachments || !comments) {
+    return <p>Loading decision…</p>
+  }
 
   const canEdit = me?.permission === 'editor'
 
@@ -225,6 +252,8 @@ export default function DecisionDetail() {
     )
   }
 
+  const linksCount = associated.length + links.length + backlinks.length
+
   return (
     <main>
       <h1>
@@ -232,7 +261,7 @@ export default function DecisionDetail() {
       </h1>
       <p>
         Project: <Link to={`/projects/${decision.project}`}>{decision.project}</Link> ·{' '}
-        {decision.status}
+        <StatusChip value={decision.status} kind="decision" />
       </p>
       {decision.superseded_by && (
         <p>
@@ -243,69 +272,100 @@ export default function DecisionDetail() {
       {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
       <SubscribeButton targetRef={decision.ref} canEdit={canEdit} />
 
-      <h2>Context</h2>
-      <Markdown>{decision.context}</Markdown>
+      <DetailTabs
+        tabs={[
+          { to: '.', label: 'Overview', end: true },
+          { to: 'links', label: 'Links', count: linksCount },
+          { to: 'attachments', label: 'Attachments', count: attachments.length },
+        ]}
+      />
 
-      <h2>Decision</h2>
-      <Markdown>{decision.decision}</Markdown>
+      <Outlet
+        context={
+          {
+            decision,
+            comments,
+            setComments,
+            links,
+            setLinks,
+            associated,
+            setAssociated,
+            backlinks,
+            attachments,
+            setAttachments,
+            canEdit,
+          } satisfies DecisionContext
+        }
+      />
+    </main>
+  )
+}
 
-      <h2>Rationale</h2>
-      <Markdown>{decision.rationale}</Markdown>
+export function DecisionOverview() {
+  const { decision, comments, setComments, canEdit } = useDecisionContext()
+  return (
+    <>
+      <section className="detail-section">
+        <h2>Context</h2>
+        <Markdown>{decision.context}</Markdown>
+      </section>
 
-      <h2>Consequences</h2>
-      <Markdown>{decision.consequences}</Markdown>
+      <section className="detail-section">
+        <h2>Decision</h2>
+        <Markdown>{decision.decision}</Markdown>
+      </section>
 
-      <h2>Associations</h2>
-      {associated && (
-        <AssociationsSection
-          entityRef={decision.ref}
-          associated={associated}
-          onChange={setAssociated}
-          canEdit={canEdit}
-        />
-      )}
+      <section className="detail-section">
+        <h2>Rationale</h2>
+        <Markdown>{decision.rationale}</Markdown>
+      </section>
 
-      <h2>Links</h2>
-      {links && (
-        <LinksSection entityRef={decision.ref} links={links} onChange={setLinks} canEdit={canEdit} />
-      )}
+      <section className="detail-section">
+        <h2>Consequences</h2>
+        <Markdown>{decision.consequences}</Markdown>
+      </section>
 
-      <h2>Attachments</h2>
-      {attachments && (
-        <AttachmentList
-          ownerRef={decision.ref}
-          attachments={attachments}
-          onChange={setAttachments}
-          canEdit={canEdit}
-        />
-      )}
+      <section className="detail-section">
+        <h2>Version history</h2>
+        <VersionHistory decision={decision} />
+      </section>
 
-      <h2>Backlinks</h2>
-      {!backlinks || backlinks.length === 0 ? (
-        <p>None.</p>
-      ) : (
-        <ul>
-          {backlinks.map((b) => (
-            <li key={`${b.ref}-${b.comment_id ?? 'body'}`}>
-              <Link to={detailRoute(b.ref)}>{b.ref}</Link>
-              {b.comment_id !== undefined ? ` (comment #${b.comment_id})` : ' (description)'}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <h2>Version history</h2>
-      <VersionHistory decision={decision} />
-
-      <h2>Comments</h2>
-      {comments && (
+      <section className="detail-section">
+        <h2>Comments</h2>
         <CommentsSection
           entityRef={decision.ref}
           comments={comments}
           onChange={setComments}
           canEdit={canEdit}
         />
-      )}
-    </main>
+      </section>
+    </>
+  )
+}
+
+export function DecisionLinksTab() {
+  const { decision, associated, setAssociated, links, setLinks, backlinks, canEdit } = useDecisionContext()
+  return (
+    <LinksTabView
+      entityRef={decision.ref}
+      associated={associated}
+      onAssociatedChange={setAssociated}
+      links={links}
+      onLinksChange={setLinks}
+      backlinks={backlinks}
+      canEdit={canEdit}
+    />
+  )
+}
+
+export function DecisionAttachmentsTab() {
+  const { decision, attachments, setAttachments, canEdit } = useDecisionContext()
+  return (
+    <AttachmentsTabView
+      ownerRef={decision.ref}
+      attachments={attachments}
+      onChange={setAttachments}
+      canEdit={canEdit}
+    />
   )
 }

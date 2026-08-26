@@ -189,7 +189,7 @@ func TestAnonymousReadCoversStep10Through14Routes(t *testing.T) {
 
 	authed := map[string]string{"Cookie": sessionCookieName + "=" + sessionID, "X-CSRF-Token": csrfToken}
 	ts.doNoAuth(http.MethodPost, "/projects", authed, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", authed, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", authed, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	ts.doNoAuth(http.MethodPost, "/tickets/ABC-1/comments", authed, mustJSON(t, map[string]string{"body": "hello"}))
 
 	// Anonymous GETs across the new route surface all succeed.
@@ -239,7 +239,7 @@ func TestAnonymousReadCoversPhase4And5Routes(t *testing.T) {
 	projResp, projBody := ts.doNoAuth(http.MethodPost, "/projects", authed, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 	mustCreated(projResp, projBody, "create project")
 
-	ticketResp, ticketBody := ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", authed, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ticketResp, ticketBody := ts.doNoAuth(http.MethodPost, "/projects/ABC/tickets", authed, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	ticket := mustCreated(ticketResp, ticketBody, "create ticket")
 	ticketRef, _ := ticket["ref"].(string)
 

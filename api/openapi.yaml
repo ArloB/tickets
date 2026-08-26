@@ -308,6 +308,10 @@ paths:
       summary: Get a ticket by its public reference (e.g. ABC-123)
       parameters:
         - $ref: '#/components/parameters/TicketRef'
+        - name: include_deleted
+          in: query
+          description: Return the ticket even when it is soft-deleted.
+          schema: { type: boolean, default: false }
         - name: include
           in: query
           description: Comma-separated sub-resources to expand (comments, relationships).
@@ -605,6 +609,10 @@ paths:
       summary: Get a feature by its public reference (e.g. ABC-F1)
       parameters:
         - $ref: '#/components/parameters/FeatureRef'
+        - name: include_deleted
+          in: query
+          description: Return the feature even when it is soft-deleted.
+          schema: { type: boolean, default: false }
       responses:
         '200':
           description: OK
@@ -4025,12 +4033,24 @@ components:
     CreateTicketRequest:
       type: object
       required: [type, title]
+      description: >
+        Exactly one of feature or general is required (not enforced by
+        this schema's required list since it's an XOR, not a plain
+        required field) — the server rejects a request with neither or
+        both set.
       properties:
         type: { $ref: '#/components/schemas/TicketType' }
         title: { type: string }
         description: { type: string }
         priority: { $ref: '#/components/schemas/Priority' }
         severity: { $ref: '#/components/schemas/Severity' }
+        feature:
+          type: string
+          example: ABC-F2
+          description: The destination feature reference. Mutually exclusive with general.
+        general:
+          type: boolean
+          description: Explicitly create the ticket in the project's General feature. Mutually exclusive with feature.
 
     UpdateTicketStatusRequest:
       type: object
@@ -4092,6 +4112,7 @@ components:
         version: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time }
         comments:
           type: array
           items: { $ref: '#/components/schemas/Comment' }
@@ -4166,6 +4187,7 @@ components:
         version: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        deleted_at: { type: string, format: date-time }
 
     FeatureCompact:
       type: object

@@ -16,7 +16,7 @@ import (
 func TestIdempotentCommentReplayOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 	body := mustJSON(t, map[string]string{"body": "First pass"})
 	headers := map[string]string{"Idempotency-Key": "comment-retry-1"}
@@ -56,7 +56,7 @@ func TestIdempotentCommentReplayOverHTTP(t *testing.T) {
 func TestCommentLifecycleOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 	// --- create ---
 	createResp, createBody := ts.do(http.MethodPost, "/tickets/ABC-1/comments", nil,

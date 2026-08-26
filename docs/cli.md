@@ -57,8 +57,8 @@ tickets project create --key ABC --title "Widget Overhaul"
 # highlights, features, recent activity, recent decisions/plans.
 tickets project brief ABC
 
-# Create a ticket.
-tickets ticket create --project ABC --type task --title "Redesign the settings page" --priority high
+# Create a ticket — --feature or --general is required, no default (ADR 0023).
+tickets ticket create --project ABC --type task --title "Redesign the settings page" --priority high --general
 
 # List, filtered and sorted the same way the web UI's priority queue is.
 tickets ticket list --project ABC --view priority_queue

@@ -1,22 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom'
 import { getTicket } from '../api/tickets'
 import { listBacklinks } from '../api/backlinks'
 import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
 import { listAttachments } from '../api/attachments'
-import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { useEntityChanged } from '../api/events'
 import { Markdown } from '../components/Markdown'
 import { TicketFieldsForm } from '../components/TicketFieldsForm'
 import { TicketActions } from '../components/TicketActions'
 import { CommentsSection } from '../components/CommentsSection'
-import { RelationshipsSection } from '../components/RelationshipsSection'
-import { AssociationsSection } from '../components/AssociationsSection'
-import { LinksSection } from '../components/LinksSection'
-import { AttachmentList } from '../components/AttachmentList'
+import { DetailTabs } from '../components/DetailTabs'
+import { LinksTabView } from '../components/LinksTabView'
+import { AttachmentsTabView } from '../components/AttachmentsTabView'
 import { SubscribeButton } from '../components/SubscribeButton'
+import { StatusChip } from '../components/StatusChip'
 import { useAuth } from '../auth/AuthContext'
 import type {
   Attachment,
@@ -24,6 +23,23 @@ import type {
   ExternalLink,
   TicketDetail as TicketDetailDto,
 } from '../api/types'
+
+interface TicketContext {
+  ticket: TicketDetailDto
+  setTicket: (ticket: TicketDetailDto) => void
+  links: ExternalLink[]
+  setLinks: (links: ExternalLink[]) => void
+  associated: string[]
+  setAssociated: (associated: string[]) => void
+  backlinks: Backlink[]
+  attachments: Attachment[]
+  setAttachments: (attachments: Attachment[]) => void
+  canEdit: boolean
+}
+
+function useTicketContext() {
+  return useOutletContext<TicketContext>()
+}
 
 export default function TicketDetail() {
   const { ref = '' } = useParams()
@@ -81,7 +97,7 @@ export default function TicketDetail() {
   }, [editing, load]))
 
   if (error) return <p role="alert">{error}</p>
-  if (!ticket) return <p>Loading ticket…</p>
+  if (!ticket || !links || !associated || !backlinks || !attachments) return <p>Loading ticket…</p>
 
   const canEdit = me?.permission === 'editor'
 
@@ -103,6 +119,8 @@ export default function TicketDetail() {
     )
   }
 
+  const linksCount = (ticket.relationships?.length ?? 0) + associated.length + links.length + backlinks.length
+
   return (
     <main>
       <h1>
@@ -118,73 +136,103 @@ export default function TicketDetail() {
         )}
       </p>
       <p>
-        {ticket.type} · {ticket.status} · {ticket.priority}
-        {ticket.severity ? ` · ${ticket.severity}` : ''}
+        {ticket.type} · <StatusChip value={ticket.status} kind="status" /> ·{' '}
+        <StatusChip value={ticket.priority} kind="priority" />
+        {ticket.severity && (
+          <>
+            {' '}
+            · <StatusChip value={ticket.severity} kind="severity" />
+          </>
+        )}
       </p>
       <p>
         Assignee: {ticket.assignee ?? 'unassigned'} · Creator: {ticket.creator ?? 'unknown'}
       </p>
       {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
-      {canEdit && <TicketActions ticket={ticket} onUpdated={setTicket} />}
       <SubscribeButton targetRef={ticket.ref} canEdit={canEdit} />
 
-      <h2>Description</h2>
-      <Markdown>{ticket.description}</Markdown>
+      {canEdit && (
+        <div className="quick-edit">
+          <TicketActions ticket={ticket} onUpdated={setTicket} />
+        </div>
+      )}
 
-      <h2>Relationships</h2>
-      <RelationshipsSection
-        ticketRef={ticket.ref}
-        relationships={ticket.relationships ?? []}
-        onChange={(relationships) => setTicket({ ...ticket, relationships })}
-        canEdit={canEdit}
+      <DetailTabs
+        tabs={[
+          { to: '.', label: 'Overview', end: true },
+          { to: 'links', label: 'Links', count: linksCount },
+          { to: 'attachments', label: 'Attachments', count: attachments.length },
+        ]}
       />
 
-      <h2>Associations</h2>
-      {associated && (
-        <AssociationsSection
-          entityRef={ticket.ref}
-          associated={associated}
-          onChange={setAssociated}
-          canEdit={canEdit}
-        />
-      )}
-
-      <h2>Links</h2>
-      {links && (
-        <LinksSection entityRef={ticket.ref} links={links} onChange={setLinks} canEdit={canEdit} />
-      )}
-
-      <h2>Attachments</h2>
-      {attachments && (
-        <AttachmentList
-          ownerRef={ticket.ref}
-          attachments={attachments}
-          onChange={setAttachments}
-          canEdit={canEdit}
-        />
-      )}
-
-      <h2>Backlinks</h2>
-      {!backlinks || backlinks.length === 0 ? (
-        <p>None.</p>
-      ) : (
-        <ul>
-          {backlinks.map((b) => (
-            <li key={`${b.ref}-${b.comment_id ?? 'body'}`}>
-              <Link to={detailRoute(b.ref)}>{b.ref}</Link>
-              {b.comment_id !== undefined ? ` (comment #${b.comment_id})` : ' (description)'}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <h2>Comments</h2>
-      <CommentsSection
-        entityRef={ticket.ref}
-        comments={ticket.comments ?? []}
-        onChange={(comments) => setTicket({ ...ticket, comments })}
-        canEdit={canEdit}
+      <Outlet
+        context={
+          {
+            ticket,
+            setTicket,
+            links,
+            setLinks,
+            associated,
+            setAssociated,
+            backlinks,
+            attachments,
+            setAttachments,
+            canEdit,
+          } satisfies TicketContext
+        }
       />
     </main>
+  )
+}
+
+export function TicketOverview() {
+  const { ticket, setTicket, canEdit } = useTicketContext()
+  return (
+    <>
+      <section className="detail-section">
+        <h2>Description</h2>
+        <Markdown>{ticket.description}</Markdown>
+      </section>
+
+      <section className="detail-section">
+        <h2>Comments</h2>
+        <CommentsSection
+          entityRef={ticket.ref}
+          comments={ticket.comments ?? []}
+          onChange={(comments) => setTicket({ ...ticket, comments })}
+          canEdit={canEdit}
+        />
+      </section>
+    </>
+  )
+}
+
+export function TicketLinksTab() {
+  const { ticket, setTicket, associated, setAssociated, links, setLinks, backlinks, canEdit } =
+    useTicketContext()
+  return (
+    <LinksTabView
+      entityRef={ticket.ref}
+      relationships={ticket.relationships ?? []}
+      onRelationshipsChange={(relationships) => setTicket({ ...ticket, relationships })}
+      associated={associated}
+      onAssociatedChange={setAssociated}
+      links={links}
+      onLinksChange={setLinks}
+      backlinks={backlinks}
+      canEdit={canEdit}
+    />
+  )
+}
+
+export function TicketAttachmentsTab() {
+  const { ticket, attachments, setAttachments, canEdit } = useTicketContext()
+  return (
+    <AttachmentsTabView
+      ownerRef={ticket.ref}
+      attachments={attachments}
+      onChange={setAttachments}
+      canEdit={canEdit}
+    />
   )
 }

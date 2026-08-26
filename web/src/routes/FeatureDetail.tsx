@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom'
 import { getFeature } from '../api/features'
 import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
 import { listBacklinks } from '../api/backlinks'
 import { listAttachments } from '../api/attachments'
 import { listComments } from '../api/comments'
-import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { useEntityChanged } from '../api/events'
 import { Markdown } from '../components/Markdown'
 import { FeatureFieldsForm } from '../components/FeatureFieldsForm'
-import { AssociationsSection } from '../components/AssociationsSection'
-import { LinksSection } from '../components/LinksSection'
-import { AttachmentList } from '../components/AttachmentList'
 import { CommentsSection } from '../components/CommentsSection'
+import { DetailTabs } from '../components/DetailTabs'
+import { LinksTabView } from '../components/LinksTabView'
+import { AttachmentsTabView } from '../components/AttachmentsTabView'
 import { SubscribeButton } from '../components/SubscribeButton'
+import { StatusChip } from '../components/StatusChip'
 import { useAuth } from '../auth/AuthContext'
 import type {
   Attachment,
@@ -24,6 +24,24 @@ import type {
   ExternalLink,
   FeatureDetail as FeatureDetailDto,
 } from '../api/types'
+
+interface FeatureContext {
+  feature: FeatureDetailDto
+  comments: CommentDetail[]
+  setComments: (comments: CommentDetail[]) => void
+  links: ExternalLink[]
+  setLinks: (links: ExternalLink[]) => void
+  associated: string[]
+  setAssociated: (associated: string[]) => void
+  backlinks: Backlink[]
+  attachments: Attachment[]
+  setAttachments: (attachments: Attachment[]) => void
+  canEdit: boolean
+}
+
+function useFeatureContext() {
+  return useOutletContext<FeatureContext>()
+}
 
 export default function FeatureDetail() {
   const { ref = '' } = useParams()
@@ -77,7 +95,9 @@ export default function FeatureDetail() {
   }, [editing, load]))
 
   if (error) return <p role="alert">{error}</p>
-  if (!feature) return <p>Loading feature…</p>
+  if (!feature || !links || !associated || !backlinks || !attachments || !comments) {
+    return <p>Loading feature…</p>
+  }
 
   const canEdit = me?.permission === 'editor'
 
@@ -99,6 +119,8 @@ export default function FeatureDetail() {
     )
   }
 
+  const linksCount = associated.length + links.length + backlinks.length
+
   return (
     <main>
       <h1>
@@ -108,62 +130,86 @@ export default function FeatureDetail() {
         Project: <Link to={`/projects/${feature.project}`}>{feature.project}</Link>
       </p>
       <p>
-        {feature.status} · {feature.priority}
+        <StatusChip value={feature.status} kind="status" /> ·{' '}
+        <StatusChip value={feature.priority} kind="priority" />
       </p>
       {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
       <SubscribeButton targetRef={feature.ref} canEdit={canEdit} />
 
-      <h2>Description</h2>
-      <Markdown>{feature.description}</Markdown>
+      <DetailTabs
+        tabs={[
+          { to: '.', label: 'Overview', end: true },
+          { to: 'links', label: 'Links', count: linksCount },
+          { to: 'attachments', label: 'Attachments', count: attachments.length },
+        ]}
+      />
 
-      <h2>Associations</h2>
-      {associated && (
-        <AssociationsSection
-          entityRef={feature.ref}
-          associated={associated}
-          onChange={setAssociated}
-          canEdit={canEdit}
-        />
-      )}
+      <Outlet
+        context={
+          {
+            feature,
+            comments,
+            setComments,
+            links,
+            setLinks,
+            associated,
+            setAssociated,
+            backlinks,
+            attachments,
+            setAttachments,
+            canEdit,
+          } satisfies FeatureContext
+        }
+      />
+    </main>
+  )
+}
 
-      <h2>Links</h2>
-      {links && (
-        <LinksSection entityRef={feature.ref} links={links} onChange={setLinks} canEdit={canEdit} />
-      )}
+export function FeatureOverview() {
+  const { feature, comments, setComments, canEdit } = useFeatureContext()
+  return (
+    <>
+      <section className="detail-section">
+        <h2>Description</h2>
+        <Markdown>{feature.description}</Markdown>
+      </section>
 
-      <h2>Attachments</h2>
-      {attachments && (
-        <AttachmentList
-          ownerRef={feature.ref}
-          attachments={attachments}
-          onChange={setAttachments}
-          canEdit={canEdit}
-        />
-      )}
-
-      <h2>Backlinks</h2>
-      {!backlinks || backlinks.length === 0 ? (
-        <p>None.</p>
-      ) : (
-        <ul>
-          {backlinks.map((b) => (
-            <li key={`${b.ref}-${b.comment_id ?? 'body'}`}>
-              <Link to={detailRoute(b.ref)}>{b.ref}</Link>
-              {b.comment_id !== undefined ? ` (comment #${b.comment_id})` : ' (description)'}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <h2>Comments</h2>
-      {comments && (
+      <section className="detail-section">
+        <h2>Comments</h2>
         <CommentsSection
           entityRef={feature.ref}
           comments={comments}
           onChange={setComments}
           canEdit={canEdit}
         />
-      )}
-    </main>
+      </section>
+    </>
+  )
+}
+
+export function FeatureLinksTab() {
+  const { feature, associated, setAssociated, links, setLinks, backlinks, canEdit } = useFeatureContext()
+  return (
+    <LinksTabView
+      entityRef={feature.ref}
+      associated={associated}
+      onAssociatedChange={setAssociated}
+      links={links}
+      onLinksChange={setLinks}
+      backlinks={backlinks}
+      canEdit={canEdit}
+    />
+  )
+}
+
+export function FeatureAttachmentsTab() {
+  const { feature, attachments, setAttachments, canEdit } = useFeatureContext()
+  return (
+    <AttachmentsTabView
+      ownerRef={feature.ref}
+      attachments={attachments}
+      onChange={setAttachments}
+      canEdit={canEdit}
+    />
   )
 }

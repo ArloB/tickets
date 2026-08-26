@@ -233,6 +233,17 @@ func TestDeleteFeatureCascadeOverHTTP(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("cascade delete status = %d, body=%s", resp.StatusCode, body)
 	}
+	var deleted map[string]any
+	_ = json.Unmarshal(body, &deleted)
+	getResp, getBody := ts.do(http.MethodGet, "/features/"+ref+"?include_deleted=true", nil, nil)
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get deleted feature with include_deleted: %d, body=%s", getResp.StatusCode, getBody)
+	}
+	var included map[string]any
+	_ = json.Unmarshal(getBody, &included)
+	if included["version"] != deleted["version"] || included["deleted_at"] == nil {
+		t.Errorf("included deleted feature = %+v, want version=%v and deleted_at", included, deleted["version"])
+	}
 }
 
 // TestDeleteGeneralFeatureRejectedOverHTTP confirms ADR 0001's rule
@@ -260,7 +271,7 @@ func TestDeleteGeneralFeatureRejectedOverHTTP(t *testing.T) {
 func TestGetFeatureRejectsTicketRef(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 	resp, body := ts.do(http.MethodGet, "/features/ABC-1", nil, nil)
 	if resp.StatusCode != http.StatusBadRequest {

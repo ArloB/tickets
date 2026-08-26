@@ -35,20 +35,21 @@ type Project struct {
 // ?include=, since no MCP tool today (RegisterTools, tools.go) takes
 // an include parameter — add them here when a tool does, not before.
 type Ticket struct {
-	Ref         string    `json:"ref"`
-	Project     string    `json:"project"`
-	Feature     string    `json:"feature"`
-	Type        string    `json:"type"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	Priority    string    `json:"priority"`
-	Severity    *string   `json:"severity,omitempty"`
-	Assignee    *string   `json:"assignee,omitempty"`
-	Creator     *string   `json:"creator,omitempty"`
-	Version     int64     `json:"version"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Ref         string     `json:"ref"`
+	Project     string     `json:"project"`
+	Feature     string     `json:"feature"`
+	Type        string     `json:"type"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	Priority    string     `json:"priority"`
+	Severity    *string    `json:"severity,omitempty"`
+	Assignee    *string    `json:"assignee,omitempty"`
+	Creator     *string    `json:"creator,omitempty"`
+	Version     int64      `json:"version"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 }
 
 // ProjectCompact is one row of GET /projects — deliberately not
@@ -95,10 +96,14 @@ type TicketsPage struct {
 // sends both, even empty, matching the server's CreateTicketRequest
 // contract (priority defaults server-side when empty, description is
 // simply allowed to be blank). Severity is the one optional field.
+// Feature/General are mutually exclusive and exactly one is required —
+// the server rejects a request with neither or both set.
 type CreateTicketRequest struct {
 	Type        string `json:"type"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Priority    string `json:"priority"`
 	Severity    string `json:"severity,omitempty"`
+	Feature     string `json:"feature,omitempty"`
+	General     bool   `json:"general,omitempty"`
 }

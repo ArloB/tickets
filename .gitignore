@@ -41,3 +41,10 @@ Thumbs.db
 /coverage.out
 
 artifacts/
+
+# Internal planning/tracking docs — kept locally, not tracked (stale
+# quickly, not needed by other clones/collaborators).
+/plan.md
+/docs/benchmarks.md
+/docs/mvp-acceptance.md
+/docs/row10-live-agent-drill.md

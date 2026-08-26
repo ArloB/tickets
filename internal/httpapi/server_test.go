@@ -334,9 +334,9 @@ func TestFullVerticalSlice(t *testing.T) {
 		t.Errorf("list projects returned %d projects, want 1", len(projects))
 	}
 
-	// --- create ticket (defaults to General feature) ---
+	// --- create ticket (explicit general: true lands in the General feature) ---
 	ticketResp, ticketBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "bug", "title": "Fix the parser"}))
+		mustJSON(t, map[string]any{"type": "bug", "title": "Fix the parser", "general": true}))
 	if ticketResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create ticket status = %d, body=%s", ticketResp.StatusCode, ticketBody)
 	}
@@ -392,7 +392,7 @@ func TestFullVerticalSlice(t *testing.T) {
 func TestIfMatchRejectsUnquotedInteger(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 	resp, body := ts.do(http.MethodPatch, "/tickets/ABC-1",
 		map[string]string{"If-Match": "1"}, // bare, unquoted - must be rejected
@@ -406,7 +406,7 @@ func TestIdempotentCreateReplayOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 
-	body := mustJSON(t, map[string]string{"type": "bug", "title": "Fix the parser"})
+	body := mustJSON(t, map[string]any{"type": "bug", "title": "Fix the parser", "general": true})
 	headers := map[string]string{"Idempotency-Key": "retry-key-1"}
 
 	first, firstBody := ts.do(http.MethodPost, "/projects/ABC/tickets", headers, body)
@@ -425,7 +425,7 @@ func TestIdempotentCreateReplayOverHTTP(t *testing.T) {
 	// A genuinely new request without the replayed key must still get
 	// a new ticket, not be swallowed by the idempotency cache.
 	third, thirdBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "task", "title": "Different"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "Different", "general": true}))
 	if third.StatusCode != http.StatusCreated {
 		t.Fatalf("third create status = %d", third.StatusCode)
 	}

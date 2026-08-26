@@ -357,7 +357,7 @@ func runWorkflowViaRealMCPClient(t *testing.T, mcpURL, token, ticketRef, linkedD
 	started := decodeToolResult[mcpsrv.TicketWriteResult](t, startRes)
 
 	// 4. comment
-	commentRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_comment", Arguments: map[string]any{
+	commentRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "comment_create", Arguments: map[string]any{
 		"ref": ticketRef, "body": "Starting work via the real MCP client leg.",
 	}})
 	if err != nil || commentRes.IsError {
@@ -373,8 +373,8 @@ func runWorkflowViaRealMCPClient(t *testing.T, mcpURL, token, ticketRef, linkedD
 	}
 	dec := decodeToolResult[mcpsrv.DecisionWriteResult](t, createRes)
 
-	linkRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "ticket_link", Arguments: map[string]any{
-		"ref": ticketRef, "type": "associated_with", "target": dec.Ref,
+	linkRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "association_add", Arguments: map[string]any{
+		"ref": ticketRef, "target": dec.Ref,
 	}})
 	if err != nil || linkRes.IsError {
 		t.Fatalf("ticket_link: err=%v isError=%v content=%+v", err, linkRes != nil && linkRes.IsError, linkRes)

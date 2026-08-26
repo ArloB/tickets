@@ -232,6 +232,21 @@ func (s *Server) routeTable() []routeEntry {
 	}
 }
 
+type RouteInfo struct {
+	Method  string
+	Pattern string
+}
+
+func RouteList() []RouteInfo {
+	s := &Server{}
+	entries := s.routeTable()
+	out := make([]RouteInfo, len(entries))
+	for i, e := range entries {
+		out[i] = RouteInfo{Method: e.method, Pattern: e.pattern}
+	}
+	return out
+}
+
 // unauthenticatedRoutes is the exact set of routes reachable with no
 // credentials at all: pure liveness/readiness probes (product spec
 // §9 — an orchestrator probing these shouldn't need an account), and

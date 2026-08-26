@@ -13,7 +13,7 @@ import (
 func TestExternalLinkLifecycleOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "A"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "A", "general": true}))
 
 	addResp, addBody := ts.do(http.MethodPost, "/tickets/ABC-1/links", nil,
 		mustJSON(t, map[string]string{"title": "Design doc", "url": "https://example.com/design"}))
@@ -73,7 +73,7 @@ func TestExternalLinkLifecycleOverHTTP(t *testing.T) {
 func TestExternalLinkRejectsBadURLSchemeOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
-	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]string{"type": "task", "title": "A"}))
+	ts.do(http.MethodPost, "/projects/ABC/tickets", nil, mustJSON(t, map[string]any{"type": "task", "title": "A", "general": true}))
 
 	resp, body := ts.do(http.MethodPost, "/tickets/ABC-1/links", nil,
 		mustJSON(t, map[string]string{"title": "evil", "url": "javascript:alert(1)"}))

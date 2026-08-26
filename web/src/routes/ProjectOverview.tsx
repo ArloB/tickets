@@ -8,6 +8,7 @@ import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
 import { CommentsSection } from '../components/CommentsSection'
 import { ProjectFieldsForm } from '../components/ProjectFieldsForm'
+import { StatusChip } from '../components/StatusChip'
 import { useAuth } from '../auth/AuthContext'
 import type {
   ActivityEvent,
@@ -98,8 +99,8 @@ function TicketBriefList({ tickets }: { tickets: TicketCompact[] }) {
     <ul>
       {tickets.map((t) => (
         <li key={t.ref}>
-          <Link to={`/tickets/${t.ref}`}>{t.title}</Link> <span>({t.ref})</span> <span>{t.status}</span>{' '}
-          <span>{t.priority}</span>
+          <Link to={`/tickets/${t.ref}`}>{t.title}</Link> <span>({t.ref})</span>{' '}
+          <StatusChip value={t.status} kind="status" /> <StatusChip value={t.priority} kind="priority" />
         </li>
       ))}
     </ul>
@@ -112,7 +113,8 @@ function DecisionBriefList({ decisions }: { decisions: DecisionCompact[] }) {
     <ul>
       {decisions.map((d) => (
         <li key={d.ref}>
-          <Link to={`/decisions/${d.ref}`}>{d.title}</Link> <span>({d.ref})</span>
+          <Link to={`/decisions/${d.ref}`}>{d.title}</Link> <span>({d.ref})</span>{' '}
+          <StatusChip value={d.status} kind="decision" />
         </li>
       ))}
     </ul>
@@ -137,7 +139,7 @@ function ActivityBriefList({ events }: { events: ActivityEvent[] }) {
   return (
     <ul>
       {events.map((e) => (
-        <li key={e.id}>
+        <li key={e.id} className={e.comment_excerpt ? undefined : 'activity-mechanical'}>
           <span>{e.actor}</span> {e.event_type}
           {e.entity ? (
             <>
@@ -278,7 +280,19 @@ export default function ProjectOverview() {
           {features.map((f) => (
             <li key={f.ref}>
               <Link to={`/features/${f.ref}`}>{f.title}</Link> <span>({f.ref})</span>{' '}
-              <span>{f.status}</span> <span>{f.priority}</span>{' '}
+              <StatusChip value={f.status} kind="status" /> <StatusChip value={f.priority} kind="priority" />{' '}
+              <span
+                className="progress-bar"
+                role="progressbar"
+                aria-valuenow={f.tickets_total ? Math.round((100 * f.tickets_done) / f.tickets_total) : 0}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <span
+                  className="progress-bar-fill"
+                  style={{ width: f.tickets_total ? `${(100 * f.tickets_done) / f.tickets_total}%` : '0%' }}
+                />
+              </span>{' '}
               <span>
                 {f.tickets_done}/{f.tickets_total} done
               </span>

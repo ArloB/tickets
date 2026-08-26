@@ -68,8 +68,12 @@ func updateTicketInProcess(ctx context.Context, svc *service.Service, ref domain
 		}
 		severity := base.Severity
 		if in.Severity != nil {
-			s := domain.Severity(*in.Severity)
-			severity = &s
+			if *in.Severity == "" {
+				severity = nil
+			} else {
+				s := domain.Severity(*in.Severity)
+				severity = &s
+			}
 		}
 		req := service.UpdateTicketFieldsRequest{
 			Ref: ref, Type: base.Type, Title: base.Title, Description: base.Description,

@@ -9,9 +9,18 @@ import {
   type TicketListFilters,
   type TicketListView,
 } from '../api/tickets'
+import { listFeatures } from '../api/features'
 import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import type { Priority, Severity, TicketCompact, TicketType, WorkflowStatus } from '../api/types'
+import { StatusChip } from '../components/StatusChip'
+import type {
+  FeatureCompact,
+  Priority,
+  Severity,
+  TicketCompact,
+  TicketType,
+  WorkflowStatus,
+} from '../api/types'
 
 const statuses: WorkflowStatus[] = [
   'backlog',
@@ -38,10 +47,28 @@ function NewTicketForm({
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState<Priority>('medium')
   const [severity, setSeverity] = useState<Severity | ''>('')
+  const [features, setFeatures] = useState<FeatureCompact[] | null>(null)
+  const [featureRef, setFeatureRef] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const severityApplicable = type === 'bug' || type === 'security'
+
+  // No default feature (ADR 0023) — a ticket has to be assigned to one
+  // deliberately, General included, rather than silently landing there.
+  useEffect(() => {
+    let cancelled = false
+    listFeatures(projectKey, {}, undefined, 100)
+      .then((page) => {
+        if (!cancelled) setFeatures(page.features)
+      })
+      .catch(() => {
+        if (!cancelled) setFeatures([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectKey])
 
   async function submit() {
     setBusy(true)
@@ -53,6 +80,7 @@ function NewTicketForm({
         description,
         priority,
         severity: severityApplicable && severity !== '' ? severity : null,
+        feature: featureRef,
       })
       onCreated({
         ref: created.ref,
@@ -86,6 +114,24 @@ function NewTicketForm({
           {types.map((t) => (
             <option key={t} value={t}>
               {t}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Feature
+        <select
+          value={featureRef}
+          onChange={(e) => setFeatureRef(e.target.value)}
+          required
+          disabled={!features}
+        >
+          <option value="" disabled>
+            {features ? 'Choose a feature…' : 'Loading features…'}
+          </option>
+          {features?.map((f) => (
+            <option key={f.ref} value={f.ref}>
+              {f.ref} — {f.title}
             </option>
           ))}
         </select>
@@ -515,11 +561,15 @@ export default function Backlog() {
                   </td>
                   <td>{t.title}</td>
                   <td>{t.type}</td>
-                  <td>{t.status}</td>
-                  <td>{t.priority}</td>
-                  <td>{t.severity ?? ''}</td>
+                  <td>
+                    <StatusChip value={t.status} kind="status" />
+                  </td>
+                  <td>
+                    <StatusChip value={t.priority} kind="priority" />
+                  </td>
+                  <td>{t.severity && <StatusChip value={t.severity} kind="severity" />}</td>
                   {canReorder && (
-                    <td>
+                    <td className="reorder-cell">
                       <button
                         type="button"
                         onClick={() => void move(i, -1)}

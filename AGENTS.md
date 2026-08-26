@@ -23,7 +23,6 @@ connect time.
   the outcome.
 - Build/test: `task ci` (fmt, lint, test, OpenAPI lint, build) is the
   full local gate; `task test` alone for a faster inner loop.
-- Do not make comments in or around code. If a decision or finding must
-  be documented include it in `docs/`
+- Do not make **ANY** comments in or around code. If a decision or finding must be documented include it in `docs/` or as a comment/decision/issue/etc. in tickets
 
 No application logic lives in this file — it's a pointer, not a guide.

@@ -18,7 +18,7 @@ func TestListTicketsPaginationOverHTTP(t *testing.T) {
 	want := map[string]bool{}
 	for i := 0; i < 3; i++ {
 		resp, body := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-			mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+			mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 		if resp.StatusCode != http.StatusCreated {
 			t.Fatalf("create ticket: %d, body=%s", resp.StatusCode, body)
 		}
@@ -78,9 +78,9 @@ func TestListTicketsIssueRegisterViewOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 	ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "task", "title": "A task"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "A task", "general": true}))
 	bugResp, bugBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "bug", "title": "A bug", "severity": "high"}))
+		mustJSON(t, map[string]any{"type": "bug", "title": "A bug", "severity": "high", "general": true}))
 	if bugResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create bug: %d, body=%s", bugResp.StatusCode, bugBody)
 	}
@@ -136,7 +136,7 @@ func TestListTicketsFieldsNarrowsResponseOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 	ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 
 	resp, body := ts.doUnvalidated(http.MethodGet, "/projects/ABC/tickets?fields=title,status", nil, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -195,7 +195,7 @@ func TestGetTicketIncludeExpandsResponseOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 	createResp, createBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	if createResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create ticket: %d, body=%s", createResp.StatusCode, createBody)
 	}
@@ -248,7 +248,7 @@ func TestGetTicketFieldsNarrowsResponseOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 	createResp, createBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	if createResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create ticket: %d, body=%s", createResp.StatusCode, createBody)
 	}
@@ -279,7 +279,7 @@ func TestGetTicketUnknownFieldRejectedOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 	_, createBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	var ticket map[string]any
 	_ = json.Unmarshal(createBody, &ticket)
 	ref, _ := ticket["ref"].(string)

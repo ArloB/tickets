@@ -56,12 +56,17 @@ export async function getTicket(
   return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}${params}`)
 }
 
+/** feature is the destination feature ref (e.g. "ABC-F2") — required by
+ * the server, which no longer defaults to General (ADR 0023). The web
+ * UI always sends a concrete ref rather than the server's `general`
+ * shorthand, since it already has the full feature list to pick from. */
 export interface CreateTicketInput {
   type: TicketType
   title: string
   description: string
   priority: Priority
   severity?: Severity | null
+  feature: string
 }
 
 export async function createTicket(

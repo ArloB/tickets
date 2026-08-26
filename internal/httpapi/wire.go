@@ -25,14 +25,15 @@ import (
 // shape — every field api/openapi.yaml's Project schema declares,
 // nothing else.
 type projectDetail struct {
-	Key         string    `json:"key"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	Creator     *string   `json:"creator,omitempty"`
-	Version     int64     `json:"version"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Key         string     `json:"key"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	Creator     *string    `json:"creator,omitempty"`
+	Version     int64      `json:"version"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 }
 
 func toProjectDetail(p domain.Project) projectDetail {
@@ -91,20 +92,21 @@ func toProjectCompact(p domain.Project) projectCompact {
 // deleted ticket is invisible to every normal read path (ADR 0013),
 // so no route that returns a ticketDetail can ever populate it.
 type ticketDetail struct {
-	Ref         string    `json:"ref"`
-	Project     string    `json:"project"`
-	Feature     string    `json:"feature"`
-	Type        string    `json:"type"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	Priority    string    `json:"priority"`
-	Severity    *string   `json:"severity,omitempty"`
-	Assignee    *string   `json:"assignee,omitempty"`
-	Creator     *string   `json:"creator,omitempty"`
-	Version     int64     `json:"version"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Ref         string     `json:"ref"`
+	Project     string     `json:"project"`
+	Feature     string     `json:"feature"`
+	Type        string     `json:"type"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	Priority    string     `json:"priority"`
+	Severity    *string    `json:"severity,omitempty"`
+	Assignee    *string    `json:"assignee,omitempty"`
+	Creator     *string    `json:"creator,omitempty"`
+	Version     int64      `json:"version"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 	// Comments/Relationships are nil (omitted) unless the caller asked
 	// for them via ?include=comments,relationships (representation.go)
 	// — docs/contracts/representations.md's "expands a detail response
@@ -147,6 +149,7 @@ func toTicketDetail(t domain.Ticket) ticketDetail {
 		Version:     t.Version,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
+		DeletedAt:   t.DeletedAt,
 	}
 }
 
@@ -191,16 +194,17 @@ type ticketsPage struct {
 // never assigned (product spec §5.4), so domain.Feature has no such
 // field to omit in the first place.
 type featureDetail struct {
-	Ref         string    `json:"ref"`
-	Project     string    `json:"project"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	Priority    string    `json:"priority"`
-	Creator     *string   `json:"creator,omitempty"`
-	Version     int64     `json:"version"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Ref         string     `json:"ref"`
+	Project     string     `json:"project"`
+	Title       string     `json:"title"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	Priority    string     `json:"priority"`
+	Creator     *string    `json:"creator,omitempty"`
+	Version     int64      `json:"version"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 }
 
 func toFeatureDetail(f domain.Feature) featureDetail {
@@ -220,6 +224,7 @@ func toFeatureDetail(f domain.Feature) featureDetail {
 		Version:     f.Version,
 		CreatedAt:   f.CreatedAt,
 		UpdatedAt:   f.UpdatedAt,
+		DeletedAt:   f.DeletedAt,
 	}
 }
 

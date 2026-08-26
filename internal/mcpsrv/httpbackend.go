@@ -37,15 +37,7 @@ type HTTPBackend struct {
 func toServiceError(err error) error {
 	var cerr *apiclient.Error
 	if !errors.As(err, &cerr) {
-		// A transport failure (connection refused, unparseable body) —
-		// not something the server sent. Reported through the same
-		// *service.Error path as everything else so toolError
-		// (tools.go) surfaces this message to the agent instead of
-		// collapsing it to the generic "internal_error: an unexpected
-		// error occurred": "can't reach the server" and "the server
-		// rejected the request" read very differently to whoever is
-		// debugging a `tickets mcp` invocation.
-		return &service.Error{Code: domain.ErrInternal, Message: fmt.Sprintf("could not reach the Tickets API: %v", err)}
+		return &service.Error{Code: domain.ErrInternal, Message: "could not reach the Tickets API"}
 	}
 	return &service.Error{
 		Code:           cerr.Code,
@@ -121,6 +113,7 @@ func toDomainTicket(t apiclient.Ticket) (domain.Ticket, error) {
 		Version:     t.Version,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
+		DeletedAt:   t.DeletedAt,
 	}, nil
 }
 
@@ -128,12 +121,18 @@ func toDomainFeature(f apiclient.Feature) domain.Feature {
 	return domain.Feature{
 		Ref: f.Ref, ProjectKey: f.Project, Title: f.Title, Description: f.Description,
 		Status: domain.WorkflowStatus(f.Status), Priority: domain.Priority(f.Priority),
-		Version: f.Version, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt,
+		Version: f.Version, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt, DeletedAt: f.DeletedAt,
 	}
 }
 
-func (b *HTTPBackend) GetFeature(ctx context.Context, ref string) (domain.Feature, error) {
-	f, err := b.Client.GetFeature(ctx, ref)
+func (b *HTTPBackend) GetFeature(ctx context.Context, ref string, includeDeleted ...bool) (domain.Feature, error) {
+	var f apiclient.Feature
+	var err error
+	if len(includeDeleted) > 0 && includeDeleted[0] {
+		f, err = b.Client.GetFeatureIncludingDeleted(ctx, ref)
+	} else {
+		f, err = b.Client.GetFeature(ctx, ref)
+	}
 	if err != nil {
 		return domain.Feature{}, toServiceError(err)
 	}
@@ -150,7 +149,7 @@ func (b *HTTPBackend) CreateFeature(ctx context.Context, in CreateFeatureInput) 
 	}
 	f, err := b.Client.CreateFeature(ctx, projectKey, apiclient.CreateFeatureRequest{
 		Title: in.Title, Description: in.Description, Priority: in.Priority,
-	})
+	}, in.IdempotencyKey)
 	if err != nil {
 		return FeatureWriteResult{}, toServiceError(err)
 	}
@@ -161,6 +160,38 @@ func (b *HTTPBackend) UpdateFeature(ctx context.Context, in UpdateFeatureInput) 
 	f, err := b.Client.UpdateFeature(ctx, in.Ref, apiclient.UpdateFeatureRequest{
 		Title: in.Title, Description: in.Description, Priority: in.Priority,
 	}, in.ExpectedVersion)
+	if err != nil {
+		return FeatureWriteResult{}, toServiceError(err)
+	}
+	return toFeatureWriteResult(toDomainFeature(f)), nil
+}
+
+func (b *HTTPBackend) SetFeatureStatus(ctx context.Context, ref, status string, expectedVersion int64) (FeatureWriteResult, error) {
+	f, err := b.Client.SetFeatureStatus(ctx, ref, status, expectedVersion)
+	if err != nil {
+		return FeatureWriteResult{}, toServiceError(err)
+	}
+	return toFeatureWriteResult(toDomainFeature(f)), nil
+}
+
+func (b *HTTPBackend) ReorderFeature(ctx context.Context, ref string, afterRef *string, expectedVersion int64) (FeatureWriteResult, error) {
+	f, err := b.Client.ReorderFeature(ctx, ref, afterRef, expectedVersion)
+	if err != nil {
+		return FeatureWriteResult{}, toServiceError(err)
+	}
+	return toFeatureWriteResult(toDomainFeature(f)), nil
+}
+
+func (b *HTTPBackend) DeleteFeature(ctx context.Context, ref string, cascade bool, expectedVersion int64) (DeleteWriteResult, error) {
+	newVersion, err := b.Client.DeleteFeature(ctx, ref, cascade, expectedVersion)
+	if err != nil {
+		return DeleteWriteResult{}, toServiceError(err)
+	}
+	return DeleteWriteResult{Ref: ref, Version: newVersion}, nil
+}
+
+func (b *HTTPBackend) RestoreFeature(ctx context.Context, ref string, expectedVersion int64) (FeatureWriteResult, error) {
+	f, err := b.Client.RestoreFeature(ctx, ref, expectedVersion)
 	if err != nil {
 		return FeatureWriteResult{}, toServiceError(err)
 	}
@@ -210,6 +241,66 @@ func (b *HTTPBackend) UpdateDecision(ctx context.Context, in UpdateDecisionInput
 		return DecisionWriteResult{}, toServiceError(err)
 	}
 	return toDecisionWriteResult(toDomainDecision(d)), nil
+}
+
+func (b *HTTPBackend) ListDecisions(ctx context.Context, projectKey string, limit int, cursor string) (RecordsListOutput, error) {
+	if projectKey == "" {
+		projectKey = b.DefaultProject
+	}
+	if projectKey == "" {
+		return RecordsListOutput{}, errMissingProjectKey()
+	}
+	page, err := b.Client.ListDecisions(ctx, projectKey, limit, cursor)
+	if err != nil {
+		return RecordsListOutput{}, toServiceError(err)
+	}
+	out := RecordsListOutput{Records: make([]RecordCompact, len(page.Decisions)), NextCursor: page.NextCursor}
+	for i, d := range page.Decisions {
+		out.Records[i] = RecordCompact{Ref: d.Ref, Kind: "decision", Title: d.Title, Status: d.Status, Version: d.Version, UpdatedAt: d.UpdatedAt}
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) GetDecisionVersions(ctx context.Context, ref string) (RecordVersionsOutput, error) {
+	page, err := b.Client.ListDecisionVersions(ctx, ref)
+	if err != nil {
+		return RecordVersionsOutput{}, toServiceError(err)
+	}
+	out := RecordVersionsOutput{Versions: make([]RecordVersion, len(page.Versions))}
+	for i, v := range page.Versions {
+		out.Versions[i] = RecordVersion{
+			Version: v.Version, Title: v.Title, Context: v.Context, Decision: v.Decision,
+			Rationale: v.Rationale, Consequences: v.Consequences, Status: v.Status,
+			EditedBy: v.EditedBy, CreatedAt: v.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) GetDecisionDiff(ctx context.Context, ref string, from, to int64) (RecordDiff, error) {
+	diff, err := b.Client.GetDecisionDiff(ctx, ref, from, to)
+	if err != nil {
+		return RecordDiff{}, toServiceError(err)
+	}
+	return RecordDiff{
+		FromVersion: diff.FromVersion, ToVersion: diff.ToVersion,
+		Title: toAPIDiffLineViews(diff.Title), Context: toAPIDiffLineViews(diff.Context),
+		Decision: toAPIDiffLineViews(diff.Decision), Rationale: toAPIDiffLineViews(diff.Rationale),
+		Consequences: toAPIDiffLineViews(diff.Consequences),
+		StatusFrom:   diff.StatusFrom, StatusTo: diff.StatusTo,
+	}, nil
+}
+
+// toAPIDiffLineViews converts apiclient.DiffLine (the HTTP-bridge's
+// own copy of the same shape, per apiclient/decisions.go's doc) to
+// DiffLineView — HTTPBackend's edge-translation counterpart to
+// InProcessBackend's toDiffLineViews (domain.DiffLine).
+func toAPIDiffLineViews(lines []apiclient.DiffLine) []DiffLineView {
+	out := make([]DiffLineView, len(lines))
+	for i, l := range lines {
+		out[i] = DiffLineView{Op: l.Op, Text: l.Text}
+	}
+	return out
 }
 
 // toDomainContentItem converts apiclient.ContentItem into
@@ -295,6 +386,72 @@ func (b *HTTPBackend) UpdateContentItem(ctx context.Context, in UpdateContentIte
 	return toContentItemWriteResult(toDomainContentItem(item)), nil
 }
 
+func (b *HTTPBackend) ListContentItems(ctx context.Context, projectKey, kind string, limit int, cursor string) (RecordsListOutput, error) {
+	if projectKey == "" {
+		projectKey = b.DefaultProject
+	}
+	if projectKey == "" {
+		return RecordsListOutput{}, errMissingProjectKey()
+	}
+	urlKind := contentItemURLKind(domain.EntityKind(kind))
+	if urlKind == "" {
+		return RecordsListOutput{}, &service.Error{Code: domain.ErrValidationFailed, Field: "kind", Message: "kind must be \"plan\" or \"document\""}
+	}
+	page, err := b.Client.ListContentItems(ctx, urlKind, projectKey, limit, cursor)
+	if err != nil {
+		return RecordsListOutput{}, toServiceError(err)
+	}
+	out := RecordsListOutput{Records: make([]RecordCompact, len(page.Items)), NextCursor: page.NextCursor}
+	for i, c := range page.Items {
+		out.Records[i] = RecordCompact{Ref: c.Ref, Kind: c.Kind, Title: c.Title, Version: c.Version, UpdatedAt: c.UpdatedAt}
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) GetContentItemVersions(ctx context.Context, ref string) (RecordVersionsOutput, error) {
+	parsed, perr := domain.Parse(ref)
+	if perr != nil {
+		return RecordVersionsOutput{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	urlKind := contentItemURLKind(parsed.Kind)
+	if urlKind == "" {
+		return RecordVersionsOutput{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
+	}
+	page, err := b.Client.ListContentItemVersions(ctx, urlKind, ref)
+	if err != nil {
+		return RecordVersionsOutput{}, toServiceError(err)
+	}
+	out := RecordVersionsOutput{Versions: make([]RecordVersion, len(page.Versions))}
+	for i, v := range page.Versions {
+		out.Versions[i] = RecordVersion{
+			Version: v.Version, Title: v.Title, Representation: v.Representation, Body: v.Body,
+			FileName: v.FileName, FileSize: v.FileSize, MediaType: v.MediaType, Checksum: v.Checksum,
+			PathValue: v.PathValue, URLValue: v.URLValue,
+			EditedBy: v.EditedBy, CreatedAt: v.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) GetContentItemDiff(ctx context.Context, ref string, from, to int64) (RecordDiff, error) {
+	parsed, perr := domain.Parse(ref)
+	if perr != nil {
+		return RecordDiff{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: perr.Error()}
+	}
+	urlKind := contentItemURLKind(parsed.Kind)
+	if urlKind == "" {
+		return RecordDiff{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
+	}
+	diff, err := b.Client.GetContentItemDiff(ctx, urlKind, ref, from, to)
+	if err != nil {
+		return RecordDiff{}, toServiceError(err)
+	}
+	return RecordDiff{
+		FromVersion: diff.FromVersion, ToVersion: diff.ToVersion,
+		Title: toAPIDiffLineViews(diff.Title), Body: toAPIDiffLineViews(diff.Body),
+	}, nil
+}
+
 func (b *HTTPBackend) GetProject(ctx context.Context, key string) (domain.Project, error) {
 	if key == "" {
 		key = b.DefaultProject
@@ -309,8 +466,9 @@ func (b *HTTPBackend) GetProject(ctx context.Context, key string) (domain.Projec
 	return toDomainProject(p), nil
 }
 
-func (b *HTTPBackend) ListProjects(ctx context.Context, limit int, cursor string) (ProjectsListOutput, error) {
-	page, err := b.Client.ListProjects(ctx, limit, cursor, false)
+func (b *HTTPBackend) ListProjects(ctx context.Context, limit int, cursor string, includeArchivedValues ...bool) (ProjectsListOutput, error) {
+	includeArchived := len(includeArchivedValues) > 0 && includeArchivedValues[0]
+	page, err := b.Client.ListProjects(ctx, limit, cursor, includeArchived)
 	if err != nil {
 		return ProjectsListOutput{}, toServiceError(err)
 	}
@@ -384,14 +542,16 @@ func (b *HTTPBackend) UpdateProject(ctx context.Context, in UpdateProjectInput) 
 	return toDomainProject(result), nil
 }
 
-func (b *HTTPBackend) ListFeatures(ctx context.Context, projectKey string, limit int, cursor string) (FeaturesListOutput, error) {
+func (b *HTTPBackend) ListFeatures(ctx context.Context, projectKey string, filters FeatureListFilters, limit int, cursor string) (FeaturesListOutput, error) {
 	if projectKey == "" {
 		projectKey = b.DefaultProject
 	}
 	if projectKey == "" {
 		return FeaturesListOutput{}, errMissingProjectKey()
 	}
-	page, err := b.Client.ListFeatures(ctx, projectKey, limit, cursor)
+	page, err := b.Client.ListFeaturesFiltered(ctx, projectKey, apiclient.FeatureListFilters{
+		Status: filters.Status, Priority: filters.Priority, Creator: filters.Creator, UpdatedSince: filters.UpdatedSince,
+	}, limit, cursor)
 	if err != nil {
 		return FeaturesListOutput{}, toServiceError(err)
 	}
@@ -444,8 +604,14 @@ func (b *HTTPBackend) ListTickets(ctx context.Context, projectKey, view string, 
 	return out, nil
 }
 
-func (b *HTTPBackend) GetTicket(ctx context.Context, ref string) (domain.Ticket, error) {
-	t, err := b.Client.GetTicket(ctx, ref)
+func (b *HTTPBackend) GetTicket(ctx context.Context, ref string, includeDeleted ...bool) (domain.Ticket, error) {
+	var t apiclient.Ticket
+	var err error
+	if len(includeDeleted) > 0 && includeDeleted[0] {
+		t, err = b.Client.GetTicketIncludingDeleted(ctx, ref)
+	} else {
+		t, err = b.Client.GetTicket(ctx, ref)
+	}
 	if err != nil {
 		return domain.Ticket{}, toServiceError(err)
 	}
@@ -472,12 +638,133 @@ func (b *HTTPBackend) UpdateTicket(ctx context.Context, in UpdateTicketInput) (T
 	return toTicketWriteResult(ticket), nil
 }
 
+func (b *HTTPBackend) MoveTicketFeature(ctx context.Context, ref, featureRef string, expectedVersion int64) (domain.Ticket, error) {
+	t, err := b.Client.MoveTicket(ctx, ref, featureRef, expectedVersion)
+	if err != nil {
+		return domain.Ticket{}, toServiceError(err)
+	}
+	return toDomainTicket(t)
+}
+
+func (b *HTTPBackend) AssignTicket(ctx context.Context, ref string, assignee *string, expectedVersion int64) (TicketWriteResult, error) {
+	t, err := b.Client.AssignTicket(ctx, ref, assignee, expectedVersion)
+	if err != nil {
+		return TicketWriteResult{}, toServiceError(err)
+	}
+	ticket, err := toDomainTicket(t)
+	if err != nil {
+		return TicketWriteResult{}, err
+	}
+	return toTicketWriteResult(ticket), nil
+}
+
+func (b *HTTPBackend) ReorderTicket(ctx context.Context, ref string, afterRef *string, expectedVersion int64) (TicketWriteResult, error) {
+	t, err := b.Client.ReorderTicket(ctx, ref, afterRef, expectedVersion)
+	if err != nil {
+		return TicketWriteResult{}, toServiceError(err)
+	}
+	ticket, err := toDomainTicket(t)
+	if err != nil {
+		return TicketWriteResult{}, err
+	}
+	return toTicketWriteResult(ticket), nil
+}
+
+func (b *HTTPBackend) DeleteTicket(ctx context.Context, ref string, expectedVersion int64) (DeleteWriteResult, error) {
+	newVersion, err := b.Client.DeleteTicket(ctx, ref, expectedVersion)
+	if err != nil {
+		return DeleteWriteResult{}, toServiceError(err)
+	}
+	return DeleteWriteResult{Ref: ref, Version: newVersion}, nil
+}
+
+func (b *HTTPBackend) RestoreTicket(ctx context.Context, ref string, expectedVersion int64) (TicketWriteResult, error) {
+	t, err := b.Client.RestoreTicket(ctx, ref, expectedVersion)
+	if err != nil {
+		return TicketWriteResult{}, toServiceError(err)
+	}
+	ticket, err := toDomainTicket(t)
+	if err != nil {
+		return TicketWriteResult{}, err
+	}
+	return toTicketWriteResult(ticket), nil
+}
+
 func (b *HTTPBackend) AddComment(ctx context.Context, ref, body, idempotencyKey string) (CommentWriteResult, error) {
 	c, err := b.Client.CreateComment(ctx, ref, body, idempotencyKey)
 	if err != nil {
 		return CommentWriteResult{}, toServiceError(err)
 	}
 	return CommentWriteResult{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt}, nil
+}
+
+// toDomainComment converts apiclient.Comment to domain.Comment,
+// parsing Author back into an ActorRef the way toDomainTicket parses
+// Assignee/Creator.
+func toDomainComment(c apiclient.Comment) (domain.Comment, error) {
+	author, err := domain.ParseActorRef(c.Author)
+	if err != nil {
+		return domain.Comment{}, err
+	}
+	return domain.Comment{
+		ID: c.ID, Author: author, Body: c.Body, Version: c.Version,
+		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, DeletedAt: c.DeletedAt,
+	}, nil
+}
+
+func (b *HTTPBackend) GetComment(ctx context.Context, id int64) (domain.Comment, error) {
+	c, err := b.Client.GetComment(ctx, id)
+	if err != nil {
+		return domain.Comment{}, toServiceError(err)
+	}
+	return toDomainComment(c)
+}
+
+func (b *HTTPBackend) ListComments(ctx context.Context, ref string) (CommentsListOutput, error) {
+	page, err := b.Client.ListComments(ctx, ref)
+	if err != nil {
+		return CommentsListOutput{}, toServiceError(err)
+	}
+	out := CommentsListOutput{Comments: make([]CommentCompact, len(page.Comments))}
+	for i, c := range page.Comments {
+		comment, err := toDomainComment(c)
+		if err != nil {
+			return CommentsListOutput{}, err
+		}
+		out.Comments[i] = toCommentCompact(comment)
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) UpdateComment(ctx context.Context, id, expectedVersion int64, body string) (CommentWriteResult, error) {
+	c, err := b.Client.EditComment(ctx, id, expectedVersion, body)
+	if err != nil {
+		return CommentWriteResult{}, toServiceError(err)
+	}
+	return CommentWriteResult{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt}, nil
+}
+
+func (b *HTTPBackend) DeleteComment(ctx context.Context, id, expectedVersion int64) (CommentDeleteResult, error) {
+	if err := b.Client.DeleteComment(ctx, id, expectedVersion); err != nil {
+		return CommentDeleteResult{}, toServiceError(err)
+	}
+	return CommentDeleteResult{ID: id}, nil
+}
+
+func (b *HTTPBackend) GetCommentHistory(ctx context.Context, id int64) (CommentHistoryOutput, error) {
+	page, err := b.Client.GetCommentHistory(ctx, id)
+	if err != nil {
+		return CommentHistoryOutput{}, toServiceError(err)
+	}
+	out := CommentHistoryOutput{Versions: make([]domain.CommentVersion, len(page.Versions))}
+	for i, v := range page.Versions {
+		editedBy, err := domain.ParseActorRef(v.EditedBy)
+		if err != nil {
+			return CommentHistoryOutput{}, err
+		}
+		out.Versions[i] = domain.CommentVersion{Version: v.Version, Body: v.Body, EditedBy: editedBy, CreatedAt: v.CreatedAt}
+	}
+	return out, nil
 }
 
 func (b *HTTPBackend) AddRelationship(ctx context.Context, sourceRef, relType, targetRef string) error {
@@ -492,6 +779,107 @@ func (b *HTTPBackend) AddAssociation(ctx context.Context, sourceRef, targetRef s
 		return toServiceError(err)
 	}
 	return nil
+}
+
+func (b *HTTPBackend) RemoveRelationship(ctx context.Context, sourceRef, relType, targetRef string) error {
+	if err := b.Client.RemoveRelationship(ctx, sourceRef, relType, targetRef); err != nil {
+		return toServiceError(err)
+	}
+	return nil
+}
+
+func (b *HTTPBackend) RemoveAssociation(ctx context.Context, sourceRef, targetRef string) error {
+	if err := b.Client.RemoveAssociation(ctx, sourceRef, targetRef); err != nil {
+		return toServiceError(err)
+	}
+	return nil
+}
+
+func (b *HTTPBackend) AddLink(ctx context.Context, ref, title, url string) (LinkView, error) {
+	l, err := b.Client.AddLink(ctx, ref, apiclient.AddLinkRequest{Title: title, URL: url})
+	if err != nil {
+		return LinkView{}, toServiceError(err)
+	}
+	return LinkView{ID: l.ID, Title: l.Title, URL: l.URL}, nil
+}
+
+func (b *HTTPBackend) ListLinks(ctx context.Context, ref string) ([]LinkView, error) {
+	links, err := b.Client.ListLinks(ctx, ref)
+	if err != nil {
+		return nil, toServiceError(err)
+	}
+	out := make([]LinkView, len(links))
+	for i, l := range links {
+		out[i] = LinkView{ID: l.ID, Title: l.Title, URL: l.URL}
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) RemoveLink(ctx context.Context, ref string, id int64) error {
+	if err := b.Client.RemoveLink(ctx, ref, id); err != nil {
+		return toServiceError(err)
+	}
+	return nil
+}
+
+func (b *HTTPBackend) GetBacklinks(ctx context.Context, ref string) ([]BacklinkView, error) {
+	backlinks, err := b.Client.ListBacklinks(ctx, ref)
+	if err != nil {
+		return nil, toServiceError(err)
+	}
+	out := make([]BacklinkView, len(backlinks))
+	for i, bl := range backlinks {
+		v := BacklinkView{Ref: bl.Ref}
+		if bl.CommentID != nil {
+			v.CommentID = *bl.CommentID
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) GetAttachment(ctx context.Context, id int64) (AttachmentView, error) {
+	a, err := b.Client.GetAttachment(ctx, id)
+	if err != nil {
+		return AttachmentView{}, toServiceError(err)
+	}
+	return attachmentViewFromAPI(a), nil
+}
+
+func (b *HTTPBackend) ListAttachments(ctx context.Context, ref string, commentID int64) ([]AttachmentView, error) {
+	page, err := b.Client.ListAttachments(ctx, ref, commentID)
+	if err != nil {
+		return nil, toServiceError(err)
+	}
+	out := make([]AttachmentView, len(page.Attachments))
+	for i, a := range page.Attachments {
+		out[i] = attachmentViewFromAPI(a)
+	}
+	return out, nil
+}
+
+func (b *HTTPBackend) ListAttachmentVersions(ctx context.Context, id int64) ([]AttachmentVersionView, error) {
+	page, err := b.Client.ListAttachmentVersions(ctx, id)
+	if err != nil {
+		return nil, toServiceError(err)
+	}
+	out := make([]AttachmentVersionView, len(page.Versions))
+	for i, v := range page.Versions {
+		out[i] = AttachmentVersionView{
+			Version: v.Version, Kind: v.Kind, FileName: v.FileName, FileSize: v.FileSize,
+			MediaType: v.MediaType, Checksum: v.Checksum, PathValue: v.PathValue,
+			UploadedBy: v.UploadedBy, CreatedAt: v.CreatedAt,
+		}
+	}
+	return out, nil
+}
+
+func attachmentViewFromAPI(a apiclient.Attachment) AttachmentView {
+	return AttachmentView{
+		ID: a.ID, OwnerRef: a.OwnerRef, CommentID: a.CommentID, Kind: a.Kind, Title: a.Title,
+		CurrentVersion: a.CurrentVersion, FileName: a.FileName, FileSize: a.FileSize, MediaType: a.MediaType,
+		Checksum: a.Checksum, PathValue: a.PathValue, CreatedAt: a.CreatedAt, Creator: a.Creator, DeletedAt: a.DeletedAt,
+	}
 }
 
 func (b *HTTPBackend) Search(ctx context.Context, in SearchInput) (SearchOutput, error) {
@@ -537,12 +925,55 @@ func (b *HTTPBackend) GetProjectBrief(ctx context.Context, key string) (ProjectB
 	return fromAPIProjectBrief(brief), nil
 }
 
+func (b *HTTPBackend) ListActivity(ctx context.Context, projectKey, actor, entityKind, eventType string, limit int, cursor string) (ActivityListOutput, error) {
+	if projectKey == "" {
+		projectKey = b.DefaultProject
+	}
+	if projectKey == "" {
+		return ActivityListOutput{}, errMissingProjectKey()
+	}
+	page, err := b.Client.ListActivity(ctx, projectKey, apiclient.ActivityListOptions{
+		Actor: actor, EntityKind: entityKind, EventType: eventType,
+	}, limit, cursor)
+	if err != nil {
+		return ActivityListOutput{}, toServiceError(err)
+	}
+	out := ActivityListOutput{Events: make([]ActivityEventView, len(page.Events)), NextCursor: page.NextCursor}
+	for i, e := range page.Events {
+		v := ActivityEventView{
+			ID: e.ID, Entity: e.Entity, EntityKind: e.EntityKind,
+			Actor: e.Actor, EventType: e.EventType, CreatedAt: e.CreatedAt,
+		}
+		if e.CommentID != nil {
+			v.CommentID = *e.CommentID
+		}
+		if e.CommentExcerpt != nil {
+			v.CommentExcerpt = *e.CommentExcerpt
+		}
+		out.Events[i] = v
+	}
+	return out, nil
+}
+
 func (b *HTTPBackend) MarkNotificationsRead(ctx context.Context, ids []int64, all bool) (int64, error) {
 	n, err := b.Client.MarkNotificationsRead(ctx, ids, all)
 	if err != nil {
 		return 0, toServiceError(err)
 	}
 	return n, nil
+}
+
+func (b *HTTPBackend) SetSubscription(ctx context.Context, ref string, subscribed bool) error {
+	var err error
+	if subscribed {
+		_, err = b.Client.Subscribe(ctx, ref)
+	} else {
+		_, err = b.Client.Unsubscribe(ctx, ref)
+	}
+	if err != nil {
+		return toServiceError(err)
+	}
+	return nil
 }
 
 func (b *HTTPBackend) CreateTicket(ctx context.Context, in CreateTicketInput) (domain.Ticket, error) {
@@ -555,7 +986,8 @@ func (b *HTTPBackend) CreateTicket(ctx context.Context, in CreateTicketInput) (d
 	}
 	t, err := b.Client.CreateTicket(ctx, projectKey, apiclient.CreateTicketRequest{
 		Type: in.Type, Title: in.Title, Description: in.Description, Priority: in.Priority, Severity: in.Severity,
-	})
+		Feature: in.Feature, General: in.General,
+	}, in.IdempotencyKey)
 	if err != nil {
 		return domain.Ticket{}, toServiceError(err)
 	}

@@ -15,7 +15,7 @@ func TestTicketLifecycleMutationsOverHTTP(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 	createResp, createBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	if createResp.StatusCode != http.StatusCreated {
 		t.Fatalf("create ticket: %d, body=%s", createResp.StatusCode, createBody)
 	}
@@ -119,6 +119,15 @@ func TestTicketLifecycleMutationsOverHTTP(t *testing.T) {
 	if goneResp.StatusCode != http.StatusNotFound {
 		t.Errorf("get deleted ticket status = %d, want 404", goneResp.StatusCode)
 	}
+	deletedGetResp, deletedGetBody := ts.do(http.MethodGet, "/tickets/ABC-1?include_deleted=true", nil, nil)
+	if deletedGetResp.StatusCode != http.StatusOK {
+		t.Fatalf("get deleted ticket with include_deleted: %d, body=%s", deletedGetResp.StatusCode, deletedGetBody)
+	}
+	var deletedTicket map[string]any
+	_ = json.Unmarshal(deletedGetBody, &deletedTicket)
+	if int64(deletedTicket["version"].(float64)) != newVersion || deletedTicket["deleted_at"] == nil {
+		t.Errorf("included deleted ticket = %+v, want version=%d and deleted_at", deletedTicket, newVersion)
+	}
 
 	// --- restore ---
 	restoreResp, restoreBody := ts.do(http.MethodPost, "/tickets/ABC-1/restore",
@@ -140,7 +149,7 @@ func TestMoveTicketToDifferentProjectFeatureRejected(t *testing.T) {
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "A"}))
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "XYZ", "title": "B"}))
 	createResp, createBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	var ticket map[string]any
 	_ = json.Unmarshal(createBody, &ticket)
 	version := int64(ticket["version"].(float64))
@@ -161,7 +170,7 @@ func TestAssignTicketToUnknownActorRejected(t *testing.T) {
 	ts := newTestServer(t)
 	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "Example"}))
 	createResp, createBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
-		mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "general": true}))
 	var ticket map[string]any
 	_ = json.Unmarshal(createBody, &ticket)
 	version := int64(ticket["version"].(float64))
@@ -172,5 +181,53 @@ func TestAssignTicketToUnknownActorRejected(t *testing.T) {
 		mustJSON(t, map[string]string{"assignee": "human:nobody"}))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("assign to unknown actor status = %d, want 400, body=%s", resp.StatusCode, body)
+	}
+}
+
+// TestCreateTicketRequiresExplicitFeatureChoice is ADR 0023's HTTP-layer
+// regression test: creation no longer silently defaults to General
+// when the request omits feature/general, and no longer accepts both.
+// An explicit feature ref is honored, including a cross-project
+// rejection mirroring TestMoveTicketToDifferentProjectFeatureRejected.
+func TestCreateTicketRequiresExplicitFeatureChoice(t *testing.T) {
+	ts := newTestServer(t)
+	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "ABC", "title": "A"}))
+	ts.do(http.MethodPost, "/projects", nil, mustJSON(t, map[string]string{"key": "XYZ", "title": "B"}))
+	_, featureBody := ts.do(http.MethodPost, "/projects/ABC/features", nil, mustJSON(t, map[string]string{"title": "Second feature"}))
+	var feature map[string]any
+	if err := json.Unmarshal(featureBody, &feature); err != nil {
+		t.Fatalf("unmarshal feature: %v", err)
+	}
+	featureRef := feature["ref"].(string)
+
+	neitherResp, neitherBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
+		mustJSON(t, map[string]string{"type": "task", "title": "T"}))
+	if neitherResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("create with neither feature nor general: status = %d, want 400, body=%s", neitherResp.StatusCode, neitherBody)
+	}
+
+	bothResp, bothBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "feature": featureRef, "general": true}))
+	if bothResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("create with both feature and general: status = %d, want 400, body=%s", bothResp.StatusCode, bothBody)
+	}
+
+	crossProjectResp, crossProjectBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "feature": "XYZ-F1"}))
+	if crossProjectResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("create with a different project's feature: status = %d, want 400, body=%s", crossProjectResp.StatusCode, crossProjectBody)
+	}
+
+	okResp, okBody := ts.do(http.MethodPost, "/projects/ABC/tickets", nil,
+		mustJSON(t, map[string]any{"type": "task", "title": "T", "feature": featureRef}))
+	if okResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create with an explicit feature: status = %d, want 201, body=%s", okResp.StatusCode, okBody)
+	}
+	var created map[string]any
+	if err := json.Unmarshal(okBody, &created); err != nil {
+		t.Fatalf("unmarshal created ticket: %v", err)
+	}
+	if created["feature"] != featureRef {
+		t.Errorf("created ticket feature = %v, want %q", created["feature"], featureRef)
 	}
 }

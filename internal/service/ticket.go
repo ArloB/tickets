@@ -11,19 +11,26 @@ import (
 	"github.com/ArloB/tickets/internal/store"
 )
 
-// CreateTicketRequest is CreateTicket's input. There is no feature
-// field: Phase 0's slice only implements product spec §6.1's "create a
-// ticket from a project without manually selecting a feature" path —
-// every ticket lands in the project's General feature. Explicit
-// feature selection and moving a ticket between features are Phase 1
-// work (see the Phase 0 plan's deferral list).
+// CreateTicketRequest is CreateTicket's input. FeatureRef and
+// UseGeneralFeature are both optional and, at this layer, not mutually
+// exclusive with being unset together: if neither is given, the ticket
+// lands in the project's General feature, same as every ticket did
+// before Phase 1 added explicit feature selection (ADR 0001). Callers
+// that want to force a human/agent to make an explicit choice — the
+// HTTP API's createTicket handler and the MCP in-process backend's
+// CreateTicket both do — enforce "exactly one of FeatureRef or
+// UseGeneralFeature" themselves before reaching here; this struct
+// doesn't bake that policy in, so internal Go callers (tests, batch
+// tooling) can keep relying on the General default.
 type CreateTicketRequest struct {
-	ProjectKey  string
-	Type        domain.TicketType
-	Title       string
-	Description string
-	Priority    domain.Priority
-	Severity    *domain.Severity
+	ProjectKey        string
+	Type              domain.TicketType
+	Title             string
+	Description       string
+	Priority          domain.Priority
+	Severity          *domain.Severity
+	FeatureRef        domain.Reference
+	UseGeneralFeature bool
 }
 
 // CreateTicket allocates a reference and creates a ticket in its
@@ -95,6 +102,21 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 			return fmt.Errorf("service: project %q has no general feature (data integrity)", req.ProjectKey)
 		}
 
+		featureID := proj.GeneralFeatureID
+		if !req.UseGeneralFeature && req.FeatureRef != (domain.Reference{}) {
+			feature, ferr := store.GetFeatureByRef(ctx, tx, req.FeatureRef)
+			if errors.Is(ferr, store.ErrNotFound) {
+				return newNotFoundError("feature not found")
+			}
+			if ferr != nil {
+				return fmt.Errorf("service: look up feature: %w", ferr)
+			}
+			if feature.ProjectEntityID != proj.ID {
+				return newValidationError("feature", "feature %s is not in project %q", feature.Entity.Ref, req.ProjectKey)
+			}
+			featureID = feature.ID
+		}
+
 		ticketEntityID, _, err := store.InsertEntity(ctx, tx, &proj.ID, domain.KindTicket, actorID, now)
 		if err != nil {
 			return fmt.Errorf("service: create ticket entity: %w", err)
@@ -113,7 +135,7 @@ func (s *Service) createTicketTx(ctx context.Context, req CreateTicketRequest, t
 		if err != nil {
 			return fmt.Errorf("service: load priority group: %w", err)
 		}
-		if err := store.InsertTicket(ctx, tx, ticketEntityID, proj.ID, proj.GeneralFeatureID, seq,
+		if err := store.InsertTicket(ctx, tx, ticketEntityID, proj.ID, featureID, seq,
 			string(req.Type), title, req.Description, string(domain.WorkflowStatusBacklog), string(priority), severityStr, domain.TailPosition(maxPos)); err != nil {
 			return fmt.Errorf("service: create ticket: %w", err)
 		}
@@ -162,6 +184,17 @@ func (s *Service) GetTicket(ctx context.Context, ref domain.Reference) (domain.T
 	}
 	if err != nil {
 		return domain.Ticket{}, fmt.Errorf("service: get ticket: %w", err)
+	}
+	return row.Entity, nil
+}
+
+func (s *Service) GetTicketIncludingDeleted(ctx context.Context, ref domain.Reference) (domain.Ticket, error) {
+	row, err := store.GetTicketByRefAnyDeletion(ctx, s.store.DB(), ref)
+	if errors.Is(err, store.ErrNotFound) {
+		return domain.Ticket{}, newNotFoundError("ticket not found")
+	}
+	if err != nil {
+		return domain.Ticket{}, fmt.Errorf("service: get ticket including deleted: %w", err)
 	}
 	return row.Entity, nil
 }

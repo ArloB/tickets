@@ -59,6 +59,98 @@ form label {
   font-size: 0.875rem;
 }
 
+textarea {
+  width: 100%;
+  min-height: 6rem;
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+}
+
+.detail-tabs {
+  display: flex;
+  gap: 1.5rem;
+  margin: 1.25rem 0 1.75rem;
+  border-bottom: 1px solid light-dark(#ddd, #333);
+}
+
+.detail-tabs a {
+  padding: 0.1rem 0.1rem 0.6rem;
+  text-decoration: none;
+  color: light-dark(#5a5a5a, #999);
+  border-bottom: 2px solid transparent;
+  font-size: 0.9rem;
+}
+
+.detail-tabs a.active {
+  color: inherit;
+  font-weight: 600;
+  border-bottom-color: light-dark(#333, #ccc);
+}
+
+.detail-tabs a .count {
+  color: light-dark(#8a8a8a, #777);
+  font-weight: 400;
+  margin-left: 0.15rem;
+}
+
+.quick-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 1rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid light-dark(#ddd, #333);
+  border-radius: 0.5rem;
+  max-width: 34rem;
+}
+
+.quick-edit-row {
+  display: grid;
+  grid-template-columns: 6rem 1fr auto;
+  gap: 0 0.75rem;
+  align-items: center;
+}
+
+.quick-edit-row label {
+  display: contents;
+}
+
+.quick-edit-row label span {
+  font-size: 0.875rem;
+  color: light-dark(#555, #aaa);
+}
+
+.quick-edit-row select,
+.quick-edit-row input {
+  width: 100%;
+}
+
+.quick-edit-message {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.detail-section {
+  margin-bottom: 2rem;
+}
+
+.inline-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+
+.reorder-cell button {
+  opacity: 0.35;
+}
+
+tr:hover .reorder-cell button,
+.reorder-cell button:focus-visible {
+  opacity: 1;
+}
+
 main.centered-form {
   max-width: 24rem;
   margin-inline: auto;
@@ -80,6 +172,10 @@ table {
    way .board already contains a kanban board's overflow. */
 .table-scroll {
   overflow-x: auto;
+}
+
+.table-scroll table {
+  white-space: nowrap;
 }
 
 th,
@@ -120,6 +216,13 @@ td {
   background: light-dark(#f7f7f7, #1a1a1a);
   border-radius: 0.5rem;
   padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 12rem);
+}
+
+.board-column-list {
+  overflow-y: auto;
 }
 
 .board-column ul {
@@ -129,6 +232,19 @@ td {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+@media (max-width: 48rem) {
+  .board {
+    flex-direction: column;
+    overflow-x: visible;
+  }
+
+  .board-column {
+    flex: none;
+    max-height: 24rem;
+    width: 100%;
+  }
 }
 
 .board-card {
@@ -141,6 +257,95 @@ td {
 
 .board-card p {
   margin: 0.25rem 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.chip::before {
+  content: '';
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  flex: none;
+}
+
+.chip-status[data-value='backlog']::before,
+.chip-decision[data-value='rejected']::before {
+  background: light-dark(#8a8a8a, #777);
+}
+
+.chip-status[data-value='ready']::before,
+.chip-decision[data-value='proposed']::before {
+  background: light-dark(#2563eb, #60a5fa);
+}
+
+.chip-status[data-value='in_progress']::before {
+  background: light-dark(#d97706, #fbbf24);
+}
+
+.chip-status[data-value='blocked']::before {
+  background: light-dark(#dc2626, #f87171);
+}
+
+.chip-status[data-value='review']::before {
+  background: light-dark(#7c3aed, #a78bfa);
+}
+
+.chip-status[data-value='done']::before,
+.chip-decision[data-value='accepted']::before {
+  background: light-dark(#16a34a, #4ade80);
+}
+
+.chip-status[data-value='cancelled']::before,
+.chip-decision[data-value='superseded']::before {
+  background: light-dark(#8a8a8a, #666);
+}
+
+.chip-priority[data-value='critical']::before,
+.chip-severity[data-value='critical']::before {
+  background: light-dark(#dc2626, #f87171);
+}
+
+.chip-priority[data-value='high']::before,
+.chip-severity[data-value='high']::before {
+  background: light-dark(#ea580c, #fb923c);
+}
+
+.chip-priority[data-value='medium']::before,
+.chip-severity[data-value='medium']::before {
+  background: light-dark(#ca8a04, #facc15);
+}
+
+.chip-priority[data-value='low']::before,
+.chip-severity[data-value='low']::before {
+  background: light-dark(#64748b, #94a3b8);
+}
+
+.progress-bar {
+  display: inline-block;
+  width: 5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: light-dark(#eee, #333);
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: light-dark(#16a34a, #4ade80);
+}
+
+.activity-mechanical {
+  color: light-dark(#999, #777);
+}
+
+.activity-mechanical a {
+  color: light-dark(#7a8ba8, #7a8ba8);
 }
 
 [data-diff-op='add'] {

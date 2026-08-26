@@ -72,11 +72,13 @@ export default function Notifications() {
   return (
     <main>
       <h1>Notifications</h1>
-      <label>
-        <input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} />
-        Unread only
-      </label>
-      <button onClick={() => void markAllRead()}>Mark all read</button>
+      <div className="inline-controls">
+        <label>
+          <input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} />
+          Unread only
+        </label>
+        <button onClick={() => void markAllRead()}>Mark all read</button>
+      </div>
 
       {!notifications ? (
         <p>Loading…</p>
