@@ -38,7 +38,7 @@ test('the nav search box navigates to /search with the typed query', async ({ pa
   await page.getByLabel('Search').press('Enter')
 
   await expect(page).toHaveURL(/\/search\?q=/)
-  await expect(page.getByText('Findable via the nav box')).toBeVisible()
+  await expect(page.getByText('Findable via the nav box', { exact: true })).toBeVisible()
 })
 
 test('search with no query prompts instead of erroring', async ({ page }) => {

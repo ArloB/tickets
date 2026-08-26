@@ -111,15 +111,6 @@ from its description — no code change can close that, only the manual
 two-host run described above. Every other row this file can close by
 code or by review now does.
 
-**A pre-existing e2e flake, diagnosed during Phase 7, not a
-regression:** `web/e2e/search.spec.ts`'s "nav search box" test
-occasionally fails a strict-mode locator check
-(`getByText('Findable via the nav box')` matching three elements — the
-result's title, its snippet, and an h1 — instead of one). Confirmed via
-`git worktree add` against the pre-Phase-7 baseline (`23d1e8a`) that
-this reproduces there too, unrelated to any Phase 7 change. Left
-unfixed here since it's outside this plan's scope; worth a follow-up
-ticket to scope the locator more precisely.
 
 ## Accepted for the MVP, reviewed and not changed (Phase 6 Step 1 audit)
 

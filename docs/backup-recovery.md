@@ -60,15 +60,11 @@ directory and import into that.
 An imported agent actor arrives without a working bearer token (agent
 tokens are never exported) and needs a new one issued via
 `tickets admin token create`. An imported human actor arrives without
-a password and still cannot log in through Phase 7's account
-management: `tickets admin account create`/`admin account
-change-password` both require a `human_accounts` row to already
-exist (`CreateHumanAccount` refuses because the actor row already
-exists; `ChangePassword` looks up the account by username and gets
-`not_found` because import never creates one — `human_accounts` is
-deliberately never exported, so this is by design, not an oversight).
-Phase 7 closed "no way to create a second account or change a
-password" for the ordinary case; giving an *imported* human actor a
-first password specifically remains an open gap — reattaching
-credentials to an existing actor with none would need its own admin
-action, not built here.
+a password too (`human_accounts` is deliberately never exported), but
+`tickets admin account create --username <name> --password '...'`
+closes that: `CreateHumanAccount` detects that the actor row already
+exists with no matching `human_accounts` row and attaches the new
+password to that existing actor instead of trying to create a second
+one. Attempting it again after a password is already attached is a
+normal `already_exists`, the same as creating any other duplicate
+account.

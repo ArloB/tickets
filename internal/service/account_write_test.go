@@ -59,6 +59,57 @@ func TestCreateHumanAccountSecondAccount(t *testing.T) {
 	}
 }
 
+// TestCreateHumanAccountAttachesPasswordToImportedActor covers the
+// gap docs/backup-recovery.md used to describe as open: `tickets
+// import` creates a human actor row but never a human_accounts row
+// (passwords are never exported), so that actor previously had no way
+// to ever log in. CreateHumanAccount now detects this case (an actor
+// exists, but no account row does) and attaches a password to the
+// existing actor instead of trying to create a new one.
+func TestCreateHumanAccountAttachesPasswordToImportedActor(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateAdmin(t, s)
+	adminActor := domain.ActorRef{Kind: domain.ActorHuman, Name: "admin"}
+
+	// Simulate what `tickets import` leaves behind: a human actor row
+	// with no matching human_accounts row.
+	if _, err := store.CreateActor(ctx, s.store.DB(), domain.ActorHuman, "imported-alice", "", nil, store.Now()); err != nil {
+		t.Fatalf("seed imported actor: %v", err)
+	}
+
+	ref, err := s.CreateHumanAccount(ctx, CreateHumanAccountRequest{
+		Username: "imported-alice", Password: "alices-new-password",
+	}, adminActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("CreateHumanAccount for imported actor: %v", err)
+	}
+	if ref.Kind != domain.ActorHuman || ref.Name != "imported-alice" {
+		t.Errorf("ref = %+v, want human:imported-alice", ref)
+	}
+
+	_, ok, err := s.Authenticate(ctx, "imported-alice", "alices-new-password", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if !ok {
+		t.Error("Authenticate(imported-alice) = false, want true — the attached password should work")
+	}
+
+	// A second attempt is now a normal already_exists — the account
+	// row exists this time, not just the actor.
+	if _, err := s.CreateHumanAccount(ctx, CreateHumanAccountRequest{
+		Username: "imported-alice", Password: "irrelevant",
+	}, adminActor, testCorrelationID); err == nil {
+		t.Error("CreateHumanAccount for an already-attached actor: want an error, got nil")
+	} else {
+		var svcErr *Error
+		if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrAlreadyExists {
+			t.Errorf("second attach attempt error = %v, want already_exists", err)
+		}
+	}
+}
+
 func TestCreateHumanAccountRequiresUsernameAndPassword(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)

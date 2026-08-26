@@ -623,12 +623,12 @@ register in that same file, which stays as decided.
   account creation/reset for admins) — creating a second human account
   and changing a password were both entirely impossible through Phase
   6 (`docs/troubleshooting.md`), an unregistered gap against §4.2/§13,
-  not a deliberate deferral. One related gap remains open, documented
-  rather than silently missed: an *imported* human actor (export/import
-  never carries `human_accounts`, by design) still has no path to a
-  first password, since both the create and change-password routes
-  require crediting an existing account row, not attaching one to a
-  bare actor — see `docs/backup-recovery.md`.
+  not a deliberate deferral. This also closes the *imported*-human-actor
+  gap: export/import never carries `human_accounts` by design, so an
+  imported actor previously had no path to a first password.
+  `CreateHumanAccount` now detects an existing actor with no matching
+  account row and attaches the new password to it, rather than only
+  handling brand-new usernames — see `docs/backup-recovery.md`.
 - Widen the MCP `tickets_list` tool to the filters `GET /projects/{key}/tickets`
   already supports (status/type/severity/priority/feature/assignee/
   creator/updated_since) — "find my assigned work," step 1 of §16
@@ -639,10 +639,10 @@ register in that same file, which stays as decided.
   and an ambiguous "first run this process").
 
 Exit criterion: every item above is implemented, tested, and
-documented; `docs/mvp-acceptance.md` row 3 is covered. Two items remain
-open by design, not oversight: row 10's live two-host MCP check (no
-code path can close it — see that row's own runbook) and the imported-
-human-actor password gap noted above.
+documented; `docs/mvp-acceptance.md` row 3 is covered. One item remains
+open by design, not oversight: row 10's live two-host MCP check — no
+code path can close whether a live LLM agent picks the right tool from
+its description, only the manual runbook at that row.
 
 ## 15. Test strategy
 

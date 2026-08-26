@@ -109,6 +109,14 @@ type CreateHumanAccountRequest struct {
 // caller's own admin flag, matching agent.go's CreateAgent, which
 // likewise trusts its caller's permission gate rather than
 // re-verifying it in internal/service).
+//
+// This also covers the imported-actor case (docs/backup-recovery.md):
+// `tickets import` creates a human actor row but never a human_accounts
+// row (passwords are deliberately never exported), so that actor has
+// no way to log in. Rather than a separate command, CreateHumanAccount
+// detects an existing actor with no account row and attaches a fresh
+// password to it instead of creating a new actor — "already exists"
+// means the account exists, not merely the actor.
 func (s *Service) CreateHumanAccount(ctx context.Context, req CreateHumanAccountRequest, actor domain.ActorRef, correlationID string) (domain.ActorRef, error) {
 	username := strings.TrimSpace(req.Username)
 	if username == "" {
@@ -124,10 +132,8 @@ func (s *Service) CreateHumanAccount(ctx context.Context, req CreateHumanAccount
 	// same two-layer pattern CreateAdminAccount documents — SQLite
 	// serializes write transactions, so re-checking with the
 	// transaction handle after BeginTx closes the TOCTOU window.
-	if _, err := store.GetActorIDByRef(ctx, s.store.DB(), domain.ActorHuman, username); err == nil {
-		return domain.ActorRef{}, newAlreadyExistsError("username", "a human account named %q already exists", username)
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return domain.ActorRef{}, fmt.Errorf("service: check existing account: %w", err)
+	if _, err := accountStateForUsername(ctx, s.store.DB(), username); err != nil {
+		return domain.ActorRef{}, err
 	}
 
 	hash, err := auth.HashPassword(req.Password)
@@ -136,26 +142,50 @@ func (s *Service) CreateHumanAccount(ctx context.Context, req CreateHumanAccount
 	}
 
 	err = s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
-		if _, err := store.GetActorIDByRef(ctx, tx, domain.ActorHuman, username); err == nil {
-			return newAlreadyExistsError("username", "a human account named %q already exists", username)
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("service: check existing account: %w", err)
+		existingActorID, err := accountStateForUsername(ctx, tx, username)
+		if err != nil {
+			return err
 		}
 
-		newActorID, err := store.CreateActor(ctx, tx, domain.ActorHuman, username, "", nil, now)
-		if err != nil {
-			return fmt.Errorf("service: create actor: %w", err)
+		targetActorID := existingActorID
+		if targetActorID == 0 {
+			targetActorID, err = store.CreateActor(ctx, tx, domain.ActorHuman, username, "", nil, now)
+			if err != nil {
+				return fmt.Errorf("service: create actor: %w", err)
+			}
 		}
-		if err := store.CreateHumanAccount(ctx, tx, newActorID, username, hash, req.IsAdmin, now); err != nil {
+		if err := store.CreateHumanAccount(ctx, tx, targetActorID, username, hash, req.IsAdmin, now); err != nil {
 			return fmt.Errorf("service: create human account: %w", err)
 		}
 		changes := auditChanges(map[string]any{"username": username, "is_admin": req.IsAdmin})
-		return store.InsertActorAuditEvent(ctx, tx, newActorID, actorID, eventAccountCreated, corrID, changes, now)
+		return store.InsertActorAuditEvent(ctx, tx, targetActorID, actorID, eventAccountCreated, corrID, changes, now)
 	})
 	if err != nil {
 		return domain.ActorRef{}, err
 	}
 	return domain.ActorRef{Kind: domain.ActorHuman, Name: username}, nil
+}
+
+// accountStateForUsername resolves username to an actor id it's safe
+// to attach a new human_accounts row to: 0 if no actor named username
+// exists yet (the ordinary new-account path), or that actor's id if
+// one exists but has no account row yet (the imported-actor path). An
+// *Error wrapping already_exists is returned if an account row already
+// exists, and a plain error for any other lookup failure.
+func accountStateForUsername(ctx context.Context, q store.Querier, username string) (int64, error) {
+	actorID, err := store.GetActorIDByRef(ctx, q, domain.ActorHuman, username)
+	if errors.Is(err, store.ErrNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("service: check existing actor: %w", err)
+	}
+	if _, err := store.GetHumanAccountByActorID(ctx, q, actorID); errors.Is(err, store.ErrNotFound) {
+		return actorID, nil
+	} else if err != nil {
+		return 0, fmt.Errorf("service: check existing account: %w", err)
+	}
+	return 0, newAlreadyExistsError("username", "a human account named %q already exists", username)
 }
 
 // ChangePasswordRequest is ChangePassword's input. OldPassword is

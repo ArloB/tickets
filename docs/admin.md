@@ -167,8 +167,8 @@ a specific logged-in user at all. Either path invalidates every
 existing session for that account immediately.
 
 `--admin` grants the operational admin flag (product spec §4.2) at
-creation; it isn't a separate promotion command today — promoting an
-existing account after the fact isn't supported yet.
+account creation. There is no separate promotion command: the flag is
+set once, at creation, and stays fixed for that account's lifetime.
 
 ## Health and version
 
