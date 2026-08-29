@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { addComment, deleteComment, editComment, getComment } from '../api/comments'
 import { ApiError } from '../api/client'
 import { Markdown } from './Markdown'
+import { projectKeyOfRef } from '../api/refs'
 import type { CommentDetail } from '../api/types'
 
 /** A comment's version is independent of its parent ticket's
@@ -12,10 +13,12 @@ import type { CommentDetail } from '../api/types'
  * three-way-merge machinery. */
 function EditingComment({
   comment,
+  projectKey,
   onSaved,
   onCancel,
 }: {
   comment: CommentDetail
+  projectKey: string
   onSaved: (updated: CommentDetail) => void
   onCancel: () => void
 }) {
@@ -59,7 +62,7 @@ function EditingComment({
             {theirs.version}):
           </p>
           <blockquote>
-            <Markdown>{theirs.body}</Markdown>
+            <Markdown projectKey={projectKey}>{theirs.body}</Markdown>
           </blockquote>
           <p>Saving now will overwrite their edit with your text above.</p>
         </div>
@@ -97,6 +100,7 @@ export function CommentsSection({
   const [postError, setPostError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const projectKey = projectKeyOfRef(entityRef)
 
   async function submitNew() {
     if (!newBody.trim()) return
@@ -142,6 +146,7 @@ export function CommentsSection({
               <EditingComment
                 key={c.id}
                 comment={c}
+                projectKey={projectKey}
                 onSaved={(updated) => {
                   onChange(comments.map((existing) => (existing.id === c.id ? updated : existing)))
                   setEditingId(null)
@@ -154,7 +159,7 @@ export function CommentsSection({
                   <strong>{c.author}</strong> — {c.created_at}
                   {c.deleted_at ? ' (deleted)' : ''}
                 </p>
-                <Markdown>{c.body}</Markdown>
+                <Markdown projectKey={projectKey}>{c.body}</Markdown>
                 {canEdit && !c.deleted_at && (
                   <>
                     <button type="button" onClick={() => setEditingId(c.id)}>

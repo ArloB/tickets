@@ -3066,6 +3066,44 @@ paths:
         '404':
           $ref: '#/components/responses/Error'
 
+  /refs/resolve:
+    get:
+      operationId: resolveRefs
+      summary: >
+        Resolve a batch of reference tokens to whether each names a
+        live record, and — when it does — its kind, title, and status.
+        The existence check behind rendering references embedded in
+        Markdown prose as hyperlinks (ADR 0025): a renderer scans a
+        body for docs/contracts/references.md tokens and asks here
+        which of them to turn into links. Best-effort in the same way
+        the scan itself is — a malformed token, an unknown kind
+        letter, a well-formed token naming nothing, and a soft-deleted
+        record all come back as exists=false rather than an error.
+        Accepts a bare project key ("ABC") alongside the five
+        seq-numbered kinds; does not accept the project-scoped short
+        form ("#123"), which has meaning only relative to the body
+        being rendered, so a caller expands it against its own project
+        scope first. Tokens are deduplicated in first-occurrence
+        order, so a raw scan can be passed unfiltered.
+      parameters:
+        - name: refs
+          in: query
+          description: >
+            Comma-separated reference tokens, at most 50 per request.
+            Omitted or empty returns an empty list.
+          schema:
+            type: string
+            example: ABC-1,ABC-F2,ABC-P3,ABC
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvedRefPage'
+        '400':
+          $ref: '#/components/responses/Error'
+
   /search:
     get:
       operationId: search
@@ -4812,6 +4850,32 @@ components:
           type: array
           items: { $ref: '#/components/schemas/SearchHit' }
         next_cursor: { type: string }
+
+    ResolvedRefPage:
+      type: object
+      required: [refs]
+      properties:
+        refs:
+          type: array
+          items: { $ref: '#/components/schemas/ResolvedRef' }
+
+    ResolvedRef:
+      type: object
+      required: [ref, exists]
+      description: >
+        One reference token's resolution. kind/title/status are
+        present only when exists is true; status is additionally
+        absent for plans and documents, which have none.
+      properties:
+        ref:
+          type: string
+          description: The token exactly as asked about.
+        exists: { type: boolean }
+        kind:
+          type: string
+          enum: [ticket, feature, decision, plan, document, project]
+        title: { type: string }
+        status: { type: string }
 
     DeleteResponse:
       type: object

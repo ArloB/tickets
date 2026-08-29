@@ -35,7 +35,10 @@ test('the production build serves a strict CSP and never trips a violation, incl
   })
   await page.goto(`/tickets/${ticket.ref}`)
   await expect(page.getByText('Heading', { exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'link' })).toHaveAttribute('href', 'https://example.com')
+  await expect(page.getByRole('link', { name: 'link', exact: true })).toHaveAttribute(
+    'href',
+    'https://example.com',
+  )
 
   for (const route of [
     '/',

@@ -46,6 +46,26 @@ plan.md).
 - Mentioning a reference creates a derived `mentions` edge (§5.2); it
   never implies a typed relationship (§5.7) or scheduling semantics.
 
+## Rendering
+
+The web UI turns every reference it finds in a rendered Markdown body
+(description, plan/document body, comment) into a hyperlink to that
+record's detail page, but only after confirming the record exists —
+`GET /api/v1/refs/resolve?refs=...` answers that for a batch of tokens
+(ADR 0025). A well-formed reference to something that does not exist,
+or that was soft-deleted, stays plain text rather than becoming a link
+that 404s.
+
+Recognition for rendering uses the same grammar as the mention scan
+above, including the code-fence/inline-code exclusion and the
+project-scoped `#123` short form, so what a body links is exactly what
+it mentions — with one deliberate difference: a body's reference to
+itself renders as a link, though `rescanMentions` skips it as an edge.
+A bare project key is not recognized in prose (it would linkify every
+uppercase word), even though `/refs/resolve` accepts one for callers
+that already hold one, such as a backlink source. Nothing is rewritten
+in storage; linkification is render-time only.
+
 **Implementation note:** `internal/domain/reference.go` implements
 `Format` and `Parse` for a single token (all 5 kinds) plus project-key
 validation — the grammar this table defines. Scanning free Markdown

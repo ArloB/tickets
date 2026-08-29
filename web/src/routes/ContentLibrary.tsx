@@ -93,7 +93,7 @@ function NewContentItemForm({
           </label>
         ))}
       </fieldset>
-      {representation === 'markdown' && <MarkdownEditor label="Body" value={body} onChange={setBody} />}
+      {representation === 'markdown' && <MarkdownEditor label="Body" value={body} onChange={setBody} projectKey={projectKey} />}
       {representation === 'file' && (
         <label>
           File

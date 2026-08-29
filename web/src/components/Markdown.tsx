@@ -1,20 +1,106 @@
+import { useEffect, useState, type ComponentPropsWithoutRef } from 'react'
+import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
+import { resolveRefs, type ResolvedRef } from '../api/refs'
+import { refLinkClass, remarkRefLinks, scanRefs } from './refLinks'
 
-// The single component every Markdown body render goes through
-// (ticket/feature/decision description, comment body) — product spec
-// §10 requires sanitization regardless of CSP, and §15 names this as
-// an explicit unit-test target (see Markdown.test.tsx's XSS payload
-// table: <script>, onerror=, javascript: hrefs). rehype-sanitize's
 // defaultSchema strips script tags, event handlers, and any href/src
-// scheme other than http/https/mailto/tel — the same allow-list
-// internal/domain.ValidateLinkURL enforces server-side for external
-// links, applied here to inline Markdown links too.
-export function Markdown({ children }: { children: string }) {
+// scheme other than http/https/mailto/tel — the allow-list product
+// spec §10 requires and internal/domain.ValidateLinkURL enforces
+// server-side for external links. The one widening: the single
+// className remarkRefLinks stamps on a reference link, so those can
+// be styled apart from an author's own inline links. The value is
+// pinned, not the attribute — a body cannot smuggle an arbitrary
+// class through by writing raw HTML.
+// defaultSchema already carries a value-pinned className entry on <a>
+// (for GFM footnote backrefs), and hast-util-sanitize honors only the
+// first entry it finds for a property — appending a second one
+// silently drops the class instead of allowing it. The allowed value
+// is added to the existing entry for that reason.
+const anchorAttributes = (defaultSchema.attributes?.a ?? []).map((attr) =>
+  Array.isArray(attr) && attr[0] === 'className' ? [...attr, refLinkClass] : attr,
+)
+
+const schema = {
+  ...defaultSchema,
+  attributes: { ...defaultSchema.attributes, a: anchorAttributes },
+}
+
+// Resolutions are cached across every Markdown body in the session
+// because a reference is immutable for the life of the entity
+// (docs/contracts/references.md) — a token that resolved once cannot
+// stop naming that record. Only positive results are cached: a
+// reference to a record that does not exist *yet* is a normal state
+// (an author writing a plan before the tickets are filed), and
+// caching the miss would keep it unlinked for the rest of the session.
+const resolutionCache = new Map<string, ResolvedRef>()
+
+/** The single component every Markdown body render goes through
+ * (ticket/feature/decision description, content-item body, comment
+ * body) — product spec §10 requires sanitization regardless of CSP,
+ * and §15 names this as an explicit unit-test target (see
+ * Markdown.test.tsx's XSS payload table).
+ *
+ * projectKey scopes the ticket-only short form (#123) the same way
+ * domain.ScanReferences' scopeProjectKey does; omit it and only fully
+ * qualified references are recognized. */
+export function Markdown({ children, projectKey = '' }: { children: string; projectKey?: string }) {
+  const [resolved, setResolved] = useState<Map<string, ResolvedRef>>(resolutionCache)
+
+  useEffect(() => {
+    const tokens = [...new Set(scanRefs(children, projectKey).map((m) => m.token))]
+    const missing = tokens.filter((t) => !resolutionCache.has(t))
+    if (missing.length === 0) {
+      setResolved(new Map(resolutionCache))
+      return
+    }
+
+    let live = true
+    resolveRefs(missing)
+      .then((results) => {
+        for (const r of results) {
+          if (r.exists) resolutionCache.set(r.ref, r)
+        }
+        if (live) setResolved(new Map(resolutionCache))
+      })
+      .catch(() => {
+        // A failed resolve leaves references as plain text, which is
+        // exactly how they rendered before this feature existed —
+        // there is nothing to surface to the reader.
+      })
+    return () => {
+      live = false
+    }
+  }, [children, projectKey])
+
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[[rehypeSanitize, defaultSchema]]}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, [remarkRefLinks, { projectKey, resolved }]]}
+      rehypePlugins={[[rehypeSanitize, schema]]}
+      components={{ a: MarkdownLink }}
+    >
       {children}
     </ReactMarkdown>
+  )
+}
+
+// An in-app href must navigate through the router, not reload the
+// whole SPA — every reference link remarkRefLinks emits is one of
+// these (detailRoute always returns a root-relative path). Anything
+// else keeps the plain <a> it has always had.
+function MarkdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<'a'>) {
+  if (href !== undefined && href.startsWith('/')) {
+    return (
+      <Link to={href} {...rest}>
+        {children}
+      </Link>
+    )
+  }
+  return (
+    <a href={href} {...rest}>
+      {children}
+    </a>
   )
 }

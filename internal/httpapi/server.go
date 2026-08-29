@@ -216,6 +216,8 @@ func (s *Server) routeTable() []routeEntry {
 
 		{http.MethodGet, "/api/v1/projects/{key}/activity", routeViewer, s.listActivity},
 
+		{http.MethodGet, "/api/v1/refs/resolve", routeViewer, s.resolveRefs},
+
 		{http.MethodGet, "/api/v1/search", routeViewer, s.search},
 
 		{http.MethodGet, "/api/v1/events", routeViewer, s.events},

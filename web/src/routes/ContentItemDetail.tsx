@@ -296,7 +296,7 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
             Title
             <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} required />
           </label>
-          {item.representation === 'markdown' && <MarkdownEditor label="Body" value={editBody} onChange={setEditBody} />}
+          {item.representation === 'markdown' && <MarkdownEditor label="Body" value={editBody} onChange={setEditBody} projectKey={item.project} />}
           {item.representation === 'file' && (
             <label>
               New file
@@ -377,7 +377,7 @@ export function ContentItemOverview() {
       {item.representation === 'markdown' && (
         <section className="detail-section">
           <h2>Body</h2>
-          <Markdown>{item.body}</Markdown>
+          <Markdown projectKey={item.project}>{item.body}</Markdown>
         </section>
       )}
       {item.representation === 'file' && (

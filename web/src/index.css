@@ -88,7 +88,7 @@ textarea {
 }
 
 .detail-tabs a .count {
-  color: light-dark(#8a8a8a, #777);
+  color: light-dark(#6e6e6e, #9b9b9b);
   font-weight: 400;
   margin-left: 0.15rem;
 }
@@ -341,7 +341,7 @@ td {
 }
 
 .activity-mechanical {
-  color: light-dark(#999, #777);
+  color: light-dark(#6e6e6e, #9b9b9b);
 }
 
 .activity-mechanical a {
@@ -356,4 +356,10 @@ td {
 [data-diff-op='remove'] {
   background: light-dark(#ffebe9, #2d1214);
   color: light-dark(#82071e, #f28b82);
+}
+
+.ref-link {
+  text-decoration-style: dotted;
+  text-underline-offset: 0.15em;
+  white-space: nowrap;
 }

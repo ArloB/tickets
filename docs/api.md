@@ -52,6 +52,7 @@ messages are for humans.
 | Decisions | `POST/GET /projects/{key}/decisions`, `GET/PATCH /decisions/{ref}`, `GET /decisions/{ref}/versions`, `GET /decisions/{ref}/diff` |
 | Plans & documents | `POST/GET /projects/{key}/{plans,documents}`, `GET/PATCH /{plans,documents}/{ref}`, `GET .../download`, `GET .../versions`, `GET .../versions/{version}/download`, `GET .../diff` |
 | Search | `GET /search` |
+| Reference resolution | `GET /refs/resolve?refs=ABC-1,ABC-F2` — batch existence check behind rendering references in prose as hyperlinks (ADR 0025) |
 | Subscriptions & notifications | `POST/DELETE/GET /{kind}/{ref}/subscribe` (POST subscribes, DELETE unsubscribes, GET reads subscription status), `GET /notifications`, `POST /notifications/read` |
 | Live updates | `GET /events` (Server-Sent Events) |
 | Setup & identity | `POST /setup`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` |

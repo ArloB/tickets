@@ -191,7 +191,7 @@ export function TicketOverview() {
     <>
       <section className="detail-section">
         <h2>Description</h2>
-        <Markdown>{ticket.description}</Markdown>
+        <Markdown projectKey={ticket.project}>{ticket.description}</Markdown>
       </section>
 
       <section className="detail-section">

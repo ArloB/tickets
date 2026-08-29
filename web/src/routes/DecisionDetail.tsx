@@ -307,22 +307,22 @@ export function DecisionOverview() {
     <>
       <section className="detail-section">
         <h2>Context</h2>
-        <Markdown>{decision.context}</Markdown>
+        <Markdown projectKey={decision.project}>{decision.context}</Markdown>
       </section>
 
       <section className="detail-section">
         <h2>Decision</h2>
-        <Markdown>{decision.decision}</Markdown>
+        <Markdown projectKey={decision.project}>{decision.decision}</Markdown>
       </section>
 
       <section className="detail-section">
         <h2>Rationale</h2>
-        <Markdown>{decision.rationale}</Markdown>
+        <Markdown projectKey={decision.project}>{decision.rationale}</Markdown>
       </section>
 
       <section className="detail-section">
         <h2>Consequences</h2>
-        <Markdown>{decision.consequences}</Markdown>
+        <Markdown projectKey={decision.project}>{decision.consequences}</Markdown>
       </section>
 
       <section className="detail-section">

@@ -12,6 +12,11 @@ test('upload an attachment, download it, add a path reference, and confirm the p
   await page.goto(`/tickets/${ticket.ref}`)
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Ticket with attachments')
 
+  // Attachments live behind their own detail tab, so the form is not
+  // on the overview the ticket route lands on.
+  await page.getByRole('link', { name: /^Attachments/ }).click()
+  await page.waitForURL(`**/tickets/${ticket.ref}/attachments`)
+
   await page.getByLabel('Attachment title').fill('design notes')
   await page.setInputFiles('input[type="file"]', {
     name: 'notes.txt',

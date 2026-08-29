@@ -171,7 +171,7 @@ export function FeatureOverview() {
     <>
       <section className="detail-section">
         <h2>Description</h2>
-        <Markdown>{feature.description}</Markdown>
+        <Markdown projectKey={feature.project}>{feature.description}</Markdown>
       </section>
 
       <section className="detail-section">

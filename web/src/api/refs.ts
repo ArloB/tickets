@@ -1,3 +1,5 @@
+import { apiFetch } from './client'
+
 // Reference-kind sniffing shared by every cross-entity-kind API
 // (associations/links/backlinks route under /tickets|features|decisions
 // interchangeably, docs/contracts/references.md's {KEY}-F{seq}/
@@ -20,6 +22,16 @@ export function entityKindOfRef(ref: string): EntityKind {
   if (/-P\d+$/.test(ref)) return 'plan'
   if (projectKeyPattern.test(ref)) return 'project'
   return 'ticket'
+}
+
+/** The project key a reference belongs to — the whole token for a
+ * bare project key, everything before the first '-' otherwise. This is
+ * the scope the ticket-only short form (#123) resolves against, the
+ * client-side counterpart of the scopeProjectKey internal/service
+ * passes to domain.ScanReferences for a body it is about to store. */
+export function projectKeyOfRef(ref: string): string {
+  const dash = ref.indexOf('-')
+  return dash === -1 ? ref : ref.slice(0, dash)
 }
 
 const pathSegment: Record<EntityKind, string> = {
@@ -48,4 +60,37 @@ export function detailRoute(ref: string): string {
   if (kind === 'document') return `/documents/${ref}`
   if (kind === 'project') return `/projects/${ref}`
   return `/tickets/${ref}`
+}
+
+/** One reference token's resolution, as returned by
+ * GET /refs/resolve — the existence check behind rendering a
+ * reference in Markdown prose as a hyperlink (ADR 0025). kind/title/
+ * status are present only when exists is true. */
+export interface ResolvedRef {
+  ref: string
+  exists: boolean
+  kind?: EntityKind
+  title?: string
+  status?: string
+}
+
+// Mirrors internal/service's maxResolveRefs — the server rejects a
+// larger batch outright, so the client chunks rather than discovering
+// the cap as a 400.
+const resolveBatchSize = 50
+
+/** Resolves reference tokens to whether each names a live record,
+ * chunked to the server's per-request cap. Tokens are passed through
+ * verbatim; the caller expands the project-scoped short form (#123)
+ * itself, since only it knows the surrounding project scope. */
+export async function resolveRefs(refs: string[]): Promise<ResolvedRef[]> {
+  const out: ResolvedRef[] = []
+  for (let i = 0; i < refs.length; i += resolveBatchSize) {
+    const batch = refs.slice(i, i + resolveBatchSize)
+    const page = await apiFetch<{ refs: ResolvedRef[] }>(
+      `/refs/resolve?refs=${encodeURIComponent(batch.join(','))}`,
+    )
+    out.push(...page.refs)
+  }
+  return out
 }

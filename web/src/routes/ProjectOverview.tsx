@@ -255,7 +255,7 @@ export default function ProjectOverview() {
         )}
       </p>
       {statusError && <p role="alert">{statusError}</p>}
-      <Markdown>{project.description}</Markdown>
+      <Markdown projectKey={project.key}>{project.description}</Markdown>
       <p>
         <Link to={`/projects/${key}/backlog`}>View backlog</Link> ·{' '}
         <Link to={`/projects/${key}/board`}>Ticket board</Link> ·{' '}
@@ -284,6 +284,7 @@ export default function ProjectOverview() {
               <span
                 className="progress-bar"
                 role="progressbar"
+                aria-label={`${f.title} ticket completion`}
                 aria-valuenow={f.tickets_total ? Math.round((100 * f.tickets_done) / f.tickets_total) : 0}
                 aria-valuemin={0}
                 aria-valuemax={100}

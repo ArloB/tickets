@@ -12,11 +12,15 @@ export function MarkdownEditor({
   label,
   value,
   onChange,
+  projectKey = '',
   rows = 10,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
+  /** Scopes the ticket-only short form (#123) in the preview, so what
+   * the preview links matches what the saved body will link. */
+  projectKey?: string
   rows?: number
 }) {
   const [tab, setTab] = useState<'edit' | 'preview'>('edit')
@@ -37,7 +41,7 @@ export function MarkdownEditor({
         <textarea id={id} value={value} onChange={(e) => onChange(e.target.value)} rows={rows} />
       ) : (
         <div data-testid="markdown-editor-preview">
-          <Markdown>{value.trim() === '' ? '*Nothing to preview.*' : value}</Markdown>
+          <Markdown projectKey={projectKey}>{value.trim() === '' ? '*Nothing to preview.*' : value}</Markdown>
         </div>
       )}
     </div>
