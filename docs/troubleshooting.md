@@ -139,10 +139,12 @@ mid-upload). See [`docs/admin.md`](admin.md#integrity).
 
 ## Networking and security warnings
 
-**`WARNING: binding to non-loopback address ...` at startup**
+**`WARNING: anonymous read access is enabled on a non-loopback bind ...` at startup**
 You started `tickets server --host` with something other than
-`127.0.0.1`/`localhost`/`::1`. This is expected when intentionally
-sharing the server on a LAN, but read
+`127.0.0.1`/`localhost`/`::1`, with `anonymous_read` enabled — the one
+combination reachable without credentials, so this warning fires only
+then, never for a non-loopback bind with anonymous read off. Expected
+when intentionally sharing the server on a LAN, but read
 [`docs/security-model.md`](security-model.md) first — Tickets has no
 built-in TLS, so put a reverse proxy in front, and reconsider whether
 `anonymous_read` should really be enabled on that bind.

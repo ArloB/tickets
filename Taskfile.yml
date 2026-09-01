@@ -155,6 +155,30 @@ tasks:
     cmds:
       - go run ./tools/release -version "{{.VERSION}}" -commit "{{.COMMIT}}" -date "{{.DATE}}" -out dist
 
+  docker:build:
+    desc: >
+      Build the Docker image (tickets:local), embedding the same
+      version/commit/date ldflags as `task build`/`task release` via
+      --build-arg. Needs a reachable Docker daemon — on Windows that
+      means WSL or Docker Desktop with WSL integration, since Docker
+      itself isn't installed on the Windows host in this repo's setup
+      (see docs/deploy-docker.md).
+    cmds:
+      - docker build --build-arg VERSION={{.VERSION}} --build-arg COMMIT={{.COMMIT}} --build-arg DATE={{.DATE}} -t tickets:local .
+
+  docker:up:
+    desc: >
+      Build and start the Docker Compose service in the background.
+      Same Docker-daemon caveat as docker:build. Run `docker compose
+      run --rm tickets setup --username admin --password ...` once,
+      then http://127.0.0.1:8080 — see docs/deploy-docker.md.
+    env:
+      TICKETS_VERSION: '{{.VERSION}}'
+      TICKETS_COMMIT: '{{.COMMIT}}'
+      TICKETS_DATE: '{{.DATE}}'
+    cmds:
+      - docker compose up -d --build
+
   bench:
     desc: >
       Run product spec §11's performance benchmarks against the full

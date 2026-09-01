@@ -1,9 +1,3 @@
-# Dormant until a GitHub remote exists (Phase 0 decision: local git + WSL
-# only, no remote yet). Kept in sync with Taskfile.yml so local and CI can
-# never drift — every step here just calls the same tasks a developer runs
-# locally, including lint (previously this ran golangci-lint-action's own
-# built-in `run` step instead of `task lint`, which was exactly the kind
-# of drift this comment claims doesn't happen — fixed).
 name: CI
 
 on:

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -138,7 +139,7 @@ func Load(args []string) (Config, error) {
 
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
 	dataDir := fs.String("data-dir", resolved.dataDir, "directory for the SQLite database and managed file storage")
-	host := fs.String("host", resolved.host, "bind address; anything non-loopback prints a warning (product spec §10)")
+	host := fs.String("host", resolved.host, "bind address; non-loopback with anonymous read enabled prints a warning (product spec §10)")
 	port := fs.String("port", resolved.port, "port to listen on")
 	logFormat := fs.String("log-format", resolved.logFormat, `log output format: "console" or "json" (product spec §13)`)
 	shutdownTimeout := fs.Duration("shutdown-timeout", resolved.shutdownTime, "how long graceful shutdown waits for in-flight requests to finish")
@@ -168,7 +169,7 @@ func Load(args []string) (Config, error) {
 	}
 	cfg.AnonymousRead = resolveAnonymousRead(fs, *anonymousRead, resolved.anonymousRead, cfg.Host)
 
-	warnOnInsecureDefaults(cfg)
+	warnOnInsecureDefaults(os.Stderr, cfg)
 	return cfg, nil
 }
 
@@ -192,19 +193,19 @@ func resolveAnonymousRead(fs *flag.FlagSet, flagValue bool, fileOrEnvValue *bool
 	return IsLoopback(host)
 }
 
-func warnOnInsecureDefaults(cfg Config) {
-	if IsLoopback(cfg.Host) {
+// warnOnInsecureDefaults implements §10's warn-before-exposing-anonymous-
+// access requirement (ADR 0004): a non-loopback bind by itself still
+// requires every route but anonymous read to authenticate, so it warns
+// only for the one combination that's actually reachable without
+// credentials — non-loopback *and* anonymous read enabled.
+func warnOnInsecureDefaults(w io.Writer, cfg Config) {
+	if IsLoopback(cfg.Host) || !cfg.AnonymousRead {
 		return
 	}
-	fmt.Fprintf(os.Stderr,
-		"WARNING: binding to non-loopback address %q. Anonymous/unauthenticated "+
-			"requests may be reachable from other hosts. See product spec §10.\n", cfg.Host)
-	if cfg.AnonymousRead {
-		fmt.Fprintf(os.Stderr,
-			"WARNING: anonymous read access is enabled on a non-loopback bind. Any "+
-				"host that can reach %s can read every project on this server without "+
-				"authenticating. See product spec §4.2/§10.\n", cfg.Addr())
-	}
+	_, _ = fmt.Fprintf(w,
+		"WARNING: anonymous read access is enabled on a non-loopback bind (%s). Any "+
+			"host that can reach it can read every project on this server without "+
+			"authenticating. See product spec §4.2/§10.\n", cfg.Addr())
 }
 
 // configFilePath is where Load looks for the optional config file,

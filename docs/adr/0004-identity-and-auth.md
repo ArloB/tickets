@@ -89,6 +89,17 @@ externally.
   in without a per-project token dimension" — plan.md §7.4, left open
   when this ADR was written) is resolved separately as ADR 0016 — a
   client-side `--project` default, not a token/authorization concept.
+- **`warnOnInsecureDefaults` (internal/config/config.go) was tightened
+  to match this ADR's own framing.** It originally warned on any
+  non-loopback bind regardless of anonymous read, which over-warned
+  relative to actual risk — a non-loopback bind with anonymous read off
+  still requires authentication on every route, identically to
+  loopback. It now fires only for the combination this ADR's Decision
+  actually describes: non-loopback *and* anonymous read enabled, the
+  one state reachable without credentials. Docker/reverse-proxy
+  deployments that bind non-loopback with anonymous read off (the
+  default) no longer see the warning at every startup. Pinned by
+  `TestWarnOnInsecureDefaults`.
 - **Two small Phase 4 additions, both unauthenticated like login and
   for the same reason (obtaining credentials can't itself require
   credentials):**

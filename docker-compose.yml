@@ -1,0 +1,27 @@
+services:
+  tickets:
+    build:
+      context: .
+      args:
+        VERSION: ${TICKETS_VERSION:-dev}
+        COMMIT: ${TICKETS_COMMIT:-none}
+        DATE: ${TICKETS_DATE:-unknown}
+    image: tickets:local
+    ports:
+      - "8080:8080"
+    volumes:
+      - tickets-data:/data
+    environment:
+      TICKETS_LOG_FORMAT: json
+      TICKETS_ANONYMOUS_READ: "false"
+    restart: unless-stopped
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+volumes:
+  tickets-data:

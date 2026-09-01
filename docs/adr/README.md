@@ -32,6 +32,7 @@ assumption.
 | [0023](0023-explicit-feature-selection-required.md) | Explicit feature selection required at creation: `feature`/`general` xor enforced at every human/agent-facing entry point, service layer stays permissive |
 | [0024](0024-mcp-cli-parity-sweep.md) | MCP/CLI/HTTP API parity sweep: closed 21 undocumented gaps between the HTTP route table and the MCP tool surface, added `cmd/tickets/mcp_parity_test.go` as a standing regression guard |
 | [0025](0025-reference-linkification.md) | Rendering references in prose as hyperlinks: render-time only, batch existence endpoint, remark plugin over raw-string regex |
+| [0026](0026-docker-packaging.md) | Docker packaging as an optional deployment path: multi-stage Alpine image, `docker-compose.yml`, tag-triggered GHCR publish, ADR 0010's contributor-setup guarantee unchanged |
 
 A gap noted in an ADR's Consequences as deferred, future work, or "not
 built speculatively here" isn't necessarily still open — check

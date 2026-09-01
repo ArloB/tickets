@@ -108,9 +108,14 @@ by `cmd/tickets/coldstart_test.go` run natively on both platforms (see
   unsupported.
 - **No installer/service unit is provided.** Run `tickets server`
   under whatever process supervisor your platform normally uses
-  (systemd, a Windows service wrapper, or just a terminal for personal
-  use) — this is deliberately out of scope, matching the "no Docker"
-  stance in ADR 0010.
+  (systemd, a Windows service wrapper, a container runtime, or just a
+  terminal for personal use) — this is deliberately out of scope. A
+  Docker image is available for teams that already run everything as
+  containers; see [`docs/deploy-docker.md`](deploy-docker.md) and ADR
+  0026. It doesn't change the guarantee above: building and running
+  from source still needs nothing beyond Go (and Node for a real web
+  UI) — Docker is one way to *run* a built image, not a new
+  requirement to *build* one.
 - **TLS is not built in.** `tickets server` speaks plain HTTP. For
   anything beyond a loopback-only personal install, put a reverse
   proxy (nginx, Caddy, etc.) in front for TLS — see

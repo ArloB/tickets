@@ -16,7 +16,7 @@ deliberately no `--config` flag — redirect the file itself with
 | Key | Flag | Env var | Config file key | Default | Notes |
 | --- | --- | --- | --- | --- | --- |
 | Data directory | `--data-dir` | `TICKETS_DATA_DIR` | `data_dir` | `os.UserConfigDir()/tickets` | SQLite database + managed blob storage live here. |
-| Bind host | `--host` | `TICKETS_HOST` | `host` | `127.0.0.1` | Anything non-loopback prints a warning at startup. |
+| Bind host | `--host` | `TICKETS_HOST` | `host` | `127.0.0.1` | Non-loopback with anonymous read enabled prints a warning at startup. |
 | Bind port | `--port` | `TICKETS_PORT` | `port` | `8080` | |
 | Anonymous read | `--anonymous-read` | `TICKETS_ANONYMOUS_READ` | `anonymous_read` | enabled only when `--host` is loopback | Product spec §4.2. Every `routeViewer` (GET) route is reachable with no credentials when enabled; every mutating route still requires at least Editor. See `docs/security-model.md`. |
 | Log format | `--log-format` | `TICKETS_LOG_FORMAT` | `log_format` | `console` | `console` (human-readable) or `json`; any other value is rejected at startup. |
@@ -40,12 +40,13 @@ An absent key in the file means "no opinion" — it never overrides a
 value already resolved from a lower-priority layer with a zero value
 (e.g. omitting `"port"` doesn't reset the port to `""`).
 
-**Binding to a non-loopback host** prints a warning to stderr, and a
-second warning if anonymous read is also enabled — anyone who can
-reach that address can read every project unauthenticated. See
-[`docs/security-model.md`](security-model.md) before doing this outside
-a trusted network, and put TLS in front (Tickets itself speaks plain
-HTTP only).
+**Binding to a non-loopback host with anonymous read enabled** prints a
+warning to stderr — anyone who can reach that address can read every
+project unauthenticated. A non-loopback bind with anonymous read off
+prints nothing, since every route still requires authentication either
+way. See [`docs/security-model.md`](security-model.md) before binding
+non-loopback outside a trusted network, and put TLS in front (Tickets
+itself speaks plain HTTP only).
 
 ## `tickets admin` subcommands
 

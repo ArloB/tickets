@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -153,6 +154,33 @@ func TestAnonymousReadExplicitOverrideWins(t *testing.T) {
 	}
 	if !cfg.AnonymousRead {
 		t.Errorf("AnonymousRead = false despite explicit --anonymous-read=true")
+	}
+}
+
+// TestWarnOnInsecureDefaults pins §10's actual scope: the warning
+// fires only for the one combination that's reachable without
+// credentials — a non-loopback bind with anonymous read enabled —
+// never for a non-loopback bind alone, and never for loopback
+// regardless of anonymous read.
+func TestWarnOnInsecureDefaults(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantMsg bool
+	}{
+		{"loopback, anonymous read off", Config{Host: "127.0.0.1", Port: "8080"}, false},
+		{"loopback, anonymous read on", Config{Host: "127.0.0.1", Port: "8080", AnonymousRead: true}, false},
+		{"non-loopback, anonymous read off", Config{Host: "0.0.0.0", Port: "8080"}, false},
+		{"non-loopback, anonymous read on", Config{Host: "0.0.0.0", Port: "8080", AnonymousRead: true}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			warnOnInsecureDefaults(&buf, tt.cfg)
+			if got := buf.Len() > 0; got != tt.wantMsg {
+				t.Errorf("warning printed = %v, want %v (output: %q)", got, tt.wantMsg, buf.String())
+			}
+		})
 	}
 }
 

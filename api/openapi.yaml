@@ -16,14 +16,6 @@ info:
 servers:
   - url: /api/v1
 
-# Phase 2 replaces Phase 0's "no security scheme exists yet" (ADR 0004)
-# with the two real credential types product spec §4.1 defines: a
-# session cookie for humans, a bearer token for agents. Anonymous read
-# is a server-wide runtime toggle (product spec §4.2), not something
-# OpenAPI's security model can express per-operation, so it isn't
-# represented here — every operation below documents the credentials
-# it accepts when the caller *is* authenticated; whether an
-# unauthenticated GET succeeds anyway is a deployment-time decision.
 security:
   - cookieAuth: []
   - bearerAuth: []
