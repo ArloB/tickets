@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { createProject, listProjects } from '../api/projects'
 import { ApiError } from '../api/client'
+import { Pager } from '../components/Pager'
 import { useAuth } from '../auth/AuthContext'
+import { useCursorPager } from '../hooks/useCursorPager'
 import type { ProjectCompact } from '../api/types'
 
 function NewProjectForm({ onCreated }: { onCreated: (p: ProjectCompact) => void }) {
@@ -62,21 +64,25 @@ function NewProjectForm({ onCreated }: { onCreated: (p: ProjectCompact) => void 
 
 export default function ProjectList() {
   const { me } = useAuth()
-  const [projects, setProjects] = useState<ProjectCompact[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   // Archived projects are hidden by default (ADR 0021: visibility
   // only, matching the server's own default) and shown on request
   // rather than always-visible — the list is for active work first.
   const [includeArchived, setIncludeArchived] = useState(false)
 
-  useEffect(() => {
-    setProjects(null)
-    setError(null)
-    listProjects(undefined, includeArchived)
-      .then((page) => setProjects(page.projects))
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
-  }, [includeArchived])
+  const {
+    items: projects,
+    setItems: setProjects,
+    error,
+    loading,
+    hasNext,
+    hasPrev,
+    next,
+    prev,
+  } = useCursorPager<ProjectCompact>(
+    (cursor) => listProjects(cursor, includeArchived).then((page) => ({ items: page.projects, nextCursor: page.next_cursor })),
+    [includeArchived],
+  )
 
   if (error) return <p role="alert">{error}</p>
   if (!projects) return <p>Loading projects…</p>
@@ -104,6 +110,7 @@ export default function ProjectList() {
           ))}
         </ul>
       )}
+      <Pager hasPrev={hasPrev} hasNext={hasNext} loading={loading} onPrev={prev} onNext={next} />
 
       {me?.permission === 'editor' &&
         (creating ? (

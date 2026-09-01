@@ -82,6 +82,7 @@ export function RelationshipsSection({
       {error && <p role="alert">{error}</p>}
       {canEdit && (
         <form
+          className="inline-form"
           onSubmit={(e) => {
             e.preventDefault()
             void submitAdd()

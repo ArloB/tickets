@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { createDecision, listDecisions } from '../api/decisions'
 import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { Pager } from '../components/Pager'
 import { StatusChip } from '../components/StatusChip'
+import { useCursorPager } from '../hooks/useCursorPager'
 import type { DecisionCompact } from '../api/types'
 
 function NewDecisionForm({
@@ -83,15 +85,21 @@ function NewDecisionForm({
 export default function DecisionRegister() {
   const { key = '' } = useParams()
   const { me } = useAuth()
-  const [decisions, setDecisions] = useState<DecisionCompact[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
-  useEffect(() => {
-    listDecisions(key)
-      .then((page) => setDecisions(page.decisions))
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
-  }, [key])
+  const {
+    items: decisions,
+    setItems: setDecisions,
+    error,
+    loading,
+    hasNext,
+    hasPrev,
+    next,
+    prev,
+  } = useCursorPager<DecisionCompact>(
+    (cursor) => listDecisions(key, cursor).then((page) => ({ items: page.decisions, nextCursor: page.next_cursor })),
+    [key],
+  )
 
   if (error) return <p role="alert">{error}</p>
   if (!decisions) return <p>Loading decisions…</p>
@@ -111,6 +119,7 @@ export default function DecisionRegister() {
           ))}
         </ul>
       )}
+      <Pager hasPrev={hasPrev} hasNext={hasNext} loading={loading} onPrev={prev} onNext={next} />
 
       {me?.permission === 'editor' &&
         (creating ? (

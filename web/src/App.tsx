@@ -5,6 +5,7 @@ import SignIn from './routes/SignIn'
 import ProjectList from './routes/ProjectList'
 import ProjectOverview from './routes/ProjectOverview'
 import Backlog from './routes/Backlog'
+import NewTicket from './routes/NewTicket'
 import TicketBoard from './routes/TicketBoard'
 import FeatureBoard from './routes/FeatureBoard'
 import TicketDetail, {
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/" element={<ProjectList />} />
           <Route path="/projects/:key" element={<ProjectOverview />} />
           <Route path="/projects/:key/backlog" element={<Backlog />} />
+          <Route path="/projects/:key/tickets/new" element={<NewTicket />} />
           <Route path="/projects/:key/board" element={<TicketBoard />} />
           <Route path="/projects/:key/features/board" element={<FeatureBoard />} />
           <Route path="/projects/:key/decisions" element={<DecisionRegister />} />

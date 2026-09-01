@@ -15,10 +15,6 @@ typed relationships and associations, comments, attachments, and
 and plans/documents get full version history. Everything is full-text
 searchable, and the web UI updates live over SSE.
 
-Full product design lives in [`plan.md`](plan.md); the architectural
-decisions and their rationale (not just the outcome) live in
-[`docs/adr/`](docs/adr/README.md).
-
 ## Quickstart
 
 ```sh
@@ -34,10 +30,7 @@ open http://127.0.0.1:8080
 
 By default `tickets server` binds to loopback only and enables
 anonymous read access (browse without logging in; every write still
-requires authentication) — a reasonable default for a single machine.
-Binding to a non-loopback address prints a warning and, per
-[`docs/security-model.md`](docs/security-model.md), needs a deliberate
-decision about who else can reach it. See
+requires authentication). See
 [`docs/install.md`](docs/install.md) for building from source and
 [`docs/admin.md`](docs/admin.md) for every configuration key and
 `admin` subcommand.

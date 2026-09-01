@@ -140,12 +140,14 @@ export function TicketFieldsForm({
       {error && <p role="alert">{error}</p>}
       {conflict && <ConflictBanner conflict={conflict} onResolve={resolveField} />}
 
-      <button type="submit" disabled={saving || blocked}>
-        {saving ? 'Saving…' : 'Save'}
-      </button>
-      <button type="button" onClick={onCancel}>
-        Cancel
-      </button>
+      <div className="form-actions">
+        <button type="submit" disabled={saving || blocked}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
     </form>
   )
 }

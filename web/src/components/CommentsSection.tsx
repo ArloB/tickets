@@ -68,12 +68,14 @@ function EditingComment({
         </div>
       )}
       {error && <p role="alert">{error}</p>}
-      <button type="button" onClick={() => void save()} disabled={saving}>
-        {saving ? 'Saving…' : theirs ? 'Overwrite and save' : 'Save'}
-      </button>
-      <button type="button" onClick={onCancel}>
-        Cancel
-      </button>
+      <div className="form-actions">
+        <button type="button" onClick={() => void save()} disabled={saving}>
+          {saving ? 'Saving…' : theirs ? 'Overwrite and save' : 'Save'}
+        </button>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
     </li>
   )
 }

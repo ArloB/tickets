@@ -46,6 +46,7 @@ export default function Layout() {
         {me.is_admin && <Link to="/admin/agents">Agents</Link>}
         <form
           role="search"
+          className="inline-form"
           onSubmit={(e) => {
             e.preventDefault()
             const q = query.trim()
@@ -71,7 +72,11 @@ export default function Layout() {
          * (internal/httpapi/auth_middleware.go's resolvePrincipal: no
          * such thing as a session-authenticated viewer). Safe to gate
          * Sign-out on actor rather than a separate "has session" flag. */}
-        {me.actor && <button onClick={() => void logout()}>Sign out</button>}
+        {me.actor ? (
+          <button onClick={() => void logout()}>Sign out</button>
+        ) : (
+          <Link to="/login">Sign in</Link>
+        )}
       </nav>
       <Outlet />
     </div>

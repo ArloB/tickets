@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
-  createTicket,
   getTicket,
   listTickets,
   reorderTicket,
@@ -9,12 +8,11 @@ import {
   type TicketListFilters,
   type TicketListView,
 } from '../api/tickets'
-import { listFeatures } from '../api/features'
 import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { Pager } from '../components/Pager'
 import { StatusChip } from '../components/StatusChip'
 import type {
-  FeatureCompact,
   Priority,
   Severity,
   TicketCompact,
@@ -34,146 +32,6 @@ const statuses: WorkflowStatus[] = [
 const types: TicketType[] = ['task', 'bug', 'security', 'chore']
 const severities: Severity[] = ['critical', 'high', 'medium', 'low']
 const priorities: Priority[] = ['critical', 'high', 'medium', 'low']
-
-function NewTicketForm({
-  projectKey,
-  onCreated,
-}: {
-  projectKey: string
-  onCreated: (t: TicketCompact) => void
-}) {
-  const [type, setType] = useState<TicketType>('task')
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [priority, setPriority] = useState<Priority>('medium')
-  const [severity, setSeverity] = useState<Severity | ''>('')
-  const [features, setFeatures] = useState<FeatureCompact[] | null>(null)
-  const [featureRef, setFeatureRef] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const severityApplicable = type === 'bug' || type === 'security'
-
-  // No default feature (ADR 0023) — a ticket has to be assigned to one
-  // deliberately, General included, rather than silently landing there.
-  useEffect(() => {
-    let cancelled = false
-    listFeatures(projectKey, {}, undefined, 100)
-      .then((page) => {
-        if (!cancelled) setFeatures(page.features)
-      })
-      .catch(() => {
-        if (!cancelled) setFeatures([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [projectKey])
-
-  async function submit() {
-    setBusy(true)
-    setError(null)
-    try {
-      const created = await createTicket(projectKey, {
-        type,
-        title,
-        description,
-        priority,
-        severity: severityApplicable && severity !== '' ? severity : null,
-        feature: featureRef,
-      })
-      onCreated({
-        ref: created.ref,
-        title: created.title,
-        type: created.type,
-        status: created.status,
-        priority: created.priority,
-        severity: created.severity,
-        version: created.version,
-        updated_at: created.updated_at,
-      })
-      setTitle('')
-      setDescription('')
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault()
-        void submit()
-      }}
-    >
-      <label>
-        Type
-        <select value={type} onChange={(e) => setType(e.target.value as TicketType)}>
-          {types.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Feature
-        <select
-          value={featureRef}
-          onChange={(e) => setFeatureRef(e.target.value)}
-          required
-          disabled={!features}
-        >
-          <option value="" disabled>
-            {features ? 'Choose a feature…' : 'Loading features…'}
-          </option>
-          {features?.map((f) => (
-            <option key={f.ref} value={f.ref}>
-              {f.ref} — {f.title}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Title
-        <input value={title} onChange={(e) => setTitle(e.target.value)} required />
-      </label>
-      <label>
-        Description
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
-      </label>
-      <label>
-        Priority
-        <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
-          {priorities.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-      </label>
-      {severityApplicable && (
-        <label>
-          Severity
-          <select value={severity} onChange={(e) => setSeverity(e.target.value as Severity | '')}>
-            <option value="">None</option>
-            {severities.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" disabled={busy}>
-        {busy ? 'Creating…' : 'Create ticket'}
-      </button>
-    </form>
-  )
-}
 
 interface BulkResult {
   ref: string
@@ -308,9 +166,11 @@ export default function Backlog() {
   const { me } = useAuth()
   const [params, setParams] = useSearchParams()
   const [tickets, setTickets] = useState<TicketCompact[] | null>(null)
+  const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined)
+  const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([])
+  const [pagerLoading, setPagerLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkResults, setBulkResults] = useState<BulkResult[] | null>(null)
   const [reorderError, setReorderError] = useState<string | null>(null)
@@ -331,10 +191,13 @@ export default function Backlog() {
   const canReorder = canEdit && view === 'priority_queue'
 
   // Re-fetches (replacing the list, not appending) whenever the filter/
-  // view URL params change — "Load more" below is the only path that
-  // appends to an existing list.
+  // view URL params change, resetting to page one — Next/Previous below
+  // are the only paths that move off page one.
   useEffect(() => {
     setTickets(null)
+    setCursor(undefined)
+    setNextCursor(undefined)
+    setCursorHistory([])
     setError(null)
     setSelected(new Set())
     setBulkResults(null)
@@ -359,14 +222,33 @@ export default function Backlog() {
     setParams(next)
   }
 
-  function loadMore() {
+  function nextPage() {
     if (!nextCursor) return
+    setPagerLoading(true)
     listTickets(key, view, filters, nextCursor)
       .then((page) => {
-        setTickets((prev) => [...(prev ?? []), ...page.tickets])
+        setCursorHistory((h) => [...h, cursor])
+        setCursor(nextCursor)
+        setTickets(page.tickets)
         setNextCursor(page.next_cursor)
       })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
+      .finally(() => setPagerLoading(false))
+  }
+
+  function prevPage() {
+    if (cursorHistory.length === 0) return
+    const target = cursorHistory[cursorHistory.length - 1]
+    setPagerLoading(true)
+    listTickets(key, view, filters, target)
+      .then((page) => {
+        setCursorHistory((h) => h.slice(0, -1))
+        setCursor(target)
+        setTickets(page.tickets)
+        setNextCursor(page.next_cursor)
+      })
+      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
+      .finally(() => setPagerLoading(false))
   }
 
   function toggleSelected(ref: string) {
@@ -409,9 +291,9 @@ export default function Backlog() {
   // server's true band adjacency (a filter can hide the real
   // predecessor). So after a successful reorder we don't trust an
   // optimistic local swap — we refetch page one of the current
-  // view/filters and let the server's order win. This does lose any
-  // extra pages pulled in via "Load more," which is an acceptable
-  // cost for a rare action.
+  // view/filters and let the server's order win. This does reset
+  // pagination back to page one, which is an acceptable cost for a
+  // rare action.
   async function move(index: number, direction: -1 | 1) {
     if (!tickets) return
     const neighborIndex = index + direction
@@ -430,6 +312,8 @@ export default function Backlog() {
     try {
       await reorderTicket(ticket.ref, afterRef, ticket.version)
       const page = await listTickets(key, view, filters)
+      setCursor(undefined)
+      setCursorHistory([])
       setTickets(page.tickets)
       setNextCursor(page.next_cursor)
       // The refetch swaps in fresh row objects, and moving to the head
@@ -447,7 +331,7 @@ export default function Backlog() {
   return (
     <main>
       <h1>Backlog — {key}</h1>
-      <form>
+      <form className="inline-form">
         <label>
           View
           <select value={view} onChange={(e) => setFilter('view', e.target.value)}>
@@ -594,7 +478,13 @@ export default function Backlog() {
           </table>
         </div>
       )}
-      {nextCursor && <button onClick={loadMore}>Load more</button>}
+      <Pager
+        hasPrev={cursorHistory.length > 0}
+        hasNext={nextCursor !== undefined}
+        loading={pagerLoading}
+        onPrev={prevPage}
+        onNext={nextPage}
+      />
 
       {canEdit && (selected.size > 0 || bulkResults !== null) && tickets && (
         <BulkActions
@@ -607,18 +497,11 @@ export default function Backlog() {
         />
       )}
 
-      {me?.permission === 'editor' &&
-        (creating ? (
-          <NewTicketForm
-            projectKey={key}
-            onCreated={(t) => {
-              setTickets([...(tickets ?? []), t])
-              setCreating(false)
-            }}
-          />
-        ) : (
-          <button onClick={() => setCreating(true)}>New ticket</button>
-        ))}
+      {canEdit && (
+        <p>
+          <Link to={`/projects/${key}/tickets/new`}>New ticket</Link>
+        </p>
+      )}
     </main>
   )
 }

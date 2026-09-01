@@ -120,14 +120,26 @@ function VersionHistory({ decision }: { decision: DecisionDetailDto }) {
       </div>
 
       <form
+        className="inline-form"
         onSubmit={(e) => {
           e.preventDefault()
-          void showDiff()
+          if (diff) {
+            setDiff(null)
+            setDiffError(null)
+          } else {
+            void showDiff()
+          }
         }}
       >
         <label>
           From
-          <select value={from ?? ''} onChange={(e) => setFrom(Number(e.target.value))}>
+          <select
+            value={from ?? ''}
+            onChange={(e) => {
+              setFrom(Number(e.target.value))
+              setDiff(null)
+            }}
+          >
             {allVersions.map((v) => (
               <option key={v} value={v}>
                 {v}
@@ -137,7 +149,13 @@ function VersionHistory({ decision }: { decision: DecisionDetailDto }) {
         </label>
         <label>
           To
-          <select value={to} onChange={(e) => setTo(Number(e.target.value))}>
+          <select
+            value={to}
+            onChange={(e) => {
+              setTo(Number(e.target.value))
+              setDiff(null)
+            }}
+          >
             {allVersions.map((v) => (
               <option key={v} value={v}>
                 {v}
@@ -145,7 +163,7 @@ function VersionHistory({ decision }: { decision: DecisionDetailDto }) {
             ))}
           </select>
         </label>
-        <button type="submit">Show diff</button>
+        <button type="submit">{diff ? 'Dismiss diff' : 'Show diff'}</button>
       </form>
 
       {diffError && <p role="alert">{diffError}</p>}

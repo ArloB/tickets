@@ -121,14 +121,26 @@ function VersionHistory({ urlKind, item }: { urlKind: ContentItemUrlKind; item: 
       </div>
 
       <form
+        className="inline-form"
         onSubmit={(e) => {
           e.preventDefault()
-          void showDiff()
+          if (diff) {
+            setDiff(null)
+            setDiffError(null)
+          } else {
+            void showDiff()
+          }
         }}
       >
         <label>
           From
-          <select value={from ?? ''} onChange={(e) => setFrom(Number(e.target.value))}>
+          <select
+            value={from ?? ''}
+            onChange={(e) => {
+              setFrom(Number(e.target.value))
+              setDiff(null)
+            }}
+          >
             {allVersions.map((v) => (
               <option key={v} value={v}>
                 {v}
@@ -138,7 +150,13 @@ function VersionHistory({ urlKind, item }: { urlKind: ContentItemUrlKind; item: 
         </label>
         <label>
           To
-          <select value={to} onChange={(e) => setTo(Number(e.target.value))}>
+          <select
+            value={to}
+            onChange={(e) => {
+              setTo(Number(e.target.value))
+              setDiff(null)
+            }}
+          >
             {allVersions.map((v) => (
               <option key={v} value={v}>
                 {v}
@@ -146,7 +164,7 @@ function VersionHistory({ urlKind, item }: { urlKind: ContentItemUrlKind; item: 
             ))}
           </select>
         </label>
-        <button type="submit">Show diff</button>
+        <button type="submit">{diff ? 'Dismiss diff' : 'Show diff'}</button>
       </form>
 
       {diffError && <p role="alert">{diffError}</p>}
@@ -316,12 +334,14 @@ export default function ContentItemDetail({ urlKind }: { urlKind: ContentItemUrl
             </label>
           )}
           {saveError && <p role="alert">{saveError}</p>}
-          <button type="submit" disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button type="button" onClick={() => setEditing(false)} disabled={saving}>
-            Cancel
-          </button>
+          <div className="form-actions">
+            <button type="submit" disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" onClick={() => setEditing(false)} disabled={saving}>
+              Cancel
+            </button>
+          </div>
         </form>
       </main>
     )

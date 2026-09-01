@@ -4,7 +4,9 @@ import { CONTENT_ITEM_LABELS, createContentItem, listContentItems, uploadContent
 import type { ContentItemUrlKind } from '../api/content-items'
 import { ApiError } from '../api/client'
 import { MarkdownEditor } from '../components/MarkdownEditor'
+import { Pager } from '../components/Pager'
 import { useAuth } from '../auth/AuthContext'
+import { useCursorPager } from '../hooks/useCursorPager'
 import type { ContentItemCompact, ContentItemRepresentation } from '../api/types'
 
 function NewContentItemForm({
@@ -139,18 +141,25 @@ export default function ContentLibrary({ kind }: { kind: ContentItemUrlKind }) {
   const { key = '' } = useParams()
   const { me } = useAuth()
   const { singular, plural } = CONTENT_ITEM_LABELS[kind]
-  const [items, setItems] = useState<ContentItemCompact[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
-    setItems(null)
-    setError(null)
     setCreating(false)
-    listContentItems(kind, key)
-      .then((page) => setItems(page.items))
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
   }, [kind, key])
+
+  const {
+    items,
+    setItems,
+    error,
+    loading,
+    hasNext,
+    hasPrev,
+    next,
+    prev,
+  } = useCursorPager<ContentItemCompact>(
+    (cursor) => listContentItems(kind, key, cursor).then((page) => ({ items: page.items, nextCursor: page.next_cursor })),
+    [kind, key],
+  )
 
   if (error) return <p role="alert">{error}</p>
   if (!items) return <p>Loading {kind}…</p>
@@ -171,6 +180,7 @@ export default function ContentLibrary({ kind }: { kind: ContentItemUrlKind }) {
           ))}
         </ul>
       )}
+      <Pager hasPrev={hasPrev} hasNext={hasNext} loading={loading} onPrev={prev} onNext={next} />
 
       {me?.permission === 'editor' &&
         (creating ? (

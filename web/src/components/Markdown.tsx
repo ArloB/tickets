@@ -1,10 +1,10 @@
-import { useEffect, useState, type ComponentPropsWithoutRef } from 'react'
+import type { ComponentPropsWithoutRef } from 'react'
 import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
-import { resolveRefs, type ResolvedRef } from '../api/refs'
-import { refLinkClass, remarkRefLinks, scanRefs } from './refLinks'
+import { useResolvedRefs } from '../hooks/useResolvedRefs'
+import { refLinkClass, remarkRefLinks } from './refLinks'
 
 // defaultSchema strips script tags, event handlers, and any href/src
 // scheme other than http/https/mailto/tel — the allow-list product
@@ -28,15 +28,6 @@ const schema = {
   attributes: { ...defaultSchema.attributes, a: anchorAttributes },
 }
 
-// Resolutions are cached across every Markdown body in the session
-// because a reference is immutable for the life of the entity
-// (docs/contracts/references.md) — a token that resolved once cannot
-// stop naming that record. Only positive results are cached: a
-// reference to a record that does not exist *yet* is a normal state
-// (an author writing a plan before the tickets are filed), and
-// caching the miss would keep it unlinked for the rest of the session.
-const resolutionCache = new Map<string, ResolvedRef>()
-
 /** The single component every Markdown body render goes through
  * (ticket/feature/decision description, content-item body, comment
  * body) — product spec §10 requires sanitization regardless of CSP,
@@ -47,33 +38,7 @@ const resolutionCache = new Map<string, ResolvedRef>()
  * domain.ScanReferences' scopeProjectKey does; omit it and only fully
  * qualified references are recognized. */
 export function Markdown({ children, projectKey = '' }: { children: string; projectKey?: string }) {
-  const [resolved, setResolved] = useState<Map<string, ResolvedRef>>(resolutionCache)
-
-  useEffect(() => {
-    const tokens = [...new Set(scanRefs(children, projectKey).map((m) => m.token))]
-    const missing = tokens.filter((t) => !resolutionCache.has(t))
-    if (missing.length === 0) {
-      setResolved(new Map(resolutionCache))
-      return
-    }
-
-    let live = true
-    resolveRefs(missing)
-      .then((results) => {
-        for (const r of results) {
-          if (r.exists) resolutionCache.set(r.ref, r)
-        }
-        if (live) setResolved(new Map(resolutionCache))
-      })
-      .catch(() => {
-        // A failed resolve leaves references as plain text, which is
-        // exactly how they rendered before this feature existed —
-        // there is nothing to surface to the reader.
-      })
-    return () => {
-      live = false
-    }
-  }, [children, projectKey])
+  const resolved = useResolvedRefs(children, projectKey)
 
   return (
     <ReactMarkdown

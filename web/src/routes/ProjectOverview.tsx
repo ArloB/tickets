@@ -4,9 +4,11 @@ import { getProjectBrief } from '../api/projectBrief'
 import { createFeature } from '../api/features'
 import { listComments } from '../api/comments'
 import { updateProjectStatus } from '../api/projects'
+import { detailRoute } from '../api/refs'
 import { ApiError } from '../api/client'
 import { Markdown } from '../components/Markdown'
 import { CommentsSection } from '../components/CommentsSection'
+import { InlineRefText } from '../components/InlineRefText'
 import { ProjectFieldsForm } from '../components/ProjectFieldsForm'
 import { StatusChip } from '../components/StatusChip'
 import { useAuth } from '../auth/AuthContext'
@@ -134,7 +136,7 @@ function PlanBriefList({ plans }: { plans: ContentItemCompact[] }) {
   )
 }
 
-function ActivityBriefList({ events }: { events: ActivityEvent[] }) {
+function ActivityBriefList({ events, projectKey }: { events: ActivityEvent[]; projectKey: string }) {
   if (events.length === 0) return <p>No recent activity.</p>
   return (
     <ul>
@@ -144,9 +146,14 @@ function ActivityBriefList({ events }: { events: ActivityEvent[] }) {
           {e.entity ? (
             <>
               {' '}
-              on <span>{e.entity}</span>
+              on <Link to={detailRoute(e.entity)}>{e.entity}</Link>
             </>
           ) : null}
+          {e.comment_excerpt && (
+            <p>
+              <InlineRefText text={e.comment_excerpt} projectKey={projectKey} />
+            </p>
+          )}
         </li>
       ))}
     </ul>
@@ -265,6 +272,11 @@ export default function ProjectOverview() {
         <Link to={`/projects/${key}/documents`}>Documents</Link> ·{' '}
         <Link to={`/projects/${key}/activity`}>Activity</Link>
       </p>
+      {canEdit && (
+        <p>
+          <Link to={`/projects/${key}/tickets/new`}>New ticket</Link>
+        </p>
+      )}
 
       <h2>In progress / upcoming</h2>
       <TicketBriefList tickets={inProgress} />
@@ -322,7 +334,7 @@ export default function ProjectOverview() {
       <PlanBriefList plans={recentPlans} />
 
       <h2>Recent activity</h2>
-      <ActivityBriefList events={recentActivity} />
+      <ActivityBriefList events={recentActivity} projectKey={project.key} />
 
       <h2>Comments</h2>
       {comments && (
