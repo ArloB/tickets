@@ -1,6 +1,6 @@
 import { apiFetch, ifMatchHeader } from './client'
 import { entityPathSegment } from './refs'
-import type { CommentDetail, CommentsPage } from './types'
+import type { CommentDetail, CommentHistoryPage, CommentsPage } from './types'
 
 // Comments exist on any of the six principal kinds §5.10 names (Phase
 // 6 Step 2) — ref may be a ticket/feature/decision/plan/document
@@ -34,6 +34,10 @@ export async function editComment(
     body: { body },
     headers: ifMatchHeader(expectedVersion),
   })
+}
+
+export async function getCommentHistory(commentId: number): Promise<CommentHistoryPage> {
+  return apiFetch<CommentHistoryPage>(`/comments/${commentId}/history`)
 }
 
 export async function deleteComment(commentId: number, expectedVersion: number): Promise<void> {

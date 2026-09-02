@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import Layout from './routes/Layout'
 import SignIn from './routes/SignIn'
+import Setup from './routes/Setup'
+import Help from './routes/Help'
 import ProjectList from './routes/ProjectList'
 import ProjectOverview from './routes/ProjectOverview'
 import Backlog from './routes/Backlog'
@@ -41,8 +43,10 @@ export default function App() {
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<SignIn />} />
+        <Route path="/setup" element={<Setup />} />
         <Route element={<Layout />}>
           <Route path="/" element={<ProjectList />} />
+          <Route path="/help" element={<Help />} />
           <Route path="/projects/:key" element={<ProjectOverview />} />
           <Route path="/projects/:key/backlog" element={<Backlog />} />
           <Route path="/projects/:key/tickets/new" element={<NewTicket />} />

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom'
-import { getFeature } from '../api/features'
+import { deleteFeature, getFeature, restoreFeature } from '../api/features'
 import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
 import { listBacklinks } from '../api/backlinks'
@@ -43,6 +43,63 @@ function useFeatureContext() {
   return useOutletContext<FeatureContext>()
 }
 
+function isGeneralFeature(ref: string): boolean {
+  return /-F1$/.test(ref)
+}
+
+function DeleteFeatureButton({
+  feature,
+  onDeleted,
+}: {
+  feature: FeatureDetailDto
+  onDeleted: () => void
+}) {
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [dependentsMessage, setDependentsMessage] = useState<string | null>(null)
+
+  async function attempt(cascade: boolean) {
+    setDeleting(true)
+    setError(null)
+    try {
+      await deleteFeature(feature.ref, feature.version, cascade)
+      onDeleted()
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'has_dependents') {
+        setDependentsMessage(err.message)
+      } else {
+        setError(err instanceof ApiError ? err.message : String(err))
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  if (dependentsMessage) {
+    return (
+      <p role="alert">
+        {dependentsMessage} Restoring the feature afterward would not restore them — each needs its
+        own Restore.{' '}
+        <button type="button" onClick={() => void attempt(true)} disabled={deleting}>
+          Delete feature and its tickets
+        </button>{' '}
+        <button type="button" onClick={() => setDependentsMessage(null)} disabled={deleting}>
+          Cancel
+        </button>
+      </p>
+    )
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => void attempt(false)} disabled={deleting}>
+        {deleting ? 'Deleting…' : 'Delete'}
+      </button>
+      {error && <p role="alert">{error}</p>}
+    </>
+  )
+}
+
 export default function FeatureDetail() {
   const { ref = '' } = useParams()
   const { me } = useAuth()
@@ -54,6 +111,8 @@ export default function FeatureDetail() {
   const [comments, setComments] = useState<CommentDetail[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [deletedFeature, setDeletedFeature] = useState<FeatureDetailDto | null>(null)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
 
   const load = useCallback((clear: boolean) => {
     if (clear) {
@@ -65,6 +124,8 @@ export default function FeatureDetail() {
       setComments(null)
       setError(null)
       setEditing(false)
+      setDeletedFeature(null)
+      setRestoreError(null)
     }
     Promise.all([
       getFeature(ref),
@@ -82,8 +143,24 @@ export default function FeatureDetail() {
         setAttachments(at.attachments)
         setComments(c.comments)
       })
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 404) {
+          getFeature(ref, true)
+            .then((f) => setDeletedFeature(f))
+            .catch(() => setError(err.message))
+          return
+        }
+        setError(err instanceof ApiError ? err.message : String(err))
+      })
   }, [ref])
+
+  function restore() {
+    if (!deletedFeature) return
+    setRestoreError(null)
+    restoreFeature(deletedFeature.ref, deletedFeature.version)
+      .then(() => load(true))
+      .catch((err: unknown) => setRestoreError(err instanceof ApiError ? err.message : String(err)))
+  }
 
   useEffect(() => {
     load(true)
@@ -94,12 +171,36 @@ export default function FeatureDetail() {
     if (!editing) load(false)
   }, [editing, load]))
 
+  const canEdit = me?.permission === 'editor'
+
+  if (deletedFeature) {
+    return (
+      <main>
+        <h1>
+          {deletedFeature.title} <span>({deletedFeature.ref})</span>
+        </h1>
+        <p role="alert">
+          This feature was deleted
+          {deletedFeature.deleted_at ? ` on ${deletedFeature.deleted_at}` : ''}. Any tickets cascade-
+          deleted with it need restoring individually.
+          {canEdit && (
+            <>
+              {' '}
+              <button type="button" onClick={restore}>
+                Restore
+              </button>
+            </>
+          )}
+        </p>
+        {restoreError && <p role="alert">{restoreError}</p>}
+      </main>
+    )
+  }
+
   if (error) return <p role="alert">{error}</p>
   if (!feature || !links || !associated || !backlinks || !attachments || !comments) {
     return <p>Loading feature…</p>
   }
-
-  const canEdit = me?.permission === 'editor'
 
   if (editing) {
     return (
@@ -134,6 +235,9 @@ export default function FeatureDetail() {
         <StatusChip value={feature.priority} kind="priority" />
       </p>
       {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
+      {canEdit && !isGeneralFeature(feature.ref) && (
+        <DeleteFeatureButton feature={feature} onDeleted={() => load(true)} />
+      )}
       <SubscribeButton targetRef={feature.ref} canEdit={canEdit} />
 
       <DetailTabs

@@ -1,9 +1,37 @@
-import { useState } from 'react'
-import { addComment, deleteComment, editComment, getComment } from '../api/comments'
+import { useEffect, useState } from 'react'
+import { addComment, deleteComment, editComment, getComment, getCommentHistory } from '../api/comments'
 import { ApiError } from '../api/client'
 import { Markdown } from './Markdown'
 import { projectKeyOfRef } from '../api/refs'
-import type { CommentDetail } from '../api/types'
+import type { CommentDetail, CommentVersion } from '../api/types'
+
+function CommentHistory({ commentId, projectKey }: { commentId: number; projectKey: string }) {
+  const [versions, setVersions] = useState<CommentVersion[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    getCommentHistory(commentId)
+      .then((page) => setVersions(page.versions))
+      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
+  }, [commentId])
+
+  if (error) return <p role="alert">{error}</p>
+  if (!versions) return <p>Loading history…</p>
+  if (versions.length === 0) return <p>No prior versions.</p>
+
+  return (
+    <ul>
+      {versions.map((v) => (
+        <li key={v.version}>
+          <p>
+            Version {v.version} — {v.edited_by} — {v.created_at}
+          </p>
+          <Markdown projectKey={projectKey}>{v.body}</Markdown>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 /** A comment's version is independent of its parent ticket's
  * (docs/contracts/concurrency.md) — a stale comment edit never
@@ -102,6 +130,7 @@ export function CommentsSection({
   const [postError, setPostError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [historyOpenId, setHistoryOpenId] = useState<number | null>(null)
   const projectKey = projectKeyOfRef(entityRef)
 
   async function submitNew() {
@@ -160,7 +189,22 @@ export function CommentsSection({
                 <p>
                   <strong>{c.author}</strong> — {c.created_at}
                   {c.deleted_at ? ' (deleted)' : ''}
+                  {c.version > 1 && (
+                    <>
+                      {' '}
+                      · edited ·{' '}
+                      <button
+                        type="button"
+                        onClick={() => setHistoryOpenId(historyOpenId === c.id ? null : c.id)}
+                      >
+                        {historyOpenId === c.id ? 'Hide history' : 'History'}
+                      </button>
+                    </>
+                  )}
                 </p>
+                {historyOpenId === c.id && (
+                  <CommentHistory commentId={c.id} projectKey={projectKey} />
+                )}
                 <Markdown projectKey={projectKey}>{c.body}</Markdown>
                 {canEdit && !c.deleted_at && (
                   <>

@@ -39,3 +39,10 @@ export async function logout(): Promise<void> {
   await apiFetch<void>('/auth/logout', { method: 'POST' })
   setCsrfToken(null)
 }
+
+export async function setupAdmin(username: string, password: string): Promise<{ actor: string }> {
+  return apiFetch<{ actor: string }>('/setup', {
+    method: 'POST',
+    body: { username, password },
+  })
+}

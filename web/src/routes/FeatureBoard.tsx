@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { listFeatures, updateFeatureStatus } from '../api/features'
+import { listFeatures, reorderFeature, updateFeatureStatus } from '../api/features'
 import { ApiError } from '../api/client'
 import { useProjectChanged } from '../api/events'
 import { useAuth } from '../auth/AuthContext'
 import { StatusChip } from '../components/StatusChip'
+import { useBoardDrag } from '../hooks/useBoardDrag'
 import type { FeatureCompact, WorkflowStatus } from '../api/types'
 
 const statuses: WorkflowStatus[] = [
@@ -25,10 +26,10 @@ interface ColumnState {
   error: string | null
 }
 
-/** Feature board — same shape as TicketBoard, moving cards via a
- * status <select> (keyboard-operable, no pointer drag). Only possible
- * since the Phase 4 gap fix (POST /features/{ref}/status): before
- * that, a feature's status could never change after creation. */
+/** Feature board — same shape as TicketBoard. The status <select> on
+ * every card moves it between columns; only possible since the Phase
+ * 4 gap fix (POST /features/{ref}/status), before which a feature's
+ * status could never change after creation. */
 export default function FeatureBoard() {
   const { key = '' } = useParams()
   const { me } = useAuth()
@@ -44,6 +45,14 @@ export default function FeatureBoard() {
   // its <select> in a different parent list, dropping focus with
   // nothing else to tell a screen-reader user what happened.
   const [moveAnnouncement, setMoveAnnouncement] = useState('')
+
+  function currentFeature(ref: string): FeatureCompact | undefined {
+    for (const status of statuses) {
+      const found = columns[status].features?.find((f) => f.ref === ref)
+      if (found) return found
+    }
+    return undefined
+  }
 
   const reload = useCallback(
     (clear: boolean) => {
@@ -101,7 +110,48 @@ export default function FeatureBoard() {
     }
   }
 
-  async function moveCard(feature: FeatureCompact, newStatus: WorkflowStatus) {
+  async function applyReorder(dragged: FeatureCompact, afterRef: string | null) {
+    const feature = currentFeature(dragged.ref) ?? dragged
+    try {
+      await reorderFeature(feature.ref, afterRef, feature.version)
+      const page = await listFeatures(key, { status: feature.status }, undefined, COLUMN_PAGE_SIZE)
+      setColumns((prev) => ({
+        ...prev,
+        [feature.status]: { features: page.features, nextCursor: page.next_cursor, error: null },
+      }))
+      setMoveAnnouncement(`Moved ${feature.ref}`)
+    } catch (err) {
+      setColumns((prev) => ({
+        ...prev,
+        [feature.status]: {
+          ...prev[feature.status],
+          error: err instanceof ApiError ? err.message : String(err),
+        },
+      }))
+    }
+  }
+
+  async function reorder(status: WorkflowStatus, index: number, direction: -1 | 1) {
+    const col = columns[status]
+    const features = col.features
+    if (!features) return
+    const neighborIndex = index + direction
+    if (neighborIndex < 0 || neighborIndex >= features.length) return
+    const feature = features[index]
+    const neighbor = features[neighborIndex]
+    if (feature.priority !== neighbor.priority) return
+
+    const afterRef =
+      direction === 1
+        ? neighbor.ref
+        : (features[neighborIndex - 1]?.priority === feature.priority
+            ? features[neighborIndex - 1].ref
+            : null)
+    await applyReorder(feature, afterRef)
+  }
+
+  async function moveCard(dragged: FeatureCompact, newStatus: WorkflowStatus) {
+    const feature = currentFeature(dragged.ref) ?? dragged
     if (newStatus === feature.status) return
     try {
       const updated = await updateFeatureStatus(feature.ref, newStatus, feature.version)
@@ -137,6 +187,11 @@ export default function FeatureBoard() {
     }
   }
 
+  const { dragging, dragProps, columnDropProps, cardDropProps } = useBoardDrag<FeatureCompact>(
+    (f, afterRef) => void applyReorder(f, afterRef),
+    (f, status) => void moveCard(f, status),
+  )
+
   return (
     <main>
       <h1>Feature board — {key}</h1>
@@ -146,24 +201,54 @@ export default function FeatureBoard() {
       <div className="board">
         {statuses.map((status) => {
           const col = columns[status]
+          const features = col.features
           return (
             <section key={status} className="board-column">
               <h2>
                 <StatusChip value={status} kind="status" />
               </h2>
               {col.error && <p role="alert">{col.error}</p>}
-              {!col.features ? (
+              {!features ? (
                 <p>Loading…</p>
               ) : (
-                <div className="board-column-list">
+                <div className="board-column-list" {...(canEdit ? columnDropProps(status) : {})}>
                   <ul>
-                    {col.features.map((f) => (
-                      <li key={f.ref} className="board-card">
+                    {features.map((f, i) => (
+                      <li
+                        key={f.ref}
+                        className={
+                          dragging?.ref === f.ref ? 'board-card board-card-dragging' : 'board-card'
+                        }
+                        {...(canEdit ? dragProps(f) : {})}
+                        {...(canEdit ? cardDropProps(f, features) : {})}
+                      >
                         <Link to={`/features/${f.ref}`}>{f.ref}</Link>
                         <p>{f.title}</p>
                         <p>
                           <StatusChip value={f.priority} kind="priority" />
                         </p>
+                        {canEdit && (
+                          <div className="reorder-cell">
+                            <button
+                              type="button"
+                              onClick={() => void reorder(status, i, -1)}
+                              disabled={i === 0 || features[i - 1].priority !== f.priority}
+                              aria-label={`Move ${f.ref} up`}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void reorder(status, i, 1)}
+                              disabled={
+                                i === features.length - 1 || features[i + 1].priority !== f.priority
+                              }
+                              aria-label={`Move ${f.ref} down`}
+                            >
+                              ↓
+                            </button>
+                          </div>
+                        )}
                         {canEdit && (
                           <label>
                             Move to

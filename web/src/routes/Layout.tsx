@@ -72,6 +72,9 @@ export default function Layout() {
          * (internal/httpapi/auth_middleware.go's resolvePrincipal: no
          * such thing as a session-authenticated viewer). Safe to gate
          * Sign-out on actor rather than a separate "has session" flag. */}
+        <Link to="/help" className="help-link" aria-label="Help" title="Help">
+          ?
+        </Link>
         {me.actor ? (
           <button onClick={() => void logout()}>Sign out</button>
         ) : (

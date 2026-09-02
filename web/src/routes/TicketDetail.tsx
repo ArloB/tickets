@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, Outlet, useOutletContext, useParams } from 'react-router-dom'
-import { getTicket } from '../api/tickets'
+import { getTicket, restoreTicket } from '../api/tickets'
 import { listBacklinks } from '../api/backlinks'
 import { listLinks } from '../api/links'
 import { listAssociations } from '../api/associations'
@@ -9,7 +9,7 @@ import { ApiError } from '../api/client'
 import { useEntityChanged } from '../api/events'
 import { Markdown } from '../components/Markdown'
 import { TicketFieldsForm } from '../components/TicketFieldsForm'
-import { TicketActions } from '../components/TicketActions'
+import { TicketActions, DeleteTicketButton } from '../components/TicketActions'
 import { CommentsSection } from '../components/CommentsSection'
 import { DetailTabs } from '../components/DetailTabs'
 import { LinksTabView } from '../components/LinksTabView'
@@ -51,6 +51,8 @@ export default function TicketDetail() {
   const [attachments, setAttachments] = useState<Attachment[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [deletedTicket, setDeletedTicket] = useState<TicketDetailDto | null>(null)
+  const [restoreError, setRestoreError] = useState<string | null>(null)
 
   const load = useCallback((clear: boolean) => {
     if (clear) {
@@ -61,6 +63,8 @@ export default function TicketDetail() {
       setAttachments(null)
       setError(null)
       setEditing(false)
+      setDeletedTicket(null)
+      setRestoreError(null)
     }
     Promise.all([
       getTicket(ref, ['comments', 'relationships']),
@@ -76,8 +80,24 @@ export default function TicketDetail() {
         setBacklinks(b.backlinks)
         setAttachments(at.attachments)
       })
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : String(err)))
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 404) {
+          getTicket(ref, [], true)
+            .then((t) => setDeletedTicket(t))
+            .catch(() => setError(err.message))
+          return
+        }
+        setError(err instanceof ApiError ? err.message : String(err))
+      })
   }, [ref])
+
+  function restore() {
+    if (!deletedTicket) return
+    setRestoreError(null)
+    restoreTicket(deletedTicket.ref, deletedTicket.version)
+      .then(() => load(true))
+      .catch((err: unknown) => setRestoreError(err instanceof ApiError ? err.message : String(err)))
+  }
 
   useEffect(() => {
     load(true)
@@ -96,10 +116,33 @@ export default function TicketDetail() {
     if (!editing) load(false)
   }, [editing, load]))
 
+  const canEdit = me?.permission === 'editor'
+
+  if (deletedTicket) {
+    return (
+      <main>
+        <h1>
+          {deletedTicket.title} <span>({deletedTicket.ref})</span>
+        </h1>
+        <p role="alert">
+          This ticket was deleted
+          {deletedTicket.deleted_at ? ` on ${deletedTicket.deleted_at}` : ''}.
+          {canEdit && (
+            <>
+              {' '}
+              <button type="button" onClick={restore}>
+                Restore
+              </button>
+            </>
+          )}
+        </p>
+        {restoreError && <p role="alert">{restoreError}</p>}
+      </main>
+    )
+  }
+
   if (error) return <p role="alert">{error}</p>
   if (!ticket || !links || !associated || !backlinks || !attachments) return <p>Loading ticket…</p>
-
-  const canEdit = me?.permission === 'editor'
 
   if (editing) {
     return (
@@ -149,6 +192,7 @@ export default function TicketDetail() {
         Assignee: {ticket.assignee ?? 'unassigned'} · Creator: {ticket.creator ?? 'unknown'}
       </p>
       {canEdit && <button onClick={() => setEditing(true)}>Edit</button>}
+      {canEdit && <DeleteTicketButton ticket={ticket} onDeleted={() => load(true)} />}
       <SubscribeButton targetRef={ticket.ref} canEdit={canEdit} />
 
       {canEdit && (

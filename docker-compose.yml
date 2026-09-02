@@ -1,12 +1,6 @@
 services:
   tickets:
-    build:
-      context: .
-      args:
-        VERSION: ${TICKETS_VERSION:-dev}
-        COMMIT: ${TICKETS_COMMIT:-none}
-        DATE: ${TICKETS_DATE:-unknown}
-    image: tickets:local
+    image: ghcr.io/arlob/tickets:latest
     ports:
       - "8080:8080"
     volumes:

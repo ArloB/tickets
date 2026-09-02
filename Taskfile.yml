@@ -168,16 +168,12 @@ tasks:
 
   docker:up:
     desc: >
-      Build and start the Docker Compose service in the background.
-      Same Docker-daemon caveat as docker:build. Run `docker compose
-      run --rm tickets setup --username admin --password ...` once,
-      then http://127.0.0.1:8080 — see docs/deploy-docker.md.
-    env:
-      TICKETS_VERSION: '{{.VERSION}}'
-      TICKETS_COMMIT: '{{.COMMIT}}'
-      TICKETS_DATE: '{{.DATE}}'
+      Pull (docker-compose.yml's image: ghcr.io/arlob/tickets:latest)
+      and start the Docker Compose service in the background, then
+      open http://127.0.0.1:8080 — the web UI walks through first-run
+      setup from there. See docs/deploy-docker.md.
     cmds:
-      - docker compose up -d --build
+      - docker compose up -d
 
   bench:
     desc: >

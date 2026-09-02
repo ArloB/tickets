@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { assignTicket, getTicket, moveTicketFeature, updateTicketStatus } from '../api/tickets'
+import {
+  assignTicket,
+  deleteTicket,
+  getTicket,
+  moveTicketFeature,
+  updateTicketStatus,
+} from '../api/tickets'
 import { ApiError } from '../api/client'
 import type { TicketDetail, WorkflowStatus } from '../api/types'
 
@@ -166,6 +172,38 @@ function AssignControl({
         </p>
       )}
       {error && <p className="quick-edit-message" role="alert">{error}</p>}
+    </>
+  )
+}
+
+export function DeleteTicketButton({
+  ticket,
+  onDeleted,
+}: {
+  ticket: TicketDetail
+  onDeleted: () => void
+}) {
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleDelete() {
+    setDeleting(true)
+    setError(null)
+    try {
+      await deleteTicket(ticket.ref, ticket.version)
+      onDeleted()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => void handleDelete()} disabled={deleting}>
+        {deleting ? 'Deleting…' : 'Delete'}
+      </button>
+      {error && <p role="alert">{error}</p>}
     </>
   )
 }

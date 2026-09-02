@@ -34,6 +34,18 @@ nav > span {
   margin-left: auto;
 }
 
+nav a.help-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid light-dark(#ccc, #444);
+  border-radius: 50%;
+  text-decoration: none;
+  font-size: 0.8125rem;
+}
+
 @media (max-width: 30rem) {
   main {
     padding: 1rem;
@@ -196,6 +208,7 @@ textarea {
 }
 
 tr:hover .reorder-cell button,
+.board-card:hover .reorder-cell button,
 .reorder-cell button:focus-visible {
   opacity: 1;
 }
@@ -208,6 +221,50 @@ main.centered-form {
 main.centered-form form {
   flex-direction: column;
   align-items: stretch;
+}
+
+.auth-card {
+  margin-top: min(12vh, 5rem);
+  padding: 2rem 2.25rem 2.25rem;
+  border: 1px solid light-dark(#e2e2e2, #333);
+  border-radius: 0.75rem;
+  background: light-dark(#fff, #1a1a1a);
+}
+
+.auth-mark {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: light-dark(#555, #aaa);
+}
+
+.auth-card h1 {
+  margin: 0.35rem 0 1.5rem;
+  font-size: 1.375rem;
+}
+
+.auth-card [role='alert'] {
+  margin: 0;
+  font-size: 0.875rem;
+  color: light-dark(#b91c1c, #f87171);
+}
+
+.auth-card form > button {
+  align-self: stretch;
+  padding: 0.5rem;
+  font-weight: 600;
+  color: light-dark(#fff, #0a0a0a);
+  background: light-dark(#2563eb, #60a5fa);
+  border: none;
+  border-radius: 0.4rem;
+}
+
+.auth-card form > button:hover:not(:disabled) {
+  background: light-dark(#1d4ed8, #7ab8ff);
+}
+
+.auth-card form > button:disabled {
+  opacity: 0.7;
 }
 
 table {
@@ -302,6 +359,14 @@ td {
   border-radius: 0.375rem;
   padding: 0.5rem;
   font-size: 0.875rem;
+}
+
+.board-card[draggable='true'] {
+  cursor: grab;
+}
+
+.board-card-dragging {
+  opacity: 0.5;
 }
 
 .board-card p {

@@ -113,6 +113,7 @@ export interface TicketDetail {
   version: number
   created_at: string
   updated_at: string
+  deleted_at?: string
   comments?: CommentDetail[]
   relationships?: RelationshipView[]
 }
@@ -143,6 +144,7 @@ export interface FeatureDetail {
   version: number
   created_at: string
   updated_at: string
+  deleted_at?: string
 }
 
 export interface FeaturesPage {
@@ -390,6 +392,17 @@ export interface CommentDetail {
 
 export interface CommentsPage {
   comments: CommentDetail[]
+}
+
+export interface CommentVersion {
+  version: number
+  body: string
+  edited_by: string
+  created_at: string
+}
+
+export interface CommentHistoryPage {
+  versions: CommentVersion[]
 }
 
 // -- Relationships / associations / links / backlinks --

@@ -114,3 +114,21 @@ used.
   `GetTicketRefByEntityID` filters deleted rows like every other read.
   Fixed by resolving the ref before the delete, not by adding a
   deleted-aware variant of that function — nothing else needs one.
+- **The remaining discoverability gap — knowing a deleted ref exists
+  at all, as opposed to already holding one — is closed by the web
+  UI, not the API.** `?include_deleted=true` (Step 13, above) only
+  helps a caller that already has the ref; nothing server-side lists
+  soft-deleted rows. `TicketDetail`/`FeatureDetail`
+  (`web/src/routes/`) retry a 404 with `include_deleted=true` before
+  giving up, rendering a "this was deleted — Restore" view instead of
+  a bare not-found when that's what the 404 actually was. The
+  activity feed (`ActivityFeed.tsx`) already links every
+  `ticket_deleted`/`feature_deleted`/`*_restored` event's `entity` ref
+  to its detail route, so that link — previously a dead end — is now
+  the discovery path this ADR's Decision assumed existed. Feature
+  delete's cascade choice is surfaced explicitly in the same UI
+  (`DeleteFeatureButton`, `FeatureDetail.tsx`) rather than retried
+  silently on `has_dependents`, and Delete is never offered on the
+  General feature (`isGeneralFeature`, keyed off the structural
+  `-F1` ref rather than the renameable title) — both mirroring this
+  ADR's Decision section rather than re-deriving the rule.

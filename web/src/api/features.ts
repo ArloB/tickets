@@ -27,8 +27,9 @@ export async function listFeatures(
   )
 }
 
-export async function getFeature(ref: string): Promise<FeatureDetail> {
-  return apiFetch<FeatureDetail>(`/features/${encodeURIComponent(ref)}`)
+export async function getFeature(ref: string, includeDeleted = false): Promise<FeatureDetail> {
+  const query = includeDeleted ? '?include_deleted=true' : ''
+  return apiFetch<FeatureDetail>(`/features/${encodeURIComponent(ref)}${query}`)
 }
 
 export interface CreateFeatureInput {
@@ -80,6 +81,37 @@ export async function updateFeatureStatus(
   return apiFetch<FeatureDetail>(`/features/${encodeURIComponent(ref)}/status`, {
     method: 'POST',
     body: { status },
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+export async function reorderFeature(
+  ref: string,
+  afterRef: string | null,
+  expectedVersion: number,
+): Promise<FeatureDetail> {
+  return apiFetch<FeatureDetail>(`/features/${encodeURIComponent(ref)}/reorder`, {
+    method: 'POST',
+    body: { after_ref: afterRef },
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+export async function deleteFeature(
+  ref: string,
+  expectedVersion: number,
+  cascade = false,
+): Promise<{ version: number }> {
+  const query = cascade ? '?cascade=true' : ''
+  return apiFetch<{ version: number }>(`/features/${encodeURIComponent(ref)}${query}`, {
+    method: 'DELETE',
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+export async function restoreFeature(ref: string, expectedVersion: number): Promise<FeatureDetail> {
+  return apiFetch<FeatureDetail>(`/features/${encodeURIComponent(ref)}/restore`, {
+    method: 'POST',
     headers: ifMatchHeader(expectedVersion),
   })
 }

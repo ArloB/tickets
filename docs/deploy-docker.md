@@ -10,15 +10,24 @@ and a network namespace.
 ## Quickstart
 
 ```sh
-docker compose up -d --build
-docker compose run --rm tickets setup --username admin --password <a real password>
+docker compose up -d
 open http://127.0.0.1:8080
 ```
 
-`docker compose run --rm tickets setup ...` runs `tickets setup`
-against the same `/data` volume the `tickets` service uses — it opens
-the data directory directly (same as bare metal), so it works whether
-or not the `tickets` service is already up.
+`docker-compose.yml` pulls the published `ghcr.io/arlob/tickets:latest`
+image rather than building locally — see "Building the image
+directly" below for a local build. The first visit to the URL above
+walks through creating the admin account and, optionally, a first
+agent token entirely in the browser (product spec §6.5's "first-run
+setup" web view) — no shell access to the container needed, which
+matters for anyone deploying through a GUI-only tool (Komodo,
+Portainer, etc.) with no host CLI.
+
+`tickets setup` (below) and `docker compose run --rm tickets setup
+...` remain available for a scripted/headless bootstrap, and are
+equivalent to the web wizard's first step — both ultimately call
+`service.CreateAdminAccount`, which refuses either path once one human
+account exists.
 
 ## Building the image directly
 

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { listTickets, updateTicketStatus } from '../api/tickets'
+import { listTickets, reorderTicket, updateTicketStatus } from '../api/tickets'
 import { ApiError } from '../api/client'
 import { useProjectChanged } from '../api/events'
 import { useAuth } from '../auth/AuthContext'
 import { StatusChip } from '../components/StatusChip'
+import { useBoardDrag } from '../hooks/useBoardDrag'
 import type { TicketCompact, WorkflowStatus } from '../api/types'
 
 const statuses: WorkflowStatus[] = [
@@ -28,11 +29,7 @@ interface ColumnState {
 /** Grouped-by-status board. Each column is its own filtered/paginated
  * fetch (the Milestone 1 `status` filter) rather than one unfiltered
  * fetch grouped client-side — the latter doesn't hold up at §11's
- * 100k-ticket reference dataset. Status changes move a card between
- * columns via a <select>, not pointer drag-and-drop: this keeps the
- * board fully keyboard-operable without a separate a11y pass
- * (Milestone 5's plan flags HTML5 native DnD as having no keyboard
- * path at all). */
+ * 100k-ticket reference dataset. */
 export default function TicketBoard() {
   const { key = '' } = useParams()
   const { me } = useAuth()
@@ -51,6 +48,14 @@ export default function TicketBoard() {
   // announcement is the fallback for a screen-reader user once focus
   // silently drops to the document body.
   const [moveAnnouncement, setMoveAnnouncement] = useState('')
+
+  function currentTicket(ref: string): TicketCompact | undefined {
+    for (const status of statuses) {
+      const found = columns[status].tickets?.find((t) => t.ref === ref)
+      if (found) return found
+    }
+    return undefined
+  }
 
   const reload = useCallback(
     (clear: boolean) => {
@@ -120,7 +125,8 @@ export default function TicketBoard() {
     }
   }
 
-  async function moveCard(ticket: TicketCompact, newStatus: WorkflowStatus) {
+  async function moveCard(dragged: TicketCompact, newStatus: WorkflowStatus) {
+    const ticket = currentTicket(dragged.ref) ?? dragged
     if (newStatus === ticket.status) return
     try {
       const updated = await updateTicketStatus(ticket.ref, newStatus, ticket.version)
@@ -158,6 +164,38 @@ export default function TicketBoard() {
     }
   }
 
+  async function reorderCard(dragged: TicketCompact, afterRef: string | null) {
+    const ticket = currentTicket(dragged.ref) ?? dragged
+    try {
+      await reorderTicket(ticket.ref, afterRef, ticket.version)
+      const page = await listTickets(
+        key,
+        'priority_queue',
+        { status: ticket.status },
+        undefined,
+        COLUMN_PAGE_SIZE,
+      )
+      setColumns((prev) => ({
+        ...prev,
+        [ticket.status]: { tickets: page.tickets, nextCursor: page.next_cursor, error: null },
+      }))
+      setMoveAnnouncement(`Moved ${ticket.ref}`)
+    } catch (err) {
+      setColumns((prev) => ({
+        ...prev,
+        [ticket.status]: {
+          ...prev[ticket.status],
+          error: err instanceof ApiError ? err.message : String(err),
+        },
+      }))
+    }
+  }
+
+  const { dragging, dragProps, columnDropProps, cardDropProps } = useBoardDrag<TicketCompact>(
+    (t, afterRef) => void reorderCard(t, afterRef),
+    (t, status) => void moveCard(t, status),
+  )
+
   return (
     <main>
       <h1>Board — {key}</h1>
@@ -167,19 +205,27 @@ export default function TicketBoard() {
       <div className="board">
         {statuses.map((status) => {
           const col = columns[status]
+          const tickets = col.tickets
           return (
             <section key={status} className="board-column">
               <h2>
                 <StatusChip value={status} kind="status" />
               </h2>
               {col.error && <p role="alert">{col.error}</p>}
-              {!col.tickets ? (
+              {!tickets ? (
                 <p>Loading…</p>
               ) : (
-                <div className="board-column-list">
+                <div className="board-column-list" {...(canEdit ? columnDropProps(status) : {})}>
                   <ul>
-                    {col.tickets.map((t) => (
-                      <li key={t.ref} className="board-card">
+                    {tickets.map((t) => (
+                      <li
+                        key={t.ref}
+                        className={
+                          dragging?.ref === t.ref ? 'board-card board-card-dragging' : 'board-card'
+                        }
+                        {...(canEdit ? dragProps(t) : {})}
+                        {...(canEdit ? cardDropProps(t, tickets) : {})}
+                      >
                         <Link to={`/tickets/${t.ref}`}>{t.ref}</Link>
                         <p>{t.title}</p>
                         <p>

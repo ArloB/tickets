@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 
@@ -31,7 +31,8 @@ export default function SignIn() {
   if (me?.actor) return <Navigate to="/" replace />
 
   return (
-    <main className="centered-form">
+    <main className="centered-form auth-card">
+      <p className="auth-mark">Tickets</p>
       <h1>Sign in</h1>
       <form onSubmit={(e) => void handleSubmit(e)}>
         <label>
@@ -40,6 +41,7 @@ export default function SignIn() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             autoComplete="username"
+            autoFocus
             required
           />
         </label>
@@ -58,6 +60,9 @@ export default function SignIn() {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      <p>
+        Setting up for the first time? <Link to="/setup">Create the admin account</Link>.
+      </p>
     </main>
   )
 }

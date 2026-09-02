@@ -51,9 +51,13 @@ export async function listTickets(
 export async function getTicket(
   ref: string,
   include: Array<'comments' | 'relationships'> = [],
+  includeDeleted = false,
 ): Promise<TicketDetail> {
-  const params = include.length ? `?include=${include.join(',')}` : ''
-  return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}${params}`)
+  const params = new URLSearchParams()
+  if (include.length) params.set('include', include.join(','))
+  if (includeDeleted) params.set('include_deleted', 'true')
+  const query = params.toString()
+  return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}${query ? `?${query}` : ''}`)
 }
 
 /** feature is the destination feature ref (e.g. "ABC-F2") — required by
@@ -158,6 +162,20 @@ export async function reorderTicket(
   return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}/reorder`, {
     method: 'POST',
     body: { after_ref: afterRef },
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+export async function deleteTicket(ref: string, expectedVersion: number): Promise<{ version: number }> {
+  return apiFetch<{ version: number }>(`/tickets/${encodeURIComponent(ref)}`, {
+    method: 'DELETE',
+    headers: ifMatchHeader(expectedVersion),
+  })
+}
+
+export async function restoreTicket(ref: string, expectedVersion: number): Promise<TicketDetail> {
+  return apiFetch<TicketDetail>(`/tickets/${encodeURIComponent(ref)}/restore`, {
+    method: 'POST',
     headers: ifMatchHeader(expectedVersion),
   })
 }
