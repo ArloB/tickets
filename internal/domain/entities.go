@@ -118,26 +118,30 @@ type DecisionVersion struct {
 // "file"; PathValue only for "path"; URLValue only for "url" — the
 // same one-populated-field-per-representation shape Attachment uses.
 // FileHash is deliberately not exposed here — see Attachment's own
-// doc for why.
+// doc for why. Status is ADR 0028's addition, superseding ADR 0017's
+// original "no status field" call — active/archived, the same
+// visibility-only lifecycle flag ADR 0021 gave projects, applied here
+// to fix project_brief's recent-plans orientation read.
 type ContentItem struct {
-	UUID           string     `json:"-"`
-	Ref            string     `json:"ref"`
-	ProjectKey     string     `json:"project"`
-	Kind           EntityKind `json:"kind"`
-	Title          string     `json:"title"`
-	Representation string     `json:"representation"`
-	Body           string     `json:"body"`
-	FileName       string     `json:"file_name,omitempty"`
-	FileSize       int64      `json:"file_size,omitempty"`
-	MediaType      string     `json:"media_type,omitempty"`
-	Checksum       string     `json:"checksum,omitempty"`
-	PathValue      string     `json:"path_value,omitempty"`
-	URLValue       string     `json:"url_value,omitempty"`
-	Version        int64      `json:"version"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
-	Creator        *ActorRef  `json:"creator,omitempty"`
+	UUID           string            `json:"-"`
+	Ref            string            `json:"ref"`
+	ProjectKey     string            `json:"project"`
+	Kind           EntityKind        `json:"kind"`
+	Title          string            `json:"title"`
+	Representation string            `json:"representation"`
+	Body           string            `json:"body"`
+	FileName       string            `json:"file_name,omitempty"`
+	FileSize       int64             `json:"file_size,omitempty"`
+	MediaType      string            `json:"media_type,omitempty"`
+	Checksum       string            `json:"checksum,omitempty"`
+	PathValue      string            `json:"path_value,omitempty"`
+	URLValue       string            `json:"url_value,omitempty"`
+	Status         ContentItemStatus `json:"status"`
+	Version        int64             `json:"version"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	DeletedAt      *time.Time        `json:"deleted_at,omitempty"`
+	Creator        *ActorRef         `json:"creator,omitempty"`
 }
 
 // ContentItemVersion is one archived prior state of a ContentItem

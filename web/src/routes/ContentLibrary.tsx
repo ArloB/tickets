@@ -59,6 +59,7 @@ function NewContentItemForm({
         ref: created.ref,
         title: created.title,
         kind: created.kind,
+        status: created.status,
         version: created.version,
         updated_at: created.updated_at,
       })

@@ -192,6 +192,59 @@ func TestProjectBriefInProgressSurvivesManyDoneTickets(t *testing.T) {
 	}
 }
 
+// TestProjectBriefFeaturesSurviveManyDoneFeatures is the Features
+// section's counterpart to TestProjectBriefInProgressSurvivesManyDoneTickets
+// — the discoverability gap flagged as a foreseeable follow-on to ADR
+// 0028: unlike briefTickets, briefFeatures had no done/cancelled
+// exclusion or sort at all, so more than briefSectionLimit done
+// features (a plausible bulk-migration shape) could fill the whole
+// Features section and push an active feature out entirely.
+// store.ListFeaturesForProject's done/cancelled-last sort fixes this.
+func TestProjectBriefFeaturesSurviveManyDoneFeatures(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+
+	if _, err := s.CreateProject(ctx, CreateProjectRequest{Key: "ABC", Title: "Example"}, testActor, testCorrelationID, "", ""); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	for i := 0; i < briefSectionLimit+5; i++ {
+		done, err := s.CreateFeature(ctx, CreateFeatureRequest{
+			ProjectKey: "ABC", Title: "Done feature", Priority: domain.PriorityHigh,
+		}, testActor, testCorrelationID)
+		if err != nil {
+			t.Fatalf("create done feature %d: %v", i, err)
+		}
+		if _, err := s.UpdateFeatureStatus(ctx, UpdateFeatureStatusRequest{
+			Ref: mustParse(t, done.Ref), NewStatus: domain.WorkflowStatusDone, ExpectedVersion: done.Version,
+		}, testActor, testCorrelationID); err != nil {
+			t.Fatalf("mark feature %d done: %v", i, err)
+		}
+	}
+
+	active, err := s.CreateFeature(ctx, CreateFeatureRequest{
+		ProjectKey: "ABC", Title: "Active feature", Priority: domain.PriorityLow,
+	}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("create active feature: %v", err)
+	}
+
+	brief, err := s.ProjectBrief(ctx, "ABC")
+	if err != nil {
+		t.Fatalf("ProjectBrief: %v", err)
+	}
+	var sawActive bool
+	for _, f := range brief.Features {
+		if f.Feature.Ref == active.Ref {
+			sawActive = true
+		}
+	}
+	if !sawActive {
+		t.Errorf("brief.Features = %+v, want it to contain the low-priority backlog feature %q despite %d higher-priority done features",
+			brief.Features, active.Ref, briefSectionLimit+5)
+	}
+}
+
 func TestProjectBriefNotFound(t *testing.T) {
 	s := newTestService(t)
 	if _, err := s.ProjectBrief(context.Background(), "ZZZ"); err == nil {

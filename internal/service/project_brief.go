@@ -151,6 +151,11 @@ func (s *Service) briefTickets(ctx context.Context, key string, view TicketListV
 	return out, nil
 }
 
+// briefFeatures truncates to briefSectionLimit after
+// store.ListFeaturesForProject already sorted done/cancelled features
+// after everything else, so a project with more features than fit in
+// the section loses done/cancelled ones first, not whichever ones
+// happened to rank lowest by priority — see that query's doc comment.
 func (s *Service) briefFeatures(ctx context.Context, projectEntityID int64) ([]FeatureBriefRow, error) {
 	rows, err := store.ListFeaturesForProject(ctx, s.store.DB(), projectEntityID)
 	if err != nil {

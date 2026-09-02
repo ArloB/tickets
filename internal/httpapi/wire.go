@@ -411,6 +411,7 @@ type contentItemDetail struct {
 	Checksum       string    `json:"checksum,omitempty"`
 	PathValue      string    `json:"path_value,omitempty"`
 	URLValue       string    `json:"url_value,omitempty"`
+	Status         string    `json:"status"`
 	Version        int64     `json:"version"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -430,6 +431,7 @@ func toContentItemDetail(c domain.ContentItem) contentItemDetail {
 		Checksum:       c.Checksum,
 		PathValue:      c.PathValue,
 		URLValue:       c.URLValue,
+		Status:         string(c.Status),
 		Version:        c.Version,
 		CreatedAt:      c.CreatedAt,
 		UpdatedAt:      c.UpdatedAt,
@@ -443,6 +445,7 @@ type contentItemCompact struct {
 	Ref       string    `json:"ref"`
 	Title     string    `json:"title"`
 	Kind      string    `json:"kind"`
+	Status    string    `json:"status"`
 	Version   int64     `json:"version"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -452,6 +455,7 @@ func toContentItemCompact(c domain.ContentItem) contentItemCompact {
 		Ref:       c.Ref,
 		Title:     c.Title,
 		Kind:      string(c.Kind),
+		Status:    string(c.Status),
 		Version:   c.Version,
 		UpdatedAt: c.UpdatedAt,
 	}

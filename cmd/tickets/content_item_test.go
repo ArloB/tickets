@@ -73,6 +73,89 @@ func TestContentItemCreateGetUpdateLifecycle(t *testing.T) {
 	}
 }
 
+// TestContentItemArchiveLifecycle is the CLI-layer counterpart to
+// TestSetContentItemStatusArchiveIsVisibilityOnly and
+// TestContentItemArchiveOverHTTP (ADR 0028) — `plan archive`/`document
+// archive`/`unarchive` round-tripping through cfg.newClient(), mirroring
+// TestProjectUpdateAndArchiveLifecycle.
+func TestContentItemArchiveLifecycle(t *testing.T) {
+	for _, tc := range contentItemCLICases {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateClientEnv(t)
+			apiURL, token, _ := newTestAPIServerWithAgent(t)
+			t.Setenv("TICKETS_API_TOKEN", token)
+			t.Setenv("TICKETS_PROJECT", "ABC")
+
+			createOut := captureStdout(t, func() {
+				if err := tc.run([]string{"create", "--url", apiURL, "--title", "Old", "--json"}); err != nil {
+					t.Fatalf("run create: %v", err)
+				}
+			})
+			var created map[string]any
+			if err := json.Unmarshal([]byte(createOut), &created); err != nil {
+				t.Fatalf("decode create --json output: %v (raw: %s)", err, createOut)
+			}
+			ref, _ := created["ref"].(string)
+			if created["status"] != "active" {
+				t.Fatalf("create output = %v, want status=active", created)
+			}
+
+			archiveOut := captureStdout(t, func() {
+				if err := tc.run([]string{"archive", ref, "--url", apiURL, "--if-version", "1", "--json"}); err != nil {
+					t.Fatalf("run archive: %v", err)
+				}
+			})
+			var archived map[string]any
+			if err := json.Unmarshal([]byte(archiveOut), &archived); err != nil {
+				t.Fatalf("decode archive --json output: %v (raw: %s)", err, archiveOut)
+			}
+			if archived["status"] != "archived" {
+				t.Errorf("archive output = %v, want status=archived", archived)
+			}
+
+			// Default `list` excludes it; --include-archived shows it.
+			defaultListOut := captureStdout(t, func() {
+				if err := tc.run([]string{"list", "--url", apiURL}); err != nil {
+					t.Fatalf("run list: %v", err)
+				}
+			})
+			if strings.Contains(defaultListOut, ref) {
+				t.Errorf("default list = %q, want %s excluded once archived", defaultListOut, ref)
+			}
+			includeArchivedOut := captureStdout(t, func() {
+				if err := tc.run([]string{"list", "--url", apiURL, "--include-archived"}); err != nil {
+					t.Fatalf("run list --include-archived: %v", err)
+				}
+			})
+			if !strings.Contains(includeArchivedOut, ref) {
+				t.Errorf("list --include-archived = %q, want %s present", includeArchivedOut, ref)
+			}
+
+			unarchiveOut := captureStdout(t, func() {
+				if err := tc.run([]string{"unarchive", ref, "--url", apiURL, "--if-version", "2", "--json"}); err != nil {
+					t.Fatalf("run unarchive: %v", err)
+				}
+			})
+			var unarchived map[string]any
+			if err := json.Unmarshal([]byte(unarchiveOut), &unarchived); err != nil {
+				t.Fatalf("decode unarchive --json output: %v (raw: %s)", err, unarchiveOut)
+			}
+			if unarchived["status"] != "active" {
+				t.Errorf("unarchive output = %v, want status=active", unarchived)
+			}
+
+			backOut := captureStdout(t, func() {
+				if err := tc.run([]string{"list", "--url", apiURL}); err != nil {
+					t.Fatalf("run list: %v", err)
+				}
+			})
+			if !strings.Contains(backOut, ref) {
+				t.Errorf("default list after unarchive = %q, want %s present again", backOut, ref)
+			}
+		})
+	}
+}
+
 // TestContentItemCreateIdempotencyKeyIsWired mirrors
 // TestDecisionCreateIdempotencyKeyIsWired.
 func TestContentItemCreateIdempotencyKeyIsWired(t *testing.T) {

@@ -743,7 +743,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	addTool(s, &mcp.Tool{
 		Name:         "record_update",
-		Description:  "Replace every applicable field of a decision, plan, or document. Read it first and resend unchanged values. File-backed records cannot be updated through MCP.",
+		Description:  "Replace every applicable field of a decision, plan, or document. Read it first and resend unchanged values. A plan/document's status is the one exception — omit it to leave archive state unchanged. File-backed records cannot be updated through MCP.",
 		OutputSchema: outputSchemaFor[RecordWriteResult](),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in recordUpdateInput) (*mcp.CallToolResult, RecordWriteResult, error) {
 		kind, kerr := recordRefKind(in.Ref)
@@ -767,7 +767,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 			return nil, recordWriteResultFromDecision(out), nil
 		case domain.KindPlan, domain.KindDocument:
 			out, err := backend.UpdateContentItem(ctx, UpdateContentItemInput{
-				Ref: in.Ref, Title: in.Title, Body: in.Body, Path: in.Path, URL: in.URL, ExpectedVersion: in.ExpectedVersion,
+				Ref: in.Ref, Title: in.Title, Body: in.Body, Path: in.Path, URL: in.URL, Status: in.Status, ExpectedVersion: in.ExpectedVersion,
 			})
 			if err != nil {
 				return nil, RecordWriteResult{}, toolError(err)
@@ -780,7 +780,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 
 	addTool(s, &mcp.Tool{
 		Name:         "records_list",
-		Description:  "List one kind of project record as compact rows. kind defaults to decision. Use next_cursor to continue.",
+		Description:  "List one kind of project record as compact rows. kind defaults to decision. Use next_cursor to continue. include_archived (plan/document only) also returns archived items; default false.",
 		OutputSchema: outputSchemaFor[RecordsListOutput](),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in recordsListInput) (*mcp.CallToolResult, RecordsListOutput, error) {
 		kind := in.Kind
@@ -795,7 +795,7 @@ func RegisterTools(s *mcp.Server, backend Backend) {
 			}
 			return nil, out, nil
 		case "plan", "document":
-			out, err := backend.ListContentItems(ctx, in.ProjectKey, kind, in.Limit, in.Cursor)
+			out, err := backend.ListContentItems(ctx, in.ProjectKey, kind, in.Limit, in.Cursor, in.IncludeArchived)
 			if err != nil {
 				return nil, RecordsListOutput{}, toolError(err)
 			}
@@ -1240,10 +1240,11 @@ type recordGetInput struct {
 }
 
 type recordsListInput struct {
-	ProjectKey string `json:"project_key,omitempty" jsonschema:"Project key. Omission uses the stdio bridge's configured default; direct /mcp connections have no default."`
-	Kind       string `json:"kind,omitempty" jsonschema:"decision (default), plan, or document."`
-	Limit      int    `json:"limit,omitempty" jsonschema:"Maximum rows; default 20, maximum 100."`
-	Cursor     string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor from the preceding page."`
+	ProjectKey      string `json:"project_key,omitempty" jsonschema:"Project key. Omission uses the stdio bridge's configured default; direct /mcp connections have no default."`
+	Kind            string `json:"kind,omitempty" jsonschema:"decision (default), plan, or document."`
+	Limit           int    `json:"limit,omitempty" jsonschema:"Maximum rows; default 20, maximum 100."`
+	Cursor          string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor from the preceding page."`
+	IncludeArchived bool   `json:"include_archived,omitempty" jsonschema:"Plan or document only: also return archived items. Default false."`
 }
 
 type recordVersionsInput struct {
@@ -1296,7 +1297,7 @@ type recordUpdateInput struct {
 	Decision        *string `json:"decision,omitempty" jsonschema:"Decision only; required. Resend the current Markdown value if unchanged."`
 	Rationale       *string `json:"rationale,omitempty" jsonschema:"Decision only; required. Resend the current Markdown value if unchanged."`
 	Consequences    *string `json:"consequences,omitempty" jsonschema:"Decision only; required. Resend the current Markdown value if unchanged."`
-	Status          *string `json:"status,omitempty" jsonschema:"Decision only; required: proposed, accepted, rejected, or superseded."`
+	Status          *string `json:"status,omitempty" jsonschema:"Decision: required — proposed, accepted, rejected, or superseded. Plan or document: optional — active or archived; omit to leave the current status unchanged."`
 	SupersededBy    string  `json:"superseded_by,omitempty" jsonschema:"Decision only: replacement decision reference. Omit or send empty to clear."`
 	Body            string  `json:"body,omitempty" jsonschema:"Markdown plan/document only. Resend the current body if unchanged."`
 	Path            string  `json:"path,omitempty" jsonschema:"Path plan/document only. Resend the current opaque path if unchanged."`

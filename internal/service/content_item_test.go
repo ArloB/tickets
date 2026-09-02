@@ -104,7 +104,7 @@ func TestCreateContentItemIsIdempotent(t *testing.T) {
 		t.Errorf("idempotent replay created two content items: %v vs %v", first.Ref, second.Ref)
 	}
 
-	page, err := s.ListContentItems(ctx, "ABC", domain.KindPlan, 10, "")
+	page, err := s.ListContentItems(ctx, "ABC", domain.KindPlan, 10, "", false)
 	if err != nil {
 		t.Fatalf("ListContentItems: %v", err)
 	}
@@ -173,6 +173,107 @@ func TestUpdateContentItemArchivesPriorVersion(t *testing.T) {
 	}
 }
 
+// TestSetContentItemStatusArchiveIsVisibilityOnly mirrors
+// TestSetProjectStatusArchiveIsVisibilityOnly (ADR 0028): archiving a
+// plan hides it from the default ListContentItems page and
+// RecentContentItems (project_brief's recent_plans) but leaves it
+// fully readable, and — unlike a field edit — does not write a
+// content_versions snapshot.
+func TestSetContentItemStatusArchiveIsVisibilityOnly(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "ABC")
+	item, err := s.CreateContentItem(ctx, CreateContentItemRequest{ProjectKey: "ABC", Kind: domain.KindPlan, Title: "Old plan", Body: "stale"}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("CreateContentItem: %v", err)
+	}
+	ref, _ := domain.Parse(item.Ref)
+
+	archived, err := s.SetContentItemStatus(ctx, SetContentItemStatusRequest{
+		Ref: ref, NewStatus: domain.ContentItemStatusArchived, ExpectedVersion: item.Version,
+	}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("SetContentItemStatus archive: %v", err)
+	}
+	if archived.Status != domain.ContentItemStatusArchived {
+		t.Errorf("Status = %q, want archived", archived.Status)
+	}
+	if archived.Version != item.Version+1 {
+		t.Errorf("Version = %d, want %d", archived.Version, item.Version+1)
+	}
+
+	versions, err := s.ListContentItemVersions(ctx, ref)
+	if err != nil {
+		t.Fatalf("ListContentItemVersions: %v", err)
+	}
+	if len(versions) != 0 {
+		t.Errorf("versions = %+v, want none — archiving is a lifecycle flag, not a content edit", versions)
+	}
+
+	defaultPage, err := s.ListContentItems(ctx, "ABC", domain.KindPlan, 10, "", false)
+	if err != nil {
+		t.Fatalf("ListContentItems (default): %v", err)
+	}
+	if len(defaultPage.Items) != 0 {
+		t.Errorf("ListContentItems default page = %+v, want the archived plan excluded", defaultPage.Items)
+	}
+
+	allPage, err := s.ListContentItems(ctx, "ABC", domain.KindPlan, 10, "", true)
+	if err != nil {
+		t.Fatalf("ListContentItems (includeArchived): %v", err)
+	}
+	if len(allPage.Items) != 1 || allPage.Items[0].Ref != item.Ref {
+		t.Errorf("ListContentItems includeArchived=true = %+v, want the archived plan still present", allPage.Items)
+	}
+
+	fetched, err := s.GetContentItem(ctx, ref)
+	if err != nil {
+		t.Fatalf("GetContentItem (archived): %v", err)
+	}
+	if fetched.Status != domain.ContentItemStatusArchived {
+		t.Errorf("GetContentItem status = %q, want archived — get stays status-blind", fetched.Status)
+	}
+
+	brief, err := s.ProjectBrief(ctx, "ABC")
+	if err != nil {
+		t.Fatalf("ProjectBrief: %v", err)
+	}
+	for _, p := range brief.RecentPlans {
+		if p.Ref == item.Ref {
+			t.Errorf("ProjectBrief.RecentPlans = %+v, want the archived plan excluded", brief.RecentPlans)
+		}
+	}
+
+	unarchived, err := s.SetContentItemStatus(ctx, SetContentItemStatusRequest{
+		Ref: ref, NewStatus: domain.ContentItemStatusActive, ExpectedVersion: archived.Version,
+	}, testActor, testCorrelationID)
+	if err != nil {
+		t.Fatalf("SetContentItemStatus unarchive: %v", err)
+	}
+	if unarchived.Status != domain.ContentItemStatusActive {
+		t.Errorf("Status = %q, want active", unarchived.Status)
+	}
+}
+
+func TestSetContentItemStatusRejectsStaleVersion(t *testing.T) {
+	ctx := context.Background()
+	s := newTestService(t)
+	mustCreateProject(t, s, "ABC")
+	item, err := s.CreateContentItem(ctx, CreateContentItemRequest{ProjectKey: "ABC", Kind: domain.KindPlan, Title: "P"}, testActor, testCorrelationID, "", "")
+	if err != nil {
+		t.Fatalf("CreateContentItem: %v", err)
+	}
+	ref, _ := domain.Parse(item.Ref)
+
+	_, err = s.SetContentItemStatus(ctx, SetContentItemStatusRequest{
+		Ref: ref, NewStatus: domain.ContentItemStatusArchived, ExpectedVersion: item.Version + 1,
+	}, testActor, testCorrelationID)
+	var svcErr *Error
+	if !errors.As(err, &svcErr) || svcErr.Code != domain.ErrVersionConflict {
+		t.Fatalf("SetContentItemStatus with a stale version = %v, want version_conflict", err)
+	}
+}
+
 func TestListContentItemsFiltersByKind(t *testing.T) {
 	ctx := context.Background()
 	s := newTestService(t)
@@ -184,7 +285,7 @@ func TestListContentItemsFiltersByKind(t *testing.T) {
 		t.Fatalf("create document: %v", err)
 	}
 
-	plans, err := s.ListContentItems(ctx, "ABC", domain.KindPlan, 10, "")
+	plans, err := s.ListContentItems(ctx, "ABC", domain.KindPlan, 10, "", false)
 	if err != nil {
 		t.Fatalf("ListContentItems(plan): %v", err)
 	}
@@ -192,7 +293,7 @@ func TestListContentItemsFiltersByKind(t *testing.T) {
 		t.Errorf("plans = %+v, want exactly the one plan", plans.Items)
 	}
 
-	docs, err := s.ListContentItems(ctx, "ABC", domain.KindDocument, 10, "")
+	docs, err := s.ListContentItems(ctx, "ABC", domain.KindDocument, 10, "", false)
 	if err != nil {
 		t.Fatalf("ListContentItems(document): %v", err)
 	}

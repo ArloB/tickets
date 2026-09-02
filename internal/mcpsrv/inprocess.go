@@ -905,6 +905,13 @@ func (b *InProcessBackend) CreateContentItem(ctx context.Context, in CreateConte
 	return toContentItemWriteResult(c), nil
 }
 
+// UpdateContentItem applies an optional status move first (ADR 0028),
+// then the field replacement record_update always carries (Title is
+// unconditionally required for a content item, unlike UpdateProject's
+// optional Title/Description — so unlike UpdateProject, the field step
+// here is never skipped, only ever preceded by a status move). See
+// UpdateContentItemInput's doc comment for why the two are split
+// rather than merged into one service call.
 func (b *InProcessBackend) UpdateContentItem(ctx context.Context, in UpdateContentItemInput) (ContentItemWriteResult, error) {
 	actor, err := mcpActor(ctx)
 	if err != nil {
@@ -917,9 +924,22 @@ func (b *InProcessBackend) UpdateContentItem(ctx context.Context, in UpdateConte
 	if ref.Kind != domain.KindPlan && ref.Kind != domain.KindDocument {
 		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
 	}
+	corrID := service.NewCorrelationID()
+	ifMatch := in.ExpectedVersion
+
+	if in.Status != nil {
+		c, err := b.Svc.SetContentItemStatus(ctx, service.SetContentItemStatusRequest{
+			Ref: ref, NewStatus: domain.ContentItemStatus(*in.Status), ExpectedVersion: ifMatch,
+		}, actor, corrID)
+		if err != nil {
+			return ContentItemWriteResult{}, err
+		}
+		ifMatch = c.Version
+	}
+
 	c, err := b.Svc.UpdateContentItem(ctx, service.UpdateContentItemRequest{
-		Ref: ref, Title: in.Title, Body: in.Body, PathValue: in.Path, URLValue: in.URL, ExpectedVersion: in.ExpectedVersion,
-	}, actor, service.NewCorrelationID())
+		Ref: ref, Title: in.Title, Body: in.Body, PathValue: in.Path, URLValue: in.URL, ExpectedVersion: ifMatch,
+	}, actor, corrID)
 	if err != nil {
 		return ContentItemWriteResult{}, err
 	}
@@ -982,14 +1002,15 @@ func (b *InProcessBackend) GetDecisionDiff(ctx context.Context, ref string, from
 	}, nil
 }
 
-func (b *InProcessBackend) ListContentItems(ctx context.Context, projectKey, kind string, limit int, cursor string) (RecordsListOutput, error) {
-	result, err := b.Svc.ListContentItems(ctx, projectKey, domain.EntityKind(kind), limit, cursor)
+func (b *InProcessBackend) ListContentItems(ctx context.Context, projectKey, kind string, limit int, cursor string, includeArchivedValues ...bool) (RecordsListOutput, error) {
+	includeArchived := len(includeArchivedValues) > 0 && includeArchivedValues[0]
+	result, err := b.Svc.ListContentItems(ctx, projectKey, domain.EntityKind(kind), limit, cursor, includeArchived)
 	if err != nil {
 		return RecordsListOutput{}, err
 	}
 	out := RecordsListOutput{Records: make([]RecordCompact, len(result.Items)), NextCursor: result.NextCursor}
 	for i, c := range result.Items {
-		out.Records[i] = RecordCompact{Ref: c.Ref, Kind: string(c.Kind), Title: c.Title, Version: c.Version, UpdatedAt: c.UpdatedAt}
+		out.Records[i] = RecordCompact{Ref: c.Ref, Kind: string(c.Kind), Title: c.Title, Status: string(c.Status), Version: c.Version, UpdatedAt: c.UpdatedAt}
 	}
 	return out, nil
 }

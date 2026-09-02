@@ -75,7 +75,7 @@ type Backend interface {
 	GetContentItem(ctx context.Context, ref string) (domain.ContentItem, error)
 	CreateContentItem(ctx context.Context, in CreateContentItemInput) (ContentItemWriteResult, error)
 	UpdateContentItem(ctx context.Context, in UpdateContentItemInput) (ContentItemWriteResult, error)
-	ListContentItems(ctx context.Context, projectKey, kind string, limit int, cursor string) (RecordsListOutput, error)
+	ListContentItems(ctx context.Context, projectKey, kind string, limit int, cursor string, includeArchived ...bool) (RecordsListOutput, error)
 	GetContentItemVersions(ctx context.Context, ref string) (RecordVersionsOutput, error)
 	GetContentItemDiff(ctx context.Context, ref string, from, to int64) (RecordDiff, error)
 
@@ -200,14 +200,30 @@ type CreateContentItemInput struct {
 
 // UpdateContentItemInput is record_update's content-item path — a
 // full-representation update mirroring UpdateDecisionInput's contract
-// (every field required, no partial merge). No Representation field:
-// it's immutable, inferred server-side from the existing item.
+// for Title/Body/Path/URL (every one required, no partial merge). No
+// Representation field: it's immutable, inferred server-side from the
+// existing item. Status is nil-means-unchanged, the same convention
+// UpdateProjectInput's Status uses — archive/unarchive (ADR 0028) is a
+// lifecycle flag, not part of the content being replaced.
+//
+// Unlike UpdateProjectInput's Title/Description, Title/Body/Path/URL
+// here stay unconditionally required (ADR 0017's original contract),
+// so setting Status through record_update does not skip the field
+// replace the way a status-only project_update call does — it still
+// runs both steps, bumping version twice and writing one
+// content_versions snapshot of otherwise-unchanged content. A caller
+// that wants to archive/unarchive without touching content or the
+// version history that way should use the dedicated path instead:
+// POST /plans|documents/{ref}/status, `tickets plan|document archive|
+// unarchive`, or Service.SetContentItemStatus directly — none of which
+// snapshot.
 type UpdateContentItemInput struct {
 	Ref             string
 	Title           string
 	Body            string
 	Path            string
 	URL             string
+	Status          *string
 	ExpectedVersion int64
 }
 

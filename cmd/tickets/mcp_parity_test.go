@@ -102,8 +102,10 @@ var routeToolMappings = []routeToolMapping{
 	{method: http.MethodPatch, pattern: "/api/v1/decisions/{ref}", tool: "record_update"},
 	{method: http.MethodPost, pattern: "/api/v1/projects/{key}/plans", tool: "record_create"},
 	{method: http.MethodPatch, pattern: "/api/v1/plans/{ref}", tool: "record_update"},
+	{method: http.MethodPost, pattern: "/api/v1/plans/{ref}/status", tool: "record_update"},
 	{method: http.MethodPost, pattern: "/api/v1/projects/{key}/documents", tool: "record_create"},
 	{method: http.MethodPatch, pattern: "/api/v1/documents/{ref}", tool: "record_update"},
+	{method: http.MethodPost, pattern: "/api/v1/documents/{ref}/status", tool: "record_update"},
 
 	{method: http.MethodPost, pattern: "/api/v1/accounts", exempt: "admin-only; InProcessBackend bypasses requireAdmin (architectural, not scope-trimming)"},
 	{method: http.MethodPost, pattern: "/api/v1/accounts/{username}/password", exempt: "admin-only; InProcessBackend bypasses requireAdmin (architectural, not scope-trimming)"},

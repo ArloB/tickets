@@ -163,8 +163,9 @@ func (s *Server) listContentItems(kind domain.EntityKind) http.HandlerFunc {
 			}
 			limit = n
 		}
+		includeArchived := q.Get("include_archived") == "true"
 
-		result, err := s.svc.ListContentItems(r.Context(), projectKey, kind, limit, q.Get("cursor"))
+		result, err := s.svc.ListContentItems(r.Context(), projectKey, kind, limit, q.Get("cursor"), includeArchived)
 		if err != nil {
 			writeError(w, r, err)
 			return
@@ -291,6 +292,48 @@ func (s *Server) updateNonFileContentItem(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, toContentItemDetail(item))
+}
+
+type updateContentItemStatusRequest struct {
+	Status string `json:"status"`
+}
+
+// updateContentItemStatus returns a handler bound to kind — POST
+// /plans|documents/{ref}/status, archive or unarchive, mirroring
+// updateProjectStatus (ADR 0028).
+func (s *Server) updateContentItemStatus(kind domain.EntityKind) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ref, svcErr := parseContentItemRef(kind, r.PathValue("ref"))
+		if svcErr != nil {
+			writeError(w, r, svcErr)
+			return
+		}
+		version, svcErr := parseIfMatch(r)
+		if svcErr != nil {
+			writeError(w, r, svcErr)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, r, &service.Error{Code: domain.ErrValidationFailed, Message: "failed to read request body"})
+			return
+		}
+		var req updateContentItemStatusRequest
+		if svcErr := decodeJSON(body, &req); svcErr != nil {
+			writeError(w, r, svcErr)
+			return
+		}
+
+		item, err := s.svc.SetContentItemStatus(r.Context(), service.SetContentItemStatusRequest{
+			Ref: ref, NewStatus: domain.ContentItemStatus(req.Status), ExpectedVersion: version,
+		}, requestActor(r), correlationID(r))
+		if err != nil {
+			writeError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, toContentItemDetail(item))
+	}
 }
 
 func (s *Server) listContentItemVersions(kind domain.EntityKind) http.HandlerFunc {

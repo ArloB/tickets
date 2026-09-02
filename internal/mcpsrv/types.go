@@ -528,15 +528,16 @@ func toDecisionWriteResult(d domain.Decision) DecisionWriteResult {
 
 // ContentItemWriteResult is CreateContentItem/UpdateContentItem's
 // Backend-level output — mirrors DecisionWriteResult's shape (ref,
-// version, updated_at); a content item has no status field to echo.
+// status, version, updated_at).
 type ContentItemWriteResult struct {
 	Ref       string    `json:"ref"`
+	Status    string    `json:"status"`
 	Version   int64     `json:"version"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func toContentItemWriteResult(c domain.ContentItem) ContentItemWriteResult {
-	return ContentItemWriteResult{Ref: c.Ref, Version: c.Version, UpdatedAt: c.UpdatedAt}
+	return ContentItemWriteResult{Ref: c.Ref, Status: string(c.Status), Version: c.Version, UpdatedAt: c.UpdatedAt}
 }
 
 // RecordDetail is what the record_get tool actually returns on the
@@ -583,14 +584,16 @@ func toRecordDetailFromContentItem(c domain.ContentItem) RecordDetail {
 		Ref: c.Ref, Project: c.ProjectKey, Kind: string(c.Kind), Title: c.Title,
 		Representation: c.Representation, Body: c.Body,
 		FileName: c.FileName, MediaType: c.MediaType, PathValue: c.PathValue, URLValue: c.URLValue,
-		Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Status: string(c.Status), Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 }
 
 // RecordCompact is records_list's row shape — no Context/Decision/
 // Rationale/Consequences/Body, the same compact/detail split every
 // other *_list tool follows (enforced by TestListToolsOmitFullBodies).
-// Status is "" for a plan/document (content items have no status).
+// Status is a decision's workflow status or a plan/document's
+// active/archived lifecycle status (ADR 0028) — either way, whichever
+// status the fetched record's Kind actually has.
 type RecordCompact struct {
 	Ref       string    `json:"ref"`
 	Kind      string    `json:"kind"`
@@ -685,7 +688,7 @@ func recordWriteResultFromDecision(d DecisionWriteResult) RecordWriteResult {
 }
 
 func recordWriteResultFromContentItem(c ContentItemWriteResult, kind string) RecordWriteResult {
-	return RecordWriteResult{Ref: c.Ref, Kind: kind, Version: c.Version, UpdatedAt: c.UpdatedAt}
+	return RecordWriteResult{Ref: c.Ref, Kind: kind, Status: c.Status, Version: c.Version, UpdatedAt: c.UpdatedAt}
 }
 
 // toProjectCompact/toTicketCompact convert from internal/domain's full

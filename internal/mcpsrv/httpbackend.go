@@ -312,6 +312,7 @@ func toDomainContentItem(c apiclient.ContentItem) domain.ContentItem {
 		Representation: c.Representation, Body: c.Body,
 		FileName: c.FileName, FileSize: c.FileSize, MediaType: c.MediaType, Checksum: c.Checksum,
 		PathValue: c.PathValue, URLValue: c.URLValue,
+		Status:  domain.ContentItemStatus(c.Status),
 		Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 }
@@ -368,6 +369,10 @@ func (b *HTTPBackend) CreateContentItem(ctx context.Context, in CreateContentIte
 	return toContentItemWriteResult(toDomainContentItem(item)), nil
 }
 
+// UpdateContentItem mirrors InProcessBackend.UpdateContentItem's
+// status-then-fields merge, over apiclient's SetContentItemStatus/
+// UpdateContentItem — see UpdateContentItemInput's doc comment for why
+// the field step is never skipped, unlike UpdateProject's.
 func (b *HTTPBackend) UpdateContentItem(ctx context.Context, in UpdateContentItemInput) (ContentItemWriteResult, error) {
 	parsed, perr := domain.Parse(in.Ref)
 	if perr != nil {
@@ -377,16 +382,26 @@ func (b *HTTPBackend) UpdateContentItem(ctx context.Context, in UpdateContentIte
 	if urlKind == "" {
 		return ContentItemWriteResult{}, &service.Error{Code: domain.ErrValidationFailed, Field: "ref", Message: "reference must be a plan or document reference"}
 	}
+	ifMatch := in.ExpectedVersion
+
+	if in.Status != nil {
+		item, err := b.Client.SetContentItemStatus(ctx, urlKind, in.Ref, *in.Status, ifMatch)
+		if err != nil {
+			return ContentItemWriteResult{}, toServiceError(err)
+		}
+		ifMatch = item.Version
+	}
+
 	item, err := b.Client.UpdateContentItem(ctx, urlKind, in.Ref, apiclient.UpdateContentItemRequest{
 		Title: in.Title, Body: in.Body, Path: in.Path, URL: in.URL,
-	}, in.ExpectedVersion)
+	}, ifMatch)
 	if err != nil {
 		return ContentItemWriteResult{}, toServiceError(err)
 	}
 	return toContentItemWriteResult(toDomainContentItem(item)), nil
 }
 
-func (b *HTTPBackend) ListContentItems(ctx context.Context, projectKey, kind string, limit int, cursor string) (RecordsListOutput, error) {
+func (b *HTTPBackend) ListContentItems(ctx context.Context, projectKey, kind string, limit int, cursor string, includeArchivedValues ...bool) (RecordsListOutput, error) {
 	if projectKey == "" {
 		projectKey = b.DefaultProject
 	}
@@ -397,13 +412,14 @@ func (b *HTTPBackend) ListContentItems(ctx context.Context, projectKey, kind str
 	if urlKind == "" {
 		return RecordsListOutput{}, &service.Error{Code: domain.ErrValidationFailed, Field: "kind", Message: "kind must be \"plan\" or \"document\""}
 	}
-	page, err := b.Client.ListContentItems(ctx, urlKind, projectKey, limit, cursor)
+	includeArchived := len(includeArchivedValues) > 0 && includeArchivedValues[0]
+	page, err := b.Client.ListContentItems(ctx, urlKind, projectKey, limit, cursor, includeArchived)
 	if err != nil {
 		return RecordsListOutput{}, toServiceError(err)
 	}
 	out := RecordsListOutput{Records: make([]RecordCompact, len(page.Items)), NextCursor: page.NextCursor}
 	for i, c := range page.Items {
-		out.Records[i] = RecordCompact{Ref: c.Ref, Kind: c.Kind, Title: c.Title, Version: c.Version, UpdatedAt: c.UpdatedAt}
+		out.Records[i] = RecordCompact{Ref: c.Ref, Kind: c.Kind, Title: c.Title, Status: c.Status, Version: c.Version, UpdatedAt: c.UpdatedAt}
 	}
 	return out, nil
 }

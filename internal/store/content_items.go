@@ -27,7 +27,7 @@ const contentItemSelectColumns = `
 	p.key, ci.project_id, ci.seq,
 	ci.title, ci.representation, ci.body,
 	ci.file_hash, ci.file_name, ci.file_size, ci.media_type, ci.checksum, ci.path_value, ci.url_value,
-	e.deleted_at, ca.kind, ca.name`
+	ci.status, e.deleted_at, ca.kind, ca.name`
 
 func scanContentItemRow(scan func(dest ...any) error) (ContentItemRow, error) {
 	var (
@@ -40,6 +40,7 @@ func scanContentItemRow(scan func(dest ...any) error) (ContentItemRow, error) {
 		fileSize                 sql.NullInt64
 		mediaType, checksum      sql.NullString
 		pathValue, urlValue      sql.NullString
+		status                   string
 		deletedAt                sql.NullString
 		creatorKind, creatorName sql.NullString
 	)
@@ -47,11 +48,12 @@ func scanContentItemRow(scan func(dest ...any) error) (ContentItemRow, error) {
 		&row.Entity.ProjectKey, &row.ProjectEntityID, &seq,
 		&row.Entity.Title, &row.Entity.Representation, &row.Entity.Body,
 		&fileHash, &fileName, &fileSize, &mediaType, &checksum, &pathValue, &urlValue,
-		&deletedAt, &creatorKind, &creatorName)
+		&status, &deletedAt, &creatorKind, &creatorName)
 	if err != nil {
 		return ContentItemRow{}, err
 	}
 	row.Entity.Kind = domain.EntityKind(kind)
+	row.Entity.Status = domain.ContentItemStatus(status)
 	if fileHash.Valid {
 		row.FileHash = &fileHash.String
 	}
@@ -137,15 +139,23 @@ type ContentItemsPage struct {
 // ListContentItemsForProjectPage returns a project's non-deleted plans
 // or documents (kind selects which), cursor-paginated by
 // (created_at, id) — content items have no priority/position (§5.9),
-// mirroring ListDecisionsForProjectPage.
-func ListContentItemsForProjectPage(ctx context.Context, q Querier, projectEntityID int64, kind domain.EntityKind, limit int, afterCreatedAt string, afterID int64) (ContentItemsPage, error) {
+// mirroring ListDecisionsForProjectPage. includeArchived false (the
+// default) restricts to active items (ADR 0028, mirroring ListProjects'
+// own includeArchived); true also returns archived ones — the escape
+// hatch that makes an archived item's ref/version reachable again for
+// unarchiving.
+func ListContentItemsForProjectPage(ctx context.Context, q Querier, projectEntityID int64, kind domain.EntityKind, limit int, afterCreatedAt string, afterID int64, includeArchived bool) (ContentItemsPage, error) {
+	statusFilter := " AND ci.status = 'active'"
+	if includeArchived {
+		statusFilter = ""
+	}
 	rows, err := q.QueryContext(ctx,
 		`SELECT`+contentItemSelectColumns+`
 		 FROM content_items ci
 		 JOIN entities e ON e.id = ci.id
 		 JOIN projects p ON p.id = ci.project_id
 		 LEFT JOIN actors ca ON ca.id = e.created_by
-		 WHERE ci.project_id = ? AND ci.kind = ? AND e.deleted_at IS NULL
+		 WHERE ci.project_id = ? AND ci.kind = ? AND e.deleted_at IS NULL`+statusFilter+`
 		   AND (e.created_at, e.id) > (?, ?)
 		 ORDER BY e.created_at ASC, e.id ASC
 		 LIMIT ?`,
@@ -178,11 +188,20 @@ func ListContentItemsForProjectPage(ctx context.Context, q Querier, projectEntit
 }
 
 // RecentContentItems returns a project's most recently created,
-// non-deleted plans or documents (kind selects which), newest first,
-// unpaginated — the project brief's (Phase 6 Step 5) "recent plans"
-// section. See RecentAcceptedDecisions' doc comment for why this is a
-// dedicated DESC-ordered query rather than reusing
-// ListContentItemsForProjectPage's oldest-first listing.
+// non-deleted, active (ADR 0028) plans or documents (kind selects
+// which), newest first, unpaginated — the project brief's (Phase 6
+// Step 5) "recent plans" section. See RecentAcceptedDecisions' doc
+// comment for why this is a dedicated DESC-ordered query rather than
+// reusing ListContentItemsForProjectPage's oldest-first listing.
+//
+// The active-only filter is hardcoded, not a parameter, the same way
+// RecentAcceptedDecisions hardcodes accepted-only: this is an
+// orientation read, not a general listing, so there is no caller that
+// legitimately wants archived items mixed into "what's current."
+// Archiving the 33 pre-migration plans that motivated this column is
+// what actually fixes a cold reader's project_brief call — filtering
+// here, at the query this section already had, needed no change to
+// project_brief.go itself.
 func RecentContentItems(ctx context.Context, q Querier, projectEntityID int64, kind domain.EntityKind, limit int) ([]ContentItemRow, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT`+contentItemSelectColumns+`
@@ -190,7 +209,7 @@ func RecentContentItems(ctx context.Context, q Querier, projectEntityID int64, k
 		 JOIN entities e ON e.id = ci.id
 		 JOIN projects p ON p.id = ci.project_id
 		 LEFT JOIN actors ca ON ca.id = e.created_by
-		 WHERE ci.project_id = ? AND ci.kind = ? AND e.deleted_at IS NULL
+		 WHERE ci.project_id = ? AND ci.kind = ? AND ci.status = 'active' AND e.deleted_at IS NULL
 		 ORDER BY e.created_at DESC, e.id DESC
 		 LIMIT ?`,
 		projectEntityID, string(kind), limit,
@@ -320,6 +339,21 @@ func UpdateContentItemFields(ctx context.Context, q Querier, entityID int64, tit
 		title, f.Body, f.FileHash, f.FileName, f.FileSize, f.MediaType, f.Checksum, f.PathValue, f.URLValue, entityID,
 	); err != nil {
 		return 0, fmt.Errorf("update content item fields: %w", err)
+	}
+	return newVersion, nil
+}
+
+// UpdateContentItemStatus archives or unarchives a plan or document
+// (ADR 0028), mirroring UpdateProjectStatus exactly — a lifecycle flag,
+// not a content edit, so it never writes a content_versions row the
+// way UpdateContentItemFields does.
+func UpdateContentItemStatus(ctx context.Context, q Querier, entityID int64, newStatus string, expectedVersion int64, now string) (newVersion int64, err error) {
+	newVersion, err = bumpEntityVersion(ctx, q, entityID, expectedVersion, now)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := q.ExecContext(ctx, `UPDATE content_items SET status = ? WHERE id = ?`, newStatus, entityID); err != nil {
+		return 0, fmt.Errorf("update content item status: %w", err)
 	}
 	return newVersion, nil
 }

@@ -235,8 +235,10 @@ type ContentItemsListResult struct {
 
 // ListContentItems returns a cursor-paginated page of a project's
 // non-deleted plans or documents (kind selects which) — mirrors
-// ListDecisions.
-func (s *Service) ListContentItems(ctx context.Context, projectKey string, kind domain.EntityKind, limit int, cursor string) (ContentItemsListResult, error) {
+// ListDecisions. includeArchived false (the default) restricts to
+// active items (ADR 0028); true also returns archived ones, mirroring
+// ListProjects' own includeArchived.
+func (s *Service) ListContentItems(ctx context.Context, projectKey string, kind domain.EntityKind, limit int, cursor string, includeArchived bool) (ContentItemsListResult, error) {
 	if !validContentItemKind(kind) {
 		return ContentItemsListResult{}, newValidationError("kind", "kind must be \"plan\" or \"document\", got %q", kind)
 	}
@@ -258,7 +260,7 @@ func (s *Service) ListContentItems(ctx context.Context, projectKey string, kind 
 	if derr != nil {
 		return ContentItemsListResult{}, newValidationError("cursor", "invalid cursor")
 	}
-	page, err := store.ListContentItemsForProjectPage(ctx, s.store.DB(), proj.ID, kind, limit, afterCreatedAt, afterID)
+	page, err := store.ListContentItemsForProjectPage(ctx, s.store.DB(), proj.ID, kind, limit, afterCreatedAt, afterID, includeArchived)
 	if err != nil {
 		return ContentItemsListResult{}, fmt.Errorf("service: list content items: %w", err)
 	}
@@ -372,6 +374,71 @@ func (s *Service) UpdateContentItem(ctx context.Context, req UpdateContentItemRe
 	}
 	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
 	s.publishNotified(ctx, notifiedIDs)
+	return result, nil
+}
+
+// SetContentItemStatusRequest is SetContentItemStatus's input.
+type SetContentItemStatusRequest struct {
+	Ref             domain.Reference
+	NewStatus       domain.ContentItemStatus
+	ExpectedVersion int64
+}
+
+// SetContentItemStatus archives or unarchives a plan or document (ADR
+// 0028): visibility only, mirroring SetProjectStatus. It does not
+// soft-delete the item (ADR 0013) and is not a content edit — unlike
+// UpdateContentItem, it never writes a content_versions snapshot,
+// since a version row whose body is identical to its predecessor would
+// only add noise to the edit history.
+func (s *Service) SetContentItemStatus(ctx context.Context, req SetContentItemStatusRequest, actor domain.ActorRef, correlationID string) (domain.ContentItem, error) {
+	if !req.NewStatus.Valid() {
+		return domain.ContentItem{}, newValidationError("status", "invalid status %q", req.NewStatus)
+	}
+
+	var result domain.ContentItem
+	err := s.withTx(ctx, actor, correlationID, func(tx *sql.Tx, actorID int64, corrID, now string) error {
+		row, err := store.GetContentItemByRef(ctx, tx, req.Ref)
+		if errors.Is(err, store.ErrNotFound) {
+			return newNotFoundError("content item not found")
+		}
+		if err != nil {
+			return fmt.Errorf("service: look up content item: %w", err)
+		}
+
+		if _, err := store.UpdateContentItemStatus(ctx, tx, row.ID, string(req.NewStatus), req.ExpectedVersion, now); err != nil {
+			if errors.Is(err, store.ErrVersionConflict) {
+				current, cerr := store.CurrentEntityVersion(ctx, tx, row.ID)
+				if cerr != nil {
+					return fmt.Errorf("service: read current version after conflict: %w", cerr)
+				}
+				return newVersionConflictError(current)
+			}
+			return fmt.Errorf("service: update content item status: %w", err)
+		}
+
+		eventType := eventContentItemArchived
+		if req.NewStatus == domain.ContentItemStatusActive {
+			eventType = eventContentItemUnarchived
+		}
+		changes := auditChanges(map[string]any{"status": string(req.NewStatus)})
+		if err := store.InsertAuditEvent(ctx, tx, row.ID, actorID, eventType, corrID, nil, changes, now); err != nil {
+			return fmt.Errorf("service: record audit event: %w", err)
+		}
+
+		updated, err := store.GetContentItemByRef(ctx, tx, req.Ref)
+		if err != nil {
+			return fmt.Errorf("service: reload updated content item: %w", err)
+		}
+		if err := indexContentItemSearchDoc(ctx, tx, row.ID, row.ProjectEntityID, updated.Entity); err != nil {
+			return err
+		}
+		result = updated.Entity
+		return nil
+	})
+	if err != nil {
+		return domain.ContentItem{}, err
+	}
+	s.broadcast(ChangeHint{Kind: HintEntityChanged, Ref: result.Ref, Project: result.ProjectKey})
 	return result, nil
 }
 

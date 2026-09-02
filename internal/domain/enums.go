@@ -19,6 +19,24 @@ func (s ProjectStatus) Valid() bool {
 	return false
 }
 
+// ContentItemStatus mirrors ProjectStatus exactly (ADR 0028) — same
+// values, same "visibility only, not a workflow" semantics, applied to
+// a plan or document instead of a project.
+type ContentItemStatus string
+
+const (
+	ContentItemStatusActive   ContentItemStatus = "active"
+	ContentItemStatusArchived ContentItemStatus = "archived"
+)
+
+func (s ContentItemStatus) Valid() bool {
+	switch s {
+	case ContentItemStatusActive, ContentItemStatusArchived:
+		return true
+	}
+	return false
+}
+
 type TicketType string
 
 const (

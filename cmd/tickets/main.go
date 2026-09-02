@@ -111,8 +111,8 @@ commands:
   ticket   client commands against a running Tickets server (list, get, create, update, assign, move, delete, restore, relate, relationships, unrelate, associate, associations, disassociate)
   comment  client commands against a running Tickets server (add, list, edit, delete)
   decision client commands against a running Tickets server (list, get, create, update, versions, diff)
-  plan     client commands against a running Tickets server (list, get, create, update, versions, diff, download)
-  document client commands against a running Tickets server (list, get, create, update, versions, diff, download)
+  plan     client commands against a running Tickets server (list, get, create, update, archive, unarchive, versions, diff, download)
+  document client commands against a running Tickets server (list, get, create, update, archive, unarchive, versions, diff, download)
   activity client commands against a running Tickets server (list)
   attachment client commands against a running Tickets server (upload, path, list, get, versions, download, replace, delete)
   link     client commands against a running Tickets server (add, list, remove) for named external links on a ticket, feature, decision, plan, or document

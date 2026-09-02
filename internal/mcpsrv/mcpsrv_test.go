@@ -1078,8 +1078,8 @@ func TestRecordToolsContentItemKindOverRealStreamableHTTP(t *testing.T) {
 				t.Fatalf("record_create returned a tool error: %+v", createRes.Content)
 			}
 			created := decodeResult[RecordWriteResult](t, createRes)
-			if created.Ref == "" || created.Kind != kind || created.Version != 1 || created.Status != "" {
-				t.Errorf("record_create result = %+v, want a ref, kind=%s, version=1, no status", created, kind)
+			if created.Ref == "" || created.Kind != kind || created.Version != 1 || created.Status != "active" {
+				t.Errorf("record_create result = %+v, want a ref, kind=%s, version=1, status=active", created, kind)
 			}
 
 			getRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_get", Arguments: map[string]any{"ref": created.Ref}})
@@ -1115,6 +1115,51 @@ func TestRecordToolsContentItemKindOverRealStreamableHTTP(t *testing.T) {
 			final := decodeResult[RecordDetail](t, finalGetRes)
 			if final.Body != "Step one\nStep two" {
 				t.Errorf("final record_get body = %q, want %q", final.Body, "Step one\nStep two")
+			}
+
+			// ADR 0028: record_update's optional status field archives/
+			// unarchives a plan or document, resending the same
+			// title/body it already carries. record_update is always a
+			// full field replace (ADR 0017), so a status change made
+			// through it still bumps version twice — once for the
+			// status move, once for the field replace that follows
+			// unconditionally — unlike the dedicated status-only path
+			// (see UpdateContentItemInput's doc comment).
+			archiveRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_update", Arguments: map[string]any{
+				"ref": created.Ref, "title": final.Title, "body": final.Body, "status": "archived", "expected_version": updated.Version,
+			}})
+			if err != nil {
+				t.Fatalf("CallTool record_update (archive): %v", err)
+			}
+			if archiveRes.IsError {
+				t.Fatalf("record_update (archive) returned a tool error: %+v", archiveRes.Content)
+			}
+			archived := decodeResult[RecordWriteResult](t, archiveRes)
+			if archived.Status != "archived" || archived.Version != updated.Version+2 {
+				t.Errorf("record_update (archive) result = %+v, want status=archived version=%d", archived, updated.Version+2)
+			}
+
+			archivedGetRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_get", Arguments: map[string]any{"ref": created.Ref}})
+			if err != nil {
+				t.Fatalf("CallTool record_get (archived): %v", err)
+			}
+			archivedGet := decodeResult[RecordDetail](t, archivedGetRes)
+			if archivedGet.Status != "archived" {
+				t.Errorf("record_get after archive status = %q, want archived", archivedGet.Status)
+			}
+
+			unarchiveRes, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "record_update", Arguments: map[string]any{
+				"ref": created.Ref, "title": final.Title, "body": final.Body, "status": "active", "expected_version": archived.Version,
+			}})
+			if err != nil {
+				t.Fatalf("CallTool record_update (unarchive): %v", err)
+			}
+			if unarchiveRes.IsError {
+				t.Fatalf("record_update (unarchive) returned a tool error: %+v", unarchiveRes.Content)
+			}
+			unarchived := decodeResult[RecordWriteResult](t, unarchiveRes)
+			if unarchived.Status != "active" {
+				t.Errorf("record_update (unarchive) result = %+v, want status=active", unarchived)
 			}
 		})
 	}

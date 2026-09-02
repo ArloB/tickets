@@ -229,11 +229,14 @@ export interface DecisionDiff {
 
 export type ContentItemKind = 'plan' | 'document'
 export type ContentItemRepresentation = 'markdown' | 'file' | 'path' | 'url'
+/** Visibility-only lifecycle flag (ADR 0028), mirroring ProjectStatus. */
+export type ContentItemStatus = 'active' | 'archived'
 
 export interface ContentItemCompact {
   ref: string
   title: string
   kind: ContentItemKind
+  status: ContentItemStatus
   version: number
   updated_at: string
 }
@@ -253,6 +256,7 @@ export interface ContentItemDetail {
   checksum?: string
   path_value?: string
   url_value?: string
+  status: ContentItemStatus
   version: number
   created_at: string
   updated_at: string

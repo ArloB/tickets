@@ -102,3 +102,45 @@ func TestListFeaturesForProjectPagePaginatesAcrossBoundary(t *testing.T) {
 		t.Errorf("page2 id = %d, want %d", page2.Features[0].ID, featureIDs[2])
 	}
 }
+
+// TestListFeaturesForProjectSortsDoneAndCancelledLast proves the
+// leading (f.status IN ('done','cancelled')) sort key this query added
+// (project_brief's Features section discoverability fix) beats
+// priority/position: a done feature positioned first and a cancelled
+// feature positioned last both still sort after every active feature,
+// preserving priority/position order only within each of the two
+// groups.
+func TestListFeaturesForProjectSortsDoneAndCancelledLast(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	db := s.DB()
+
+	// positions: done(1000), active(2000), active(3000), cancelled(4000)
+	projID, featureIDs := testProjectWithFeatures(t, db, "ABC", []int64{1000, 2000, 3000, 4000})
+	ctx := context.Background()
+	if _, err := UpdateFeatureStatus(ctx, db, featureIDs[0], string(domain.WorkflowStatusDone), 1, Now()); err != nil {
+		t.Fatalf("mark feature 0 done: %v", err)
+	}
+	if _, err := UpdateFeatureStatus(ctx, db, featureIDs[3], string(domain.WorkflowStatusCancelled), 1, Now()); err != nil {
+		t.Fatalf("mark feature 3 cancelled: %v", err)
+	}
+
+	rows, err := ListFeaturesForProject(ctx, db, projID)
+	if err != nil {
+		t.Fatalf("ListFeaturesForProject: %v", err)
+	}
+	if len(rows) != 4 {
+		t.Fatalf("len(rows) = %d, want 4", len(rows))
+	}
+	got := make([]int64, len(rows))
+	for i, r := range rows {
+		got[i] = r.ID
+	}
+	want := []int64{featureIDs[1], featureIDs[2], featureIDs[0], featureIDs[3]}
+	if got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
+		t.Errorf("order = %v, want %v (both active features first by position, then done, then cancelled)", got, want)
+	}
+}

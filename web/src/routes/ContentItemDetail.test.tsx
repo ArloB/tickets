@@ -51,6 +51,7 @@ function item(overrides: Partial<ContentItemDetailDto> = {}): ContentItemDetailD
     title: 'v2 title',
     representation: 'markdown',
     body: 'v2 body',
+    status: 'active',
     version: 2,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-02T00:00:00Z',

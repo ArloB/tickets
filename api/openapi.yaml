@@ -2451,6 +2451,15 @@ paths:
           in: query
           schema:
             type: string
+        - name: include_archived
+          in: query
+          description: >
+            When true, also return archived plans (ADR 0028). Default
+            false: archived plans are excluded, mirroring GET
+            /projects' own include_archived.
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: OK
@@ -2529,6 +2538,45 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '413':
           $ref: '#/components/responses/Error'
+
+  /plans/{ref}/status:
+    post:
+      operationId: updatePlanStatus
+      summary: >
+        Archive or unarchive a plan (optimistic concurrency, ADR 0028).
+        Archiving is visibility only: the plan drops out of the
+        default GET /projects/{key}/plans and project_brief's
+        recent_plans, but stays fully readable and writable. Mirrors
+        POST /projects/{key}/status's status-only contract.
+      parameters:
+        - $ref: '#/components/parameters/PlanRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContentItemStatusRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Version conflict — see error.current_version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   /plans/{ref}/download:
     get:
@@ -2680,6 +2728,15 @@ paths:
           in: query
           schema:
             type: string
+        - name: include_archived
+          in: query
+          description: >
+            When true, also return archived documents (ADR 0028).
+            Default false: archived documents are excluded, mirroring
+            GET /projects' own include_archived.
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: OK
@@ -2758,6 +2815,45 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '413':
           $ref: '#/components/responses/Error'
+
+  /documents/{ref}/status:
+    post:
+      operationId: updateDocumentStatus
+      summary: >
+        Archive or unarchive a document (optimistic concurrency, ADR
+        0028). Archiving is visibility only: the document drops out of
+        the default GET /projects/{key}/documents, but stays fully
+        readable and writable. Mirrors POST /projects/{key}/status's
+        status-only contract.
+      parameters:
+        - $ref: '#/components/parameters/DocumentRef'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateContentItemStatusRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Version conflict — see error.current_version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
 
   /documents/{ref}/download:
     get:
@@ -4583,9 +4679,25 @@ components:
         path: { type: string }
         url: { type: string }
 
+    ContentItemStatus:
+      type: string
+      description: >
+        A plan or document's visibility lifecycle (ADR 0028), mirroring
+        ProjectStatus exactly. Archiving is visibility only — it does
+        not affect readability or writability, only whether the item
+        appears in the default GET /projects/{key}/plans|documents list
+        and project_brief's recent_plans section.
+      enum: [active, archived]
+
+    UpdateContentItemStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/ContentItemStatus' }
+
     ContentItem:
       type: object
-      required: [ref, project, kind, title, representation, version, created_at, updated_at]
+      required: [ref, project, kind, title, representation, status, version, created_at, updated_at]
       additionalProperties: false
       description: >
         A plan or document (product spec §5.9). kind distinguishes the
@@ -4608,13 +4720,14 @@ components:
         checksum: { type: string }
         path_value: { type: string }
         url_value: { type: string }
+        status: { $ref: '#/components/schemas/ContentItemStatus' }
         version: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
     ContentItemCompact:
       type: object
-      required: [ref, title, kind, version, updated_at]
+      required: [ref, title, kind, status, version, updated_at]
       additionalProperties: false
       description: >
         GET /projects/{key}/plans|documents' list-item shape. No body —
@@ -4625,6 +4738,7 @@ components:
         kind:
           type: string
           enum: [plan, document]
+        status: { $ref: '#/components/schemas/ContentItemStatus' }
         version: { type: integer }
         updated_at: { type: string, format: date-time }
 
@@ -4720,6 +4834,8 @@ components:
         - external_link_removed
         - content_item_created
         - content_item_updated
+        - content_item_archived
+        - content_item_unarchived
         - attachment_added
         - attachment_replaced
         - attachment_removed

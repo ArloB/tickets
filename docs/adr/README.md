@@ -33,6 +33,9 @@ assumption.
 | [0024](0024-mcp-cli-parity-sweep.md) | MCP/CLI/HTTP API parity sweep: closed 21 undocumented gaps between the HTTP route table and the MCP tool surface, added `cmd/tickets/mcp_parity_test.go` as a standing regression guard |
 | [0025](0025-reference-linkification.md) | Rendering references in prose as hyperlinks: render-time only, batch existence endpoint, remark plugin over raw-string regex |
 | [0026](0026-docker-packaging.md) | Docker packaging as an optional deployment path: multi-stage Alpine image, `docker-compose.yml`, tag-triggered GHCR publish, ADR 0010's contributor-setup guarantee unchanged |
+| [0027](0027-web-admin-maintenance.md) | Backup, restore, export, integrity, and import reachable from the web UI |
+| [0028](0028-content-item-archive-status.md) | Content item archive status: plans/documents gain `projects.status`'s visibility-only active/archived flag, fixing `project_brief`'s recent-plans orientation read — supersedes ADR 0017's "no status field" |
+| [0029](0029-feature-brief-done-sort.md) | `project_brief`'s Features section sorts done/cancelled features last instead of excluding them, closing the same discoverability gap ADR 0028 fixed for plans/documents |
 
 A gap noted in an ADR's Consequences as deferred, future work, or "not
 built speculatively here" isn't necessarily still open — check

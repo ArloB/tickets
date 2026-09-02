@@ -162,10 +162,27 @@ func GetFeatureByRefAnyDeletion(ctx context.Context, q Querier, ref domain.Refer
 }
 
 // ListFeaturesForProject returns every non-deleted feature in a
-// project, ordered by (priority_rank, position). Unpaginated: unlike
-// tickets, a project's feature count is small and bounded (§5.4 calls
-// features a short/medium-term grouping, not a bulk record type), so
-// there's no caller yet that needs a cursor.
+// project, done/cancelled features sorted after everything else, then
+// ordered by (priority_rank, position) within each group. Unpaginated:
+// unlike tickets, a project's feature count is small and bounded (§5.4
+// calls features a short/medium-term grouping, not a bulk record
+// type), so there's no caller yet that needs a cursor.
+//
+// This is the sole caller of this query's use: Service.briefFeatures,
+// building project_brief's capped Features section. Before this
+// leading sort key, a project with more than briefSectionLimit
+// features — plausible after a bulk migration, the same shape that
+// motivated ADR 0028's content-item archive status — could fill that
+// whole section with done/cancelled features ranked above a handful of
+// still-active ones, the same discoverability failure ADR 0028 fixed
+// for plans/documents. Unlike ADR 0028's exclude-entirely fix (and
+// briefTickets' own done/cancelled exclusion), this sorts rather than
+// filters: a done/cancelled feature still fills a remaining slot once
+// every active one has a place, rather than disappearing outright —
+// features have no archive flag of their own to filter by, and
+// "done" is itself meaningful, current-ish information for a small,
+// bounded record type in a way a 33-item migration backlog of old
+// plans isn't.
 func ListFeaturesForProject(ctx context.Context, q Querier, projectEntityID int64) ([]FeatureRow, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT`+featureSelectColumns+`
@@ -174,7 +191,7 @@ func ListFeaturesForProject(ctx context.Context, q Querier, projectEntityID int6
 		 JOIN projects p ON p.id = f.project_id
 		 LEFT JOIN actors ca ON ca.id = e.created_by
 		 WHERE f.project_id = ? AND e.deleted_at IS NULL
-		 ORDER BY f.priority_rank ASC, f.position ASC`,
+		 ORDER BY (f.status IN ('done', 'cancelled')) ASC, f.priority_rank ASC, f.position ASC`,
 		projectEntityID,
 	)
 	if err != nil {

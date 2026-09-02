@@ -487,12 +487,21 @@ func insertAll(ctx context.Context, tx *sql.Tx, env Envelope) error {
 	}
 
 	for _, r := range env.ContentItems {
+		// A backup exported before ADR 0028 has no status field in its
+		// JSON, so r.Status unmarshals to "" — fall back to "active"
+		// (the column's own DEFAULT) rather than importing an empty
+		// status that would silently fail RecentContentItems' and
+		// ListContentItemsForProjectPage's "status = 'active'" filters.
+		status := r.Status
+		if status == "" {
+			status = "active"
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO content_items(id, project_id, kind, seq, title, representation, body, file_hash, file_name,
-			                            file_size, media_type, checksum, path_value, url_value)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			                            file_size, media_type, checksum, path_value, url_value, status)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.ID, r.ProjectID, r.Kind, r.Seq, r.Title, r.Representation, r.Body, r.FileHash, r.FileName,
-			r.FileSize, r.MediaType, r.Checksum, r.PathValue, r.URLValue,
+			r.FileSize, r.MediaType, r.Checksum, r.PathValue, r.URLValue, status,
 		); err != nil {
 			return fmt.Errorf("insert content_items id=%d: %w", r.ID, err)
 		}

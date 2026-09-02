@@ -250,7 +250,7 @@ func exportDecisionVersions(ctx context.Context, db *sql.DB, env *Envelope) erro
 func exportContentItems(ctx context.Context, db *sql.DB, env *Envelope) error {
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, project_id, kind, seq, title, representation, body, file_hash, file_name, file_size,
-		        media_type, checksum, path_value, url_value
+		        media_type, checksum, path_value, url_value, status
 		 FROM content_items ORDER BY id`)
 	if err != nil {
 		return err
@@ -259,7 +259,7 @@ func exportContentItems(ctx context.Context, db *sql.DB, env *Envelope) error {
 	for rows.Next() {
 		var r ContentItemRow
 		if err := rows.Scan(&r.ID, &r.ProjectID, &r.Kind, &r.Seq, &r.Title, &r.Representation, &r.Body,
-			&r.FileHash, &r.FileName, &r.FileSize, &r.MediaType, &r.Checksum, &r.PathValue, &r.URLValue); err != nil {
+			&r.FileHash, &r.FileName, &r.FileSize, &r.MediaType, &r.Checksum, &r.PathValue, &r.URLValue, &r.Status); err != nil {
 			return err
 		}
 		env.ContentItems = append(env.ContentItems, r)

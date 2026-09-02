@@ -1,0 +1,13 @@
+-- Phase 7 dogfooding follow-up (docs/adr/0028-content-item-archive-
+-- status.md): supersedes 0017-content-items.md's "a content item has
+-- no status field" — a real migration onto Tickets surfaced that
+-- project_brief's recent_plans section (created_at DESC, LIMIT 20) has
+-- no way to distinguish current plans from historical ones once a
+-- project accumulates more than 20, and content_items had no lever to
+-- fix that with beyond insertion order.
+--
+-- Mirrors projects.status (0001_initial.sql) exactly: same column
+-- name, same two values, same 'active' default, so RecentContentItems
+-- and ListContentItemsForProjectPage can filter it the same way
+-- ListProjects already filters projects.status.
+ALTER TABLE content_items ADD COLUMN status TEXT NOT NULL DEFAULT 'active';

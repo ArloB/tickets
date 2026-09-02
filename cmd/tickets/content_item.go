@@ -35,7 +35,7 @@ func runDocument(args []string) error { return runContentItem(documentOps, args)
 
 func runContentItem(ops contentItemOps, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("%s: expected a subcommand (list, get, create, update, versions, diff, download)", ops.name)
+		return fmt.Errorf("%s: expected a subcommand (list, get, create, update, archive, unarchive, versions, diff, download)", ops.name)
 	}
 	switch args[0] {
 	case "list":
@@ -46,6 +46,10 @@ func runContentItem(ops contentItemOps, args []string) error {
 		return runContentItemCreate(ops, args[1:])
 	case "update":
 		return runContentItemUpdate(ops, args[1:])
+	case "archive":
+		return runContentItemSetStatus(ops, args[1:], "archived")
+	case "unarchive":
+		return runContentItemSetStatus(ops, args[1:], "active")
 	case "versions":
 		return runContentItemVersions(ops, args[1:])
 	case "diff":
@@ -64,6 +68,7 @@ func runContentItemList(ops contentItemOps, args []string) error {
 	}
 	limit := fs.Int("limit", 0, "max rows to return (server default 20, max 100)")
 	cursor := fs.String("cursor", "", "opaque pagination cursor from a previous call's next_cursor")
+	includeArchived := fs.Bool("include-archived", false, "also list archived "+ops.name+"s (default: active only)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -74,7 +79,7 @@ func runContentItemList(ops contentItemOps, args []string) error {
 		return fmt.Errorf("%s list: --project or TICKETS_PROJECT is required", ops.name)
 	}
 
-	page, err := cfg.newClient().ListContentItems(context.Background(), ops.urlKind, cfg.Project, *limit, *cursor)
+	page, err := cfg.newClient().ListContentItems(context.Background(), ops.urlKind, cfg.Project, *limit, *cursor, *includeArchived)
 	if err != nil {
 		return err
 	}
@@ -83,15 +88,52 @@ func runContentItemList(ops contentItemOps, args []string) error {
 	}
 	rows := make([][]string, len(page.Items))
 	for i, item := range page.Items {
-		rows[i] = []string{item.Ref, item.Title}
+		rows[i] = []string{item.Ref, item.Title, item.Status}
 	}
-	if err := writeTable(os.Stdout, []string{"REF", "TITLE"}, rows); err != nil {
+	if err := writeTable(os.Stdout, []string{"REF", "TITLE", "STATUS"}, rows); err != nil {
 		return err
 	}
 	if page.NextCursor != "" {
 		_, _ = fmt.Fprintf(os.Stdout, "next_cursor: %s\n", page.NextCursor)
 	}
 	return nil
+}
+
+// runContentItemSetStatus is `tickets plan|document archive`/`...
+// unarchive REF`, mirroring runProjectSetStatus.
+func runContentItemSetStatus(ops contentItemOps, args []string, status string) error {
+	verb := "archive"
+	if status == "active" {
+		verb = "unarchive"
+	}
+	if len(args) < 1 || strings.HasPrefix(args[0], "-") {
+		return fmt.Errorf("%s %s: expected a %s reference as the first argument", ops.name, verb, ops.name)
+	}
+	ref := args[0]
+	fs, cfg, err := newClientFlagSet(ops.name + " " + verb)
+	if err != nil {
+		return err
+	}
+	ifVersion := fs.Int64("if-version", 0, "the "+ops.name+"'s current version, from a prior "+ops.name+" get (required; for an archived "+ops.name+", use "+ops.name+" list --include-archived)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if err := cfg.finish(); err != nil {
+		return err
+	}
+	if !visitedFlags(fs)["if-version"] {
+		return fmt.Errorf("%s %s: --if-version is required", ops.name, verb)
+	}
+
+	item, err := cfg.newClient().SetContentItemStatus(context.Background(), ops.urlKind, ref, status, *ifVersion)
+	if err != nil {
+		return err
+	}
+	if cfg.JSON {
+		return writeJSON(os.Stdout, item)
+	}
+	_, err = fmt.Fprintf(os.Stdout, "%s now %s (version %d)\n", item.Ref, item.Status, item.Version)
+	return err
 }
 
 func runContentItemGet(ops contentItemOps, args []string) error {
@@ -117,8 +159,8 @@ func runContentItemGet(ops contentItemOps, args []string) error {
 	if cfg.JSON {
 		return writeJSON(os.Stdout, item)
 	}
-	return writeTable(os.Stdout, []string{"REF", "TITLE", "VERSION"},
-		[][]string{{item.Ref, item.Title, fmt.Sprintf("%d", item.Version)}})
+	return writeTable(os.Stdout, []string{"REF", "TITLE", "STATUS", "VERSION"},
+		[][]string{{item.Ref, item.Title, item.Status, fmt.Sprintf("%d", item.Version)}})
 }
 
 func runContentItemCreate(ops contentItemOps, args []string) error {

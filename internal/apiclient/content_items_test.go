@@ -22,6 +22,13 @@ func TestContentItemRoundTrip(t *testing.T) {
 		case r.Method == http.MethodPatch && r.URL.Path == "/plans/ABC-P1":
 			gotIfMatch = r.Header.Get("If-Match")
 			_ = json.NewEncoder(w).Encode(ContentItem{Ref: "ABC-P1", Project: "ABC", Kind: "plan", Title: "Rollout (final)", Representation: "markdown", Body: "Step one\nStep two", Version: 2})
+		case r.Method == http.MethodPost && r.URL.Path == "/plans/ABC-P1/status":
+			gotIfMatch = r.Header.Get("If-Match")
+			var body struct {
+				Status string `json:"status"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewEncoder(w).Encode(ContentItem{Ref: "ABC-P1", Project: "ABC", Kind: "plan", Title: "Rollout (final)", Representation: "markdown", Body: "Step one\nStep two", Status: body.Status, Version: 3})
 		case r.Method == http.MethodGet && r.URL.Path == "/plans/ABC-P1/versions":
 			_ = json.NewEncoder(w).Encode(ContentItemVersionsPage{Versions: []ContentItemVersion{
 				{Version: 1, Representation: "markdown", Title: "Rollout", Body: "Step one", EditedBy: "human:local"},
@@ -61,7 +68,7 @@ func TestContentItemRoundTrip(t *testing.T) {
 		t.Errorf("GetContentItem(plans) = %+v, want ref=ABC-P1", got)
 	}
 
-	page, err := c.ListContentItems(t.Context(), "plans", "ABC", 0, "")
+	page, err := c.ListContentItems(t.Context(), "plans", "ABC", 0, "", false)
 	if err != nil {
 		t.Fatalf("ListContentItems(plans): %v", err)
 	}
@@ -94,6 +101,17 @@ func TestContentItemRoundTrip(t *testing.T) {
 	}
 	if len(diff.Title) != 1 || diff.Title[0].Text != "Rollout" {
 		t.Errorf("GetContentItemDiff(plans) = %+v, want a title diff line", diff)
+	}
+
+	archived, err := c.SetContentItemStatus(t.Context(), "plans", "ABC-P1", "archived", 2)
+	if err != nil {
+		t.Fatalf("SetContentItemStatus(plans): %v", err)
+	}
+	if archived.Status != "archived" || archived.Version != 3 {
+		t.Errorf("SetContentItemStatus(plans) = %+v, want status=archived version=3", archived)
+	}
+	if gotIfMatch != `"2"` {
+		t.Errorf("SetContentItemStatus(plans) If-Match = %q, want %q", gotIfMatch, `"2"`)
 	}
 }
 

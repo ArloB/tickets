@@ -31,6 +31,7 @@ type ContentItem struct {
 	Checksum       string    `json:"checksum,omitempty"`
 	PathValue      string    `json:"path_value,omitempty"`
 	URLValue       string    `json:"url_value,omitempty"`
+	Status         string    `json:"status"`
 	Version        int64     `json:"version"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
@@ -42,6 +43,7 @@ type ContentItemCompact struct {
 	Ref       string    `json:"ref"`
 	Title     string    `json:"title"`
 	Kind      string    `json:"kind"`
+	Status    string    `json:"status"`
 	Version   int64     `json:"version"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -133,9 +135,15 @@ func (c *Client) GetContentItem(ctx context.Context, urlKind, ref string) (Conte
 }
 
 // ListContentItems is GET /projects/{key}/{urlKind}. Compact rows only.
-func (c *Client) ListContentItems(ctx context.Context, urlKind, projectKey string, limit int, cursor string) (ContentItemsPage, error) {
+// includeArchived false (the default) restricts to active items (ADR
+// 0028); true also returns archived ones, mirroring ListProjects.
+func (c *Client) ListContentItems(ctx context.Context, urlKind, projectKey string, limit int, cursor string, includeArchived bool) (ContentItemsPage, error) {
+	q := url.Values{}
+	if includeArchived {
+		q.Set("include_archived", "true")
+	}
 	var page ContentItemsPage
-	path := "/projects/" + url.PathEscape(projectKey) + "/" + urlKind + listQuery(nil, limit, cursor)
+	path := "/projects/" + url.PathEscape(projectKey) + "/" + urlKind + listQuery(q, limit, cursor)
 	err := c.do(ctx, http.MethodGet, path, nil, &page, requestOptions{})
 	return page, err
 }
@@ -144,6 +152,18 @@ func (c *Client) ListContentItems(ctx context.Context, urlKind, projectKey strin
 func (c *Client) UpdateContentItem(ctx context.Context, urlKind, ref string, req UpdateContentItemRequest, expectedVersion int64) (ContentItem, error) {
 	var item ContentItem
 	err := c.do(ctx, http.MethodPatch, "/"+urlKind+"/"+url.PathEscape(ref), req, &item, requestOptions{IfMatch: &expectedVersion})
+	return item, err
+}
+
+// SetContentItemStatus is POST /{urlKind}/{ref}/status — archive or
+// unarchive (ADR 0028), mirroring SetProjectStatus.
+func (c *Client) SetContentItemStatus(ctx context.Context, urlKind, ref, status string, expectedVersion int64) (ContentItem, error) {
+	var item ContentItem
+	err := c.do(ctx, http.MethodPost, "/"+urlKind+"/"+url.PathEscape(ref)+"/status",
+		struct {
+			Status string `json:"status"`
+		}{Status: status},
+		&item, requestOptions{IfMatch: &expectedVersion})
 	return item, err
 }
 

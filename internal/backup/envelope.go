@@ -169,6 +169,7 @@ type ContentItemRow struct {
 	Checksum       *string `json:"checksum"`
 	PathValue      *string `json:"path_value"`
 	URLValue       *string `json:"url_value"`
+	Status         string  `json:"status"`
 }
 
 type ContentVersionRow struct {
