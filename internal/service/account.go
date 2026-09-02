@@ -76,10 +76,18 @@ func (s *Service) CreateAdminAccount(ctx context.Context, username, password str
 		return domain.ActorRef{}, newAlreadyExistsError("", "a human account already exists; first-run setup only runs once")
 	}
 
-	now := store.Now()
-	actorID, err := store.CreateActor(ctx, tx, domain.ActorHuman, username, "", nil, now)
+	existingActorID, err := accountStateForUsername(ctx, tx, username)
 	if err != nil {
-		return domain.ActorRef{}, fmt.Errorf("service: create actor: %w", err)
+		return domain.ActorRef{}, err
+	}
+
+	now := store.Now()
+	actorID := existingActorID
+	if actorID == 0 {
+		actorID, err = store.CreateActor(ctx, tx, domain.ActorHuman, username, "", nil, now)
+		if err != nil {
+			return domain.ActorRef{}, fmt.Errorf("service: create actor: %w", err)
+		}
 	}
 	if err := store.CreateHumanAccount(ctx, tx, actorID, username, hash, true, now); err != nil {
 		return domain.ActorRef{}, fmt.Errorf("service: create human account: %w", err)

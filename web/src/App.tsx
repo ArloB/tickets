@@ -37,6 +37,7 @@ import Search from './routes/Search'
 import Notifications from './routes/Notifications'
 import AdminAgents from './routes/AdminAgents'
 import AdminAccounts from './routes/AdminAccounts'
+import AdminMaintenance from './routes/AdminMaintenance'
 
 export default function App() {
   return (
@@ -85,6 +86,7 @@ export default function App() {
           </Route>
           <Route path="/admin/agents" element={<AdminAgents />} />
           <Route path="/admin/accounts" element={<AdminAccounts />} />
+          <Route path="/admin/maintenance" element={<AdminMaintenance />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

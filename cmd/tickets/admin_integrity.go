@@ -5,49 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
+	"github.com/ArloB/tickets/internal/backup"
 	"github.com/ArloB/tickets/internal/blobstore"
 	"github.com/ArloB/tickets/internal/config"
 	"github.com/ArloB/tickets/internal/store"
 )
-
-// gcMinOrphanAge is how old an unreferenced blob must be before --gc
-// will remove it. CreateAttachment's blobstore.Put runs before its
-// enclosing transaction commits (ADR 0007's Consequences), so a blob
-// written moments ago that looks orphaned may just be mid-upload —
-// its attachments row hasn't committed yet, not that it never will.
-// An hour is generous relative to that window (bounded by
-// _txlock=immediate's 5s busy_timeout, not minutes) while still being
-// negligible next to how long a genuine orphan sits unnoticed; ADR
-// 0007's own reasoning is that orphans are harmless, not urgent, so
-// there's no cost to erring conservative here.
-const gcMinOrphanAge = time.Hour
-
-// integrityReport is `tickets admin integrity`'s --json shape — every
-// finding this command can produce, always present (empty
-// slices/false rather than omitted fields) so a script doesn't need
-// to distinguish "not checked" from "checked, found nothing."
-type integrityReport struct {
-	DatabaseOK           bool                           `json:"database_ok"`
-	DatabaseMessages     []string                       `json:"database_messages,omitempty"`
-	ForeignKeyViolations []integrityForeignKeyViolation `json:"foreign_key_violations"`
-	CorruptedBlobs       []integrityCorruptedBlob       `json:"corrupted_blobs"`
-	OrphanedBlobs        []string                       `json:"orphaned_blobs"`
-	RemovedBlobs         []string                       `json:"removed_blobs,omitempty"`
-	RemoveErrors         []string                       `json:"remove_errors,omitempty"`
-}
-
-type integrityForeignKeyViolation struct {
-	Table       string `json:"table"`
-	RowID       *int64 `json:"row_id"`
-	ParentTable string `json:"parent_table"`
-}
-
-type integrityCorruptedBlob struct {
-	Hash  string `json:"hash"`
-	Error string `json:"error"`
-}
 
 // runAdminIntegrity is `tickets admin integrity` (Phase 6 Step 3):
 // PRAGMA integrity_check + PRAGMA foreign_key_check + a blobstore
@@ -95,7 +58,7 @@ func runAdminIntegrity(args []string) error {
 	}
 
 	ctx := context.Background()
-	report, err := buildIntegrityReport(ctx, st, blobs, *gc)
+	report, err := backup.BuildIntegrityReport(ctx, st, blobs, *gc)
 	if err != nil {
 		return err
 	}
@@ -114,76 +77,7 @@ func runAdminIntegrity(args []string) error {
 	return nil
 }
 
-func buildIntegrityReport(ctx context.Context, st *store.Store, blobs *blobstore.Store, gc bool) (integrityReport, error) {
-	ok, messages, err := store.IntegrityCheck(ctx, st.DB())
-	if err != nil {
-		return integrityReport{}, fmt.Errorf("integrity check: %w", err)
-	}
-
-	fkViolations, err := store.ForeignKeyCheck(ctx, st.DB())
-	if err != nil {
-		return integrityReport{}, fmt.Errorf("foreign key check: %w", err)
-	}
-	violations := make([]integrityForeignKeyViolation, len(fkViolations))
-	for i, v := range fkViolations {
-		violations[i] = integrityForeignKeyViolation{Table: v.Table, RowID: v.RowID, ParentTable: v.ParentTable}
-	}
-
-	referenced, err := store.ListReferencedBlobHashes(ctx, st.DB())
-	if err != nil {
-		return integrityReport{}, fmt.Errorf("list referenced blob hashes: %w", err)
-	}
-	verifyResults, err := blobs.Verify()
-	if err != nil {
-		return integrityReport{}, fmt.Errorf("verify blobs: %w", err)
-	}
-
-	report := integrityReport{
-		DatabaseOK:           ok,
-		ForeignKeyViolations: violations,
-		CorruptedBlobs:       []integrityCorruptedBlob{},
-		OrphanedBlobs:        []string{},
-	}
-	if !ok {
-		// messages is the literal ["ok"] singleton when ok is true —
-		// no point surfacing that as a "message."
-		report.DatabaseMessages = messages
-	}
-
-	orphans := []string{}
-	for _, r := range verifyResults {
-		if r.Err != nil {
-			report.CorruptedBlobs = append(report.CorruptedBlobs, integrityCorruptedBlob{Hash: r.Hash, Error: r.Err.Error()})
-			continue
-		}
-		if !referenced[r.Hash] {
-			orphans = append(orphans, r.Hash)
-		}
-	}
-	report.OrphanedBlobs = orphans
-
-	if gc {
-		for _, hash := range orphans {
-			modTime, err := blobs.ModTime(hash)
-			if err != nil {
-				report.RemoveErrors = append(report.RemoveErrors, fmt.Sprintf("%s: %v", hash, err))
-				continue
-			}
-			if time.Since(modTime) < gcMinOrphanAge {
-				continue // too recent to safely distinguish from a mid-upload blob
-			}
-			if err := blobs.Remove(hash); err != nil {
-				report.RemoveErrors = append(report.RemoveErrors, fmt.Sprintf("%s: %v", hash, err))
-				continue
-			}
-			report.RemovedBlobs = append(report.RemovedBlobs, hash)
-		}
-	}
-
-	return report, nil
-}
-
-func printIntegrityReport(w *os.File, r integrityReport) {
+func printIntegrityReport(w *os.File, r backup.IntegrityReport) {
 	if r.DatabaseOK {
 		_, _ = fmt.Fprintln(w, "database: ok")
 	} else {

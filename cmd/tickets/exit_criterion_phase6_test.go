@@ -204,9 +204,9 @@ func TestExitCriterionPhase6BackupRestoreDrill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open blobstore for integrity check: %v", err)
 	}
-	report, err := buildIntegrityReport(ctx, stCheck, blobsCheck, false)
+	report, err := backup.BuildIntegrityReport(ctx, stCheck, blobsCheck, false)
 	if err != nil {
-		t.Fatalf("buildIntegrityReport: %v", err)
+		t.Fatalf("BuildIntegrityReport: %v", err)
 	}
 	if err := stCheck.Close(); err != nil {
 		t.Fatalf("close store after integrity check: %v", err)

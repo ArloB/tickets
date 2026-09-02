@@ -45,16 +45,18 @@ type testServer struct {
 func newTestServer(t *testing.T) *testServer {
 	t.Helper()
 
-	st, err := store.Open(t.TempDir())
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	blobs, err := blobstore.Open(t.TempDir())
+	blobs, err := blobstore.Open(dataDir)
 	if err != nil {
 		t.Fatalf("blobstore.Open: %v", err)
 	}
 	svc := service.New(st, blobs)
+	SetDataDir(dataDir)
 
 	ts := httptest.NewServer(NewHandler(svc, false))
 	t.Cleanup(ts.Close)

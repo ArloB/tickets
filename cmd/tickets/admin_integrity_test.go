@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ArloB/tickets/internal/backup"
 )
 
 // TestAdminIntegrityOnFreshDatabaseReportsClean confirms the golden
@@ -70,7 +72,7 @@ func TestAdminIntegrityFindsAndGCsOrphanedBlob(t *testing.T) {
 	// alone by --gc (see TestAdminIntegrityGCLeavesRecentOrphanAlone)
 	// since it may just be mid-upload, so this test's orphan needs to
 	// look old enough to safely collect.
-	old := time.Now().Add(-2 * gcMinOrphanAge)
+	old := time.Now().Add(-2 * backup.GCMinOrphanAge)
 	if err := os.Chtimes(blobPath, old, old); err != nil {
 		t.Fatalf("backdate orphan blob mtime: %v", err)
 	}

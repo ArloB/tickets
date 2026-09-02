@@ -35,36 +35,8 @@ func Restore(ctx context.Context, dataDir, inputDir string, force bool) error {
 		}
 	}
 
-	manifest, err := readManifest(filepath.Join(inputDir, manifestFileName))
-	if err != nil {
+	if _, err := ValidateBackupDir(inputDir); err != nil {
 		return err
-	}
-	if manifest.FormatVersion != manifestFormatVersion {
-		return fmt.Errorf(
-			"restore: manifest format version %d is not supported by this build (want %d) — "+
-				"restore with a compatible tickets version", manifest.FormatVersion, manifestFormatVersion)
-	}
-	highest, err := store.HighestEmbeddedMigrationVersion()
-	if err != nil {
-		return fmt.Errorf("restore: schema version: %w", err)
-	}
-	if manifest.SchemaVersion > highest {
-		return fmt.Errorf(
-			"restore: backup schema version %d is newer than this build supports (max %d) — "+
-				"refusing to restore a backup taken by a newer tickets server",
-			manifest.SchemaVersion, highest)
-	}
-
-	for _, f := range manifest.Files {
-		sum, size, err := sha256File(filepath.Join(inputDir, f.Path))
-		if err != nil {
-			return fmt.Errorf("restore: verify %s: %w", f.Path, err)
-		}
-		if sum != f.SHA256 || size != f.Size {
-			return fmt.Errorf(
-				"restore: %s failed checksum verification (backup is corrupted or incomplete) — "+
-					"active state left untouched", f.Path)
-		}
 	}
 
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {

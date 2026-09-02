@@ -2,9 +2,104 @@ import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { setupAdmin } from '../api/auth'
 import { createAgent, createAgentToken } from '../api/agents'
+import { setupImport } from '../api/admin'
 import { ApiError } from '../api/client'
+import type { ImportReport } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { FundamentalsList } from '../components/Fundamentals'
+
+function ChooseStartStep({ onChoose }: { onChoose: (mode: 'fresh' | 'import') => void }) {
+  return (
+    <>
+      <h1>Set up Tickets</h1>
+      <p>Is this a brand new installation, or are you bringing content over from another server?</p>
+      <div className="form-actions">
+        <button type="button" onClick={() => onChoose('fresh')}>
+          Start fresh
+        </button>
+        <button type="button" onClick={() => onChoose('import')}>
+          Restore from an export
+        </button>
+      </div>
+    </>
+  )
+}
+
+function ImportStep({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
+  const [envelope, setEnvelope] = useState<File | null>(null)
+  const [attachments, setAttachments] = useState<File | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [report, setReport] = useState<ImportReport | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!envelope) return
+    setError(null)
+    setReport(null)
+    setSubmitting(true)
+    try {
+      const result = await setupImport(envelope, attachments ?? undefined)
+      if (result.committed) {
+        onDone()
+      } else {
+        setReport(result)
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <h1>Restore from an export</h1>
+      <p>
+        Upload the export file downloaded from the other server (Admin → Maintenance → Export), and
+        its attachments archive if it has one. This only works before this server has any content or
+        admin account of its own.
+      </p>
+      <form onSubmit={(e) => void handleSubmit(e)}>
+        <label>
+          Export file
+          <input
+            type="file"
+            accept=".json"
+            onChange={(e) => setEnvelope(e.target.files?.[0] ?? null)}
+          />
+        </label>
+        <label>
+          Attachments archive (optional)
+          <input
+            type="file"
+            accept=".zip"
+            onChange={(e) => setAttachments(e.target.files?.[0] ?? null)}
+          />
+        </label>
+        {error && <p role="alert">{error}</p>}
+        {report && !report.committed && (
+          <div role="alert">
+            <p>The import could not be completed:</p>
+            <ul>
+              {report.problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="form-actions">
+          <button type="submit" disabled={!envelope || submitting}>
+            {submitting ? 'Importing…' : 'Import'}
+          </button>
+          <button type="button" onClick={onBack} disabled={submitting}>
+            Back
+          </button>
+        </div>
+      </form>
+    </>
+  )
+}
 
 function CreateAdminStep() {
   const { login } = useAuth()
@@ -208,6 +303,7 @@ function WalkthroughStep({ onDone }: { onDone: () => void }) {
 export default function Setup() {
   const { me, ready } = useAuth()
   const navigate = useNavigate()
+  const [start, setStart] = useState<'choose' | 'import' | 'fresh'>('choose')
   const [tokenStepDone, setTokenStepDone] = useState(false)
 
   if (!ready) return <p>Loading…</p>
@@ -216,7 +312,13 @@ export default function Setup() {
   return (
     <main className="centered-form auth-card">
       {!me?.is_admin ? (
-        <CreateAdminStep />
+        start === 'choose' ? (
+          <ChooseStartStep onChoose={setStart} />
+        ) : start === 'import' ? (
+          <ImportStep onDone={() => setStart('fresh')} onBack={() => setStart('choose')} />
+        ) : (
+          <CreateAdminStep />
+        )
       ) : !tokenStepDone ? (
         <TokenStep onDone={() => setTokenStepDone(true)} />
       ) : (

@@ -5,6 +5,15 @@ Two independent mechanisms (product spec §12). Use `admin backup`/
 `export`/`import` to move or archive a project's content independent
 of any particular server installation.
 
+Every operation on this page is also reachable from the web UI, for a
+deployment with no host shell access (ADR 0027) — an admin session's
+Maintenance page (Admin → Maintenance) for backup, restore, export,
+and integrity/GC, and the first-run setup wizard's "Restore from an
+export" path for import. The web restore path stages an uploaded
+backup and applies it on the server's next restart, since a running
+server cannot safely replace its own open database file; see ADR
+0027 for why.
+
 ## `tickets admin backup` / `tickets admin restore`
 
 `tickets admin backup --data-dir DIR --output OUT` writes a

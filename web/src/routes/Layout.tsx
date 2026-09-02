@@ -44,6 +44,7 @@ export default function Layout() {
         {me.actor && <Link to="/notifications">Notifications</Link>}
         {me.actor?.startsWith('human:') && <Link to="/admin/accounts">Accounts</Link>}
         {me.is_admin && <Link to="/admin/agents">Agents</Link>}
+        {me.is_admin && <Link to="/admin/maintenance">Maintenance</Link>}
         <form
           role="search"
           className="inline-form"

@@ -110,6 +110,9 @@ var routeToolMappings = []routeToolMapping{
 	{method: http.MethodPost, pattern: "/api/v1/agents", exempt: "admin-only; InProcessBackend bypasses requireAdmin (architectural, not scope-trimming)"},
 	{method: http.MethodPost, pattern: "/api/v1/agents/{name}/tokens", exempt: "admin-only; InProcessBackend bypasses requireAdmin (architectural, not scope-trimming)"},
 	{method: http.MethodDelete, pattern: "/api/v1/agents/{name}/tokens/{id}", exempt: "admin-only; InProcessBackend bypasses requireAdmin (architectural, not scope-trimming)"},
+	{method: http.MethodPost, pattern: "/api/v1/admin/restore", exempt: "server administration, not a ticket-tracker operation an agent needs — no multipart transport over MCP either"},
+	{method: http.MethodDelete, pattern: "/api/v1/admin/restore", exempt: "server administration, not a ticket-tracker operation an agent needs"},
+	{method: http.MethodPost, pattern: "/api/v1/admin/integrity/gc", exempt: "server administration, not a ticket-tracker operation an agent needs"},
 }
 
 func TestMCPToolParityWithHTTPRoutes(t *testing.T) {

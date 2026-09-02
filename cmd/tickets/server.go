@@ -50,6 +50,9 @@ func runServer(args []string) error {
 
 	logger := logging.New(cfg.LogFormat)
 	httpapi.SetLogger(logger)
+	httpapi.SetDataDir(cfg.DataDir)
+
+	applyPendingRestore(context.Background(), cfg.DataDir, logger)
 
 	st, err := store.Open(cfg.DataDir)
 	if err != nil {

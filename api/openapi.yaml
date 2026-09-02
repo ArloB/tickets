@@ -3751,6 +3751,179 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
 
+  /admin/backup:
+    get:
+      operationId: downloadBackup
+      summary: >
+        Download a full disaster-recovery snapshot as a zip archive
+        (admin only) — the same manifest-verified database-plus-blobs
+        snapshot `tickets admin backup` produces, packaged for a single
+        HTTP download instead of a directory on the server's own disk.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '403':
+          $ref: '#/components/responses/Error'
+
+  /admin/restore:
+    get:
+      operationId: getRestoreStatus
+      summary: Report whether a restore is staged to apply on next restart, or whether the last staged restore failed to apply (admin only)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestorePendingStatus'
+        '403':
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: uploadRestore
+      summary: >
+        Upload a backup archive to stage for restore. Validated
+        (manifest checksums) immediately, but only applied the next
+        time the server starts — a running server cannot safely
+        replace its own open database file.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/zip:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreStagedResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: dismissFailedRestore
+      summary: Clear a failed-restore notice (admin only) — does not affect a currently-staged restore, only the record of a past failure
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '204':
+          description: No Content
+        '403':
+          $ref: '#/components/responses/Error'
+
+  /admin/export:
+    get:
+      operationId: downloadExport
+      summary: >
+        Download a portable, redacted export of every non-secret
+        domain table (admin only) — the same envelope `tickets export`
+        produces. Plain JSON by default; pass attachments=true to
+        receive a zip containing envelope.json plus every referenced
+        attachment blob instead.
+      parameters:
+        - name: attachments
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '403':
+          $ref: '#/components/responses/Error'
+
+  /admin/integrity:
+    get:
+      operationId: getIntegrityReport
+      summary: Run PRAGMA integrity_check/foreign_key_check plus a blob-store verify/orphan sweep, without removing anything (admin only)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrityReport'
+        '403':
+          $ref: '#/components/responses/Error'
+
+  /admin/integrity/gc:
+    post:
+      operationId: runIntegrityGC
+      summary: >
+        Re-run the integrity check and permanently delete every
+        orphaned blob it finds older than an hour (admin only).
+        Requires confirm: true in the body — a deliberate, separate
+        step from the read-only report.
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GCRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrityReport'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+
+  /setup/import:
+    post:
+      operationId: setupImport
+      summary: >
+        Import a portable export as part of first-run setup.
+        Unauthenticated, like /setup — self-limited the same way
+        service.Import already is: it refuses to commit unless the
+        target database is still completely empty, which stops being
+        true the moment any project or the first admin account exists.
+      security: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [envelope]
+              properties:
+                envelope:
+                  type: string
+                  format: binary
+                attachments:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportReport'
+        '400':
+          $ref: '#/components/responses/Error'
+
 components:
   parameters:
     ProjectKey:
@@ -5118,3 +5291,74 @@ components:
         tokens:
           type: array
           items: { $ref: '#/components/schemas/AgentTokenSummary' }
+
+    RestorePendingStatus:
+      type: object
+      required: [pending, failed]
+      additionalProperties: false
+      properties:
+        pending: { type: boolean }
+        failed: { type: boolean }
+        last_error: { type: string }
+
+    RestoreStagedResponse:
+      type: object
+      required: [staged]
+      additionalProperties: false
+      properties:
+        staged: { type: boolean }
+
+    GCRequest:
+      type: object
+      required: [confirm]
+      properties:
+        confirm: { type: boolean }
+
+    IntegrityForeignKeyViolation:
+      type: object
+      properties:
+        table: { type: string }
+        row_id: { type: integer, nullable: true }
+        parent_table: { type: string }
+
+    IntegrityCorruptedBlob:
+      type: object
+      properties:
+        hash: { type: string }
+        error: { type: string }
+
+    IntegrityReport:
+      type: object
+      required: [database_ok, foreign_key_violations, corrupted_blobs, orphaned_blobs]
+      properties:
+        database_ok: { type: boolean }
+        database_messages:
+          type: array
+          items: { type: string }
+        foreign_key_violations:
+          type: array
+          items: { $ref: '#/components/schemas/IntegrityForeignKeyViolation' }
+        corrupted_blobs:
+          type: array
+          items: { $ref: '#/components/schemas/IntegrityCorruptedBlob' }
+        orphaned_blobs:
+          type: array
+          items: { type: string }
+        removed_blobs:
+          type: array
+          items: { type: string }
+        remove_errors:
+          type: array
+          items: { type: string }
+
+    ImportReport:
+      type: object
+      required: [committed, counts, problems]
+      properties:
+        committed: { type: boolean }
+        counts:
+          type: object
+          additionalProperties: { type: integer }
+        problems:
+          type: array
+          items: { type: string }

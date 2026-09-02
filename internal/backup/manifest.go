@@ -16,6 +16,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+
+	"github.com/ArloB/tickets/internal/store"
 )
 
 // manifestFormatVersion is Manifest's own shape version, independent
@@ -87,4 +90,39 @@ func readManifest(path string) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("backup: parse manifest: %w", err)
 	}
 	return m, nil
+}
+
+func ValidateBackupDir(inputDir string) (Manifest, error) {
+	manifest, err := readManifest(filepath.Join(inputDir, manifestFileName))
+	if err != nil {
+		return Manifest{}, err
+	}
+	if manifest.FormatVersion != manifestFormatVersion {
+		return Manifest{}, fmt.Errorf(
+			"restore: manifest format version %d is not supported by this build (want %d) — "+
+				"restore with a compatible tickets version", manifest.FormatVersion, manifestFormatVersion)
+	}
+	highest, err := store.HighestEmbeddedMigrationVersion()
+	if err != nil {
+		return Manifest{}, fmt.Errorf("restore: schema version: %w", err)
+	}
+	if manifest.SchemaVersion > highest {
+		return Manifest{}, fmt.Errorf(
+			"restore: backup schema version %d is newer than this build supports (max %d) — "+
+				"refusing to restore a backup taken by a newer tickets server",
+			manifest.SchemaVersion, highest)
+	}
+
+	for _, f := range manifest.Files {
+		sum, size, err := sha256File(filepath.Join(inputDir, f.Path))
+		if err != nil {
+			return Manifest{}, fmt.Errorf("restore: verify %s: %w", f.Path, err)
+		}
+		if sum != f.SHA256 || size != f.Size {
+			return Manifest{}, fmt.Errorf(
+				"restore: %s failed checksum verification (backup is corrupted or incomplete) — "+
+					"active state left untouched", f.Path)
+		}
+	}
+	return manifest, nil
 }

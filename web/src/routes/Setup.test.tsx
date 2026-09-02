@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Setup from './Setup'
 import * as authApi from '../api/auth'
 import * as agentsApi from '../api/agents'
+import * as adminApi from '../api/admin'
 import { ApiError } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 
@@ -17,6 +18,10 @@ vi.mock('../api/agents', () => ({
   createAgentToken: vi.fn(),
 }))
 
+vi.mock('../api/admin', () => ({
+  setupImport: vi.fn(),
+}))
+
 vi.mock('../auth/AuthContext', () => ({
   useAuth: vi.fn(),
 }))
@@ -24,6 +29,7 @@ vi.mock('../auth/AuthContext', () => ({
 const setupAdmin = vi.mocked(authApi.setupAdmin)
 const createAgent = vi.mocked(agentsApi.createAgent)
 const createAgentToken = vi.mocked(agentsApi.createAgentToken)
+const setupImport = vi.mocked(adminApi.setupImport)
 const mockUseAuth = vi.mocked(useAuth)
 
 function renderSetup() {
@@ -38,12 +44,18 @@ function renderSetup() {
   )
 }
 
+async function renderSetupPastChoice(user: ReturnType<typeof userEvent.setup>) {
+  const result = renderSetup()
+  await user.click(screen.getByRole('button', { name: 'Start fresh' }))
+  return result
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
 describe('Setup', () => {
-  it('shows the admin-creation form when there is no session', () => {
+  it('shows a choice between starting fresh and importing when there is no session', () => {
     mockUseAuth.mockReturnValue({
       me: null,
       ready: true,
@@ -53,6 +65,22 @@ describe('Setup', () => {
     })
 
     renderSetup()
+
+    expect(screen.getByRole('button', { name: 'Start fresh' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Restore from an export' })).toBeInTheDocument()
+  })
+
+  it('shows the admin-creation form after choosing to start fresh', async () => {
+    const user = userEvent.setup()
+    mockUseAuth.mockReturnValue({
+      me: null,
+      ready: true,
+      bootstrapError: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+    })
+
+    await renderSetupPastChoice(user)
 
     expect(screen.getByRole('heading', { name: 'Create the admin account' })).toBeInTheDocument()
   })
@@ -69,7 +97,7 @@ describe('Setup', () => {
     })
     setupAdmin.mockResolvedValueOnce({ actor: 'human:admin' })
 
-    renderSetup()
+    await renderSetupPastChoice(user)
 
     await user.type(screen.getByLabelText('Username'), 'admin')
     await user.type(screen.getByLabelText('Password'), 'a-real-password')
@@ -90,7 +118,7 @@ describe('Setup', () => {
       logout: vi.fn(),
     })
 
-    renderSetup()
+    await renderSetupPastChoice(user)
 
     await user.type(screen.getByLabelText('Username'), 'admin')
     await user.type(screen.getByLabelText('Password'), 'a-real-password')
@@ -124,7 +152,7 @@ describe('Setup', () => {
       ),
     )
 
-    renderSetup()
+    await renderSetupPastChoice(user)
 
     await user.type(screen.getByLabelText('Username'), 'admin')
     await user.type(screen.getByLabelText('Password'), 'a-real-password')
@@ -152,7 +180,8 @@ describe('Setup', () => {
     expect(await screen.findByText('Home')).toBeInTheDocument()
   })
 
-  it('does not treat an anonymous-viewer session as evidence setup already ran', () => {
+  it('does not treat an anonymous-viewer session as evidence setup already ran', async () => {
+    const user = userEvent.setup()
     mockUseAuth.mockReturnValue({
       me: { permission: 'viewer', is_admin: false },
       ready: true,
@@ -161,7 +190,7 @@ describe('Setup', () => {
       logout: vi.fn(),
     })
 
-    renderSetup()
+    await renderSetupPastChoice(user)
 
     expect(screen.getByRole('heading', { name: 'Create the admin account' })).toBeInTheDocument()
   })
@@ -178,7 +207,7 @@ describe('Setup', () => {
     })
     setupAdmin.mockResolvedValueOnce({ actor: 'human:admin' })
 
-    renderSetup()
+    await renderSetupPastChoice(user)
 
     await user.type(screen.getByLabelText('Username'), 'admin')
     await user.type(screen.getByLabelText('Password'), 'a-real-password')
@@ -188,6 +217,57 @@ describe('Setup', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'The admin account was created, but signing in failed. Sign in with the username and password you just set.',
     )
+  })
+
+  it('imports an export and proceeds to admin account creation on success', async () => {
+    const user = userEvent.setup()
+    mockUseAuth.mockReturnValue({
+      me: null,
+      ready: true,
+      bootstrapError: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+    })
+    setupImport.mockResolvedValueOnce({ committed: true, counts: { projects: 1 }, problems: [] })
+
+    renderSetup()
+    await user.click(screen.getByRole('button', { name: 'Restore from an export' }))
+
+    const envelope = new File(['{}'], 'export.json', { type: 'application/json' })
+    await user.upload(screen.getByLabelText('Export file'), envelope)
+    await user.click(screen.getByRole('button', { name: 'Import' }))
+
+    await screen.findByRole('heading', { name: 'Create the admin account' })
+    expect(setupImport).toHaveBeenCalledWith(envelope, undefined)
+  })
+
+  it('shows the reported problems and lets the user go back when import is refused', async () => {
+    const user = userEvent.setup()
+    mockUseAuth.mockReturnValue({
+      me: null,
+      ready: true,
+      bootstrapError: null,
+      login: vi.fn(),
+      logout: vi.fn(),
+    })
+    setupImport.mockResolvedValueOnce({
+      committed: false,
+      counts: {},
+      problems: ['target database is not empty'],
+    })
+
+    renderSetup()
+    await user.click(screen.getByRole('button', { name: 'Restore from an export' }))
+    await user.upload(
+      screen.getByLabelText('Export file'),
+      new File(['{}'], 'export.json', { type: 'application/json' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Import' }))
+
+    expect(await screen.findByText('target database is not empty')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('button', { name: 'Start fresh' })).toBeInTheDocument()
   })
 
   it('resumes at the token step for an admin session, then reaches the walkthrough', async () => {

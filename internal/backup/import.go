@@ -395,20 +395,6 @@ func validateReferences(env Envelope) []string {
 }
 
 func insertAll(ctx context.Context, tx *sql.Tx, env Envelope) error {
-	for _, r := range env.Entities {
-		u, err := uuid.Parse(r.UUID)
-		if err != nil {
-			return fmt.Errorf("entities id=%d: parse uuid: %w", r.ID, err)
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO entities(id, uuid, project_id, kind, version, created_by, created_at, updated_at, deleted_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.ID, u[:], r.ProjectID, r.Kind, r.Version, r.CreatedBy, r.CreatedAt, r.UpdatedAt, r.DeletedAt,
-		); err != nil {
-			return fmt.Errorf("insert entities id=%d: %w", r.ID, err)
-		}
-	}
-
 	for _, r := range env.Actors {
 		if _, isSeed := seedActors[r.ID]; isSeed {
 			continue // already present — see seedActors' doc comment
@@ -423,6 +409,20 @@ func insertAll(ctx context.Context, tx *sql.Tx, env Envelope) error {
 			r.ID, u[:], r.Kind, r.Name, r.OwnerID, r.Description, r.CreatedAt, r.UpdatedAt, r.DeletedAt,
 		); err != nil {
 			return fmt.Errorf("insert actors id=%d: %w", r.ID, err)
+		}
+	}
+
+	for _, r := range env.Entities {
+		u, err := uuid.Parse(r.UUID)
+		if err != nil {
+			return fmt.Errorf("entities id=%d: parse uuid: %w", r.ID, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO entities(id, uuid, project_id, kind, version, created_by, created_at, updated_at, deleted_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.ID, u[:], r.ProjectID, r.Kind, r.Version, r.CreatedBy, r.CreatedAt, r.UpdatedAt, r.DeletedAt,
+		); err != nil {
+			return fmt.Errorf("insert entities id=%d: %w", r.ID, err)
 		}
 	}
 

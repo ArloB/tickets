@@ -231,6 +231,14 @@ func (s *Server) routeTable() []routeEntry {
 		{http.MethodPost, "/api/v1/agents/{name}/tokens", routeAdmin, s.createAgentToken},
 		{http.MethodGet, "/api/v1/agents/{name}/tokens", routeAdmin, s.listAgentTokens},
 		{http.MethodDelete, "/api/v1/agents/{name}/tokens/{id}", routeAdmin, s.revokeAgentToken},
+
+		{http.MethodGet, "/api/v1/admin/backup", routeAdmin, s.downloadBackup},
+		{http.MethodGet, "/api/v1/admin/restore", routeAdmin, s.restoreStatus},
+		{http.MethodPost, "/api/v1/admin/restore", routeAdmin, s.uploadRestore},
+		{http.MethodDelete, "/api/v1/admin/restore", routeAdmin, s.dismissFailedRestore},
+		{http.MethodGet, "/api/v1/admin/export", routeAdmin, s.downloadExport},
+		{http.MethodGet, "/api/v1/admin/integrity", routeAdmin, s.getIntegrityReport},
+		{http.MethodPost, "/api/v1/admin/integrity/gc", routeAdmin, s.runGC},
 	}
 }
 
@@ -265,6 +273,7 @@ var unauthenticatedRoutes = []struct{ method, pattern string }{
 	{http.MethodGet, "/readyz"},
 	{http.MethodPost, "/api/v1/auth/login"},
 	{http.MethodPost, "/api/v1/setup"},
+	{http.MethodPost, "/api/v1/setup/import"},
 }
 
 // NewHandler builds the full server mux: unauthenticatedRoutes, the
@@ -309,6 +318,7 @@ func NewHandler(svc *service.Service, anonymousRead bool) http.Handler {
 	mux.HandleFunc("GET /readyz", s.readyz)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
 	mux.HandleFunc("POST /api/v1/setup", s.setup)
+	mux.HandleFunc("POST /api/v1/setup/import", s.setupImport)
 	mux.Handle("/api/v1/", s.authenticate(protected))
 	mux.Handle("/", s.staticHandler())
 

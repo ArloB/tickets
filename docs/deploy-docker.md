@@ -100,3 +100,14 @@ default. A `docker kill` (or a stop that exceeds the grace period)
 skips that and leaves a stale `tickets.pid` in the data directory — no
 worse than a bare-metal crash; `tickets server` doesn't refuse to start
 on a stale pidfile (only `admin restore` does).
+
+## Backup and restore
+
+`docker compose exec` reaches a shell if you have it, but the point of
+this deployment path is that you might not. Every backup/restore/
+export/integrity operation in `docs/backup-recovery.md` is reachable
+from an admin session's Maintenance page instead — download a backup
+before a risky change, or upload one to stage a restore. A staged
+restore only applies on the container's next restart (`docker compose
+restart`), since the running server can't safely replace its own open
+database file; ADR 0027 has the full design.

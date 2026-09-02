@@ -483,3 +483,40 @@ export interface AttachmentVersionEntry {
 export interface AttachmentVersionsPage {
   versions: AttachmentVersionEntry[]
 }
+
+export interface RestorePendingStatus {
+  pending: boolean
+  failed: boolean
+  last_error?: string
+}
+
+export interface RestoreStagedResponse {
+  staged: boolean
+}
+
+export interface IntegrityForeignKeyViolation {
+  table: string
+  row_id: number | null
+  parent_table: string
+}
+
+export interface IntegrityCorruptedBlob {
+  hash: string
+  error: string
+}
+
+export interface IntegrityReport {
+  database_ok: boolean
+  database_messages?: string[]
+  foreign_key_violations: IntegrityForeignKeyViolation[]
+  corrupted_blobs: IntegrityCorruptedBlob[]
+  orphaned_blobs: string[]
+  removed_blobs?: string[]
+  remove_errors?: string[]
+}
+
+export interface ImportReport {
+  committed: boolean
+  counts: Record<string, number>
+  problems: string[]
+}
